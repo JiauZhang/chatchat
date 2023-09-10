@@ -1,15 +1,9 @@
 import chatchat.utils as utils
 import httpx, json, time
 
-def get_access_token(jfile):
-    # https://cloud.baidu.com/doc/WENXINWORKSHOP/s/Ilkkrb0i5
-    url = "https://aip.baidubce.com/oauth/2.0/token"
-    params = {"grant_type": "client_credentials", "client_id": API_KEY, "client_secret": SECRET_KEY}
-    return str(httpx.post(url, params=params).json().get("access_token"))
-
 class Completion():
     def __init__(self, jfile):
-        # jfile:
+        # jfile: https://console.bce.baidu.com/qianfan/ais/console/applicationConsole/application
         #     {
         #         "baidu": {
         #             "api_key": "x",
@@ -56,35 +50,16 @@ class Completion():
             jdata.update({'baidu': self.jdata})
             utils.write_json(self.jfile, jdata)
 
+    def get_access_token(self):
+        self.update_access_token()
+        return self.jdata['access_token']
+
     def create(self, json):
         url = "https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat/eb-instant?access_token=" \
-            + self.jdata['access_token']
+            + self.get_access_token()
         r = httpx.request("POST", url, headers=self.headers, json=json)
         return r.json()
 
 class Chat():
     def __init__(self):
         ...
-
-def main():
-    url = "https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat/eb-instant?access_token=" + get_access_token()
-
-    content = '生成以下内容的{}字摘要：{}'.format(
-        '五十',
-        'content',
-    )
-
-    payload = json.dumps({
-        "messages": [
-            {
-                "role": "user",
-                "content": content,
-            }
-        ]
-    })
-    headers = {
-        'Content-Type': 'application/json'
-    }
-
-    response = httpx.request("POST", url, headers=headers, data=payload)
-    print(response.text)

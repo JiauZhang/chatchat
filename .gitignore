@@ -129,4 +129,4 @@ dmypy.json
 .pyre/
 
 # secret data
-app.json
+examples/data.json
