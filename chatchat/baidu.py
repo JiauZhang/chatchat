@@ -21,7 +21,7 @@ class Completion():
         }
 
         if "api_key" not in self.jdata or "secret_key" not in self.jdata:
-            raise RuntimeError(f'please check api_key and secret_key in {jfile}')
+            raise RuntimeError(f'please check <baidu> api_key and secret_key in {jfile}')
         self.update_access_token()
 
     def update_access_token(self):

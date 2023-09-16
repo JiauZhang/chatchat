@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 setup(
     name = 'chatchat',
     packages = find_packages(exclude=['examples']),
-    version = '0.0.2',
+    version = '0.0.3',
     license = 'GPL-2.0',
     description = 'large language model api',
     author = 'JiauZhang',
@@ -17,7 +17,7 @@ setup(
         'chatbot',
     ],
     install_requires=[
-        'httpx',
+        'httpx', 'websocket-client',
     ],
     classifiers=[
         'Intended Audience :: Developers',
