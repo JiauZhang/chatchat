@@ -8,15 +8,7 @@ import chatchat as cc
 #         }
 #     }
 completion = cc.baidu.Completion('./data.json')
-payload = {
-    "messages": [
-        {
-            "role": "user",
-            "content": "简单介绍一下你自己，控制在五十个字之内。"
-        }
-    ]
-}
-r = completion.create(payload)
+r = completion.create("简单介绍一下你自己，控制在五十个字之内。")
 # {
 #     'id': 'xxx',
 #     'object': 'chat.completion',

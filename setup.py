@@ -3,9 +3,9 @@ from setuptools import setup, find_packages
 setup(
     name = 'chatchat',
     packages = find_packages(exclude=['examples']),
-    version = '0.0.4',
+    version = '0.0.5',
     license = 'GPL-2.0',
-    description = 'large language model api',
+    description = 'Large Language Model API',
     author = 'JiauZhang',
     author_email = 'jiauzhang@163.com',
     url = 'https://github.com/JiauZhang/chatchat',
