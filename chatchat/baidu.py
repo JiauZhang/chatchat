@@ -71,18 +71,20 @@ class Completion(Base):
         self.update_access_token()
         return self.jdata['access_token']
 
-    def create(self, message):
-        jmsg = {
-            "messages": [
-                {
-                    "role": "user",
-                    "content": message,
-                }
-            ]
-        }
+    def send_messages(self, messages: list):
+        jmsg = {"messages": messages}
         url = f'{self.api}?access_token={self.get_access_token()}'
         r = self.client.post(url, headers=self.headers, json=jmsg)
         return r.json()
+
+    def create(self, message):
+        messages = [
+            {
+                "role": "user",
+                "content": message,
+            }
+        ]
+        return self.send_messages(messages)
 
 class Chat(Completion):
     def __init__(self, jfile, model='ERNIE-Speed-8K', history=[]):
@@ -94,10 +96,7 @@ class Chat(Completion):
             "role": "user",
             "content": message,
         })
-        message = {"messages": self.history}
-        payload = json.dumps(message)
-        url = f'{self.api}?access_token={self.get_access_token()}'
-        r = self.client.post(url, headers=self.headers, data=payload).json()
+        r = self.send_messages(self.history)
         if 'result' in r:
             self.history.append({
                 "role": "assistant",
