@@ -1,8 +1,22 @@
-import chatchat.utils as utils
+from chatchat.base import Base
 import httpx, json, time
 
-class Completion():
-    def __init__(self, jfile):
+class Completion(Base):
+    def __init__(self, jfile, name='ERNIE-Speed-8K'):
+        # https://console.bce.baidu.com/qianfan/ais/console/onlineService
+        self.api_list = {
+            'ERNIE-Speed-8K': 'ernie_speed',
+            'ERNIE-Speed-128K': 'ernie-speed-128k',
+            'ERNIE Speed-AppBuilder': 'ai_apaas',
+            'ERNIE-Lite-8K': 'ernie-lite-8k',
+            'ERNIE-Tiny-8K': 'ernie-tiny-8k',
+            'Yi-34B-Chat': 'yi_34b_chat',
+        }
+
+        if name not in self.api_list:
+            raise RuntimeError(f'supported chat type: {self.api_list.keys()}')
+        self.api = 'https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat/' + self.api_list[name]
+
         # jfile: https://console.bce.baidu.com/qianfan/ais/console/applicationConsole/application
         #     {
         #         "baidu": {
@@ -13,7 +27,7 @@ class Completion():
         #         }
         #     }
         self.jfile = jfile
-        self.jdata = utils.load_json(jfile)['baidu']
+        self.jdata = self.load_json(jfile)['baidu']
         self.update_interval = 3600
         self.headers = {
             'Content-Type': 'application/json',
@@ -46,17 +60,16 @@ class Completion():
             r = httpx.post(url, headers=self.headers, params=params).json()
             self.jdata['access_token'] = r['access_token']
             self.jdata['expires_in'] = cur_time + float(r['expires_in'])
-            jdata = utils.load_json(self.jfile)
+            jdata = self.load_json(self.jfile)
             jdata.update({'baidu': self.jdata})
-            utils.write_json(self.jfile, jdata)
+            self.write_json(self.jfile, jdata)
 
     def get_access_token(self):
         self.update_access_token()
         return self.jdata['access_token']
 
     def create(self, json):
-        url = "https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat/eb-instant?access_token=" \
-            + self.get_access_token()
+        url = f'{self.api}?access_token={self.get_access_token()}'
         r = httpx.request("POST", url, headers=self.headers, json=json)
         return r.json()
 

@@ -1,13 +1,12 @@
 from wsgiref.handlers import format_date_time
 from urllib.parse import urlencode
-import chatchat.utils as utils
+from chatchat.base import Base
 import base64, hashlib, hmac
 from datetime import datetime
 from time import mktime
 import time, websocket, json, ssl
-import _thread as thread
 
-class Completion():
+class Completion(Base):
     def __init__(self, jfile, version='2.0'):
         # jfile: https://console.xfyun.cn/services/bm2
         # "xunfei": {
@@ -16,7 +15,7 @@ class Completion():
         #     "api_key": "z"
         # }
         self.jfile = jfile
-        self.jdata = utils.load_json(jfile)['xunfei']
+        self.jdata = self.load_json(jfile)['xunfei']
         self.update_interval = 150
         self.headers = {
             'Content-Type': 'application/json',
@@ -67,9 +66,9 @@ class Completion():
             url = self.create_url()
             self.jdata['url'] = url
             self.jdata['expires_in'] = cur_time + 300
-            jdata = utils.load_json(self.jfile)
+            jdata = self.load_json(self.jfile)
             jdata.update({'xunfei': self.jdata})
-            utils.write_json(self.jfile, jdata)
+            self.write_json(self.jfile, jdata)
 
     def get_url(self):
         self.update_url()
