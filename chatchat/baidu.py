@@ -1,5 +1,5 @@
 from chatchat.base import Base
-import httpx, time
+import httpx, time, json
 
 class Completion(Base):
     def __init__(self, jfile, model='ERNIE-Speed-8K'):
@@ -85,8 +85,23 @@ class Completion(Base):
         return r.json()
 
 class Chat(Completion):
-    def __init__(self, jfile, model='ERNIE-Speed-8K'):
+    def __init__(self, jfile, model='ERNIE-Speed-8K', history=[]):
         super().__init__(jfile, model=model)
+        self.history = history
 
-    def chat(self):
-        ...
+    def chat(self, message):
+        self.history.append({
+            "role": "user",
+            "content": message,
+        })
+        message = {"messages": self.history}
+        payload = json.dumps(message)
+        url = f'{self.api}?access_token={self.get_access_token()}'
+        r = self.client.post(url, headers=self.headers, data=payload).json()
+        if 'result' in r:
+            self.history.append({
+                "role": "assistant",
+                "content": r['result']
+            })
+
+        return r

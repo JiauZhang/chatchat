@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 setup(
     name = 'chatchat',
     packages = find_packages(exclude=['examples']),
-    version = '0.0.5',
+    version = '0.0.6',
     license = 'GPL-2.0',
     description = 'Large Language Model API',
     author = 'JiauZhang',
