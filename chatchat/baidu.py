@@ -7,7 +7,7 @@ class Completion(Base):
         self.api_list = {
             'ERNIE-Speed-8K': 'ernie_speed',
             'ERNIE-Speed-128K': 'ernie-speed-128k',
-            'ERNIE Speed-AppBuilder': 'ai_apaas',
+            'ERNIE-Speed-AppBuilder': 'ai_apaas',
             'ERNIE-Lite-8K': 'ernie-lite-8k',
             'ERNIE-Lite-8K-0922': 'eb-instant',
             'ERNIE-Bot-turbo-0922': 'eb-instant',
