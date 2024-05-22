@@ -1,4 +1,4 @@
-import chatchat as cc
+from chatchat.baidu import Chat
 
 history = [
     {
@@ -10,7 +10,7 @@ history = [
         "content": "我是人工智能助手，具备智能问答、自然语言处理等多项功能，致力于为用户提供准确、便捷的解答和服务。",
     }
 ]
-chat = cc.baidu.Chat('./data.json', history=history)
+chat = Chat('./data.json', history=history)
 r = chat.chat("说的再详细点！")
 print(r)
 r = chat.chat("给我举个具体的例子。")

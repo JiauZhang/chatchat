@@ -1,4 +1,4 @@
-import chatchat as cc
+from chatchat.xunfei import Completion
 
 # data.json:
 # {
@@ -8,6 +8,6 @@ import chatchat as cc
 #         "api_key": "z"
 #     }
 # }
-completion = cc.xunfei.Completion('./data.json')
+completion = Completion('./data.json')
 r = completion.create("请给我详细介绍一下相对论，字数不少于三百字！")
 print(r)

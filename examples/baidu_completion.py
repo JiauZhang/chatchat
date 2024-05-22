@@ -1,13 +1,13 @@
-import chatchat as cc
+from chatchat.baidu import Completion
 
 # data.json:
-#     {
-#         "baidu": {
-#             "api_key": "x",
-#             "secret_key": "y"
-#         }
+# {
+#     "baidu": {
+#         "api_key": "x",
+#         "secret_key": "y"
 #     }
-completion = cc.baidu.Completion('./data.json')
+# }
+completion = Completion('./data.json')
 r = completion.create("简单介绍一下你自己，控制在五十个字之内。")
 # {
 #     'id': 'xxx',

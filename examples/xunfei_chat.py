@@ -1,4 +1,4 @@
-import chatchat as cc
+from chatchat.xunfei import Chat
 
 # data.json:
 # {
@@ -16,7 +16,7 @@ history = [
     # AI的历史回答结果
     {"role": "assistant", "content": "我是爱因斯坦。"},
 ]
-completion = cc.xunfei.Chat('./data.json', history=history)
+completion = Chat('./data.json', history=history)
 r = completion.chat("Who are u?")
 print(r)
 r = completion.chat("你最伟大的成就是什么？")
