@@ -1,5 +1,5 @@
 from chatchat.base import Base
-import httpx, time, json
+import httpx, time
 
 class Completion(Base):
     def __init__(self, jfile, model='ERNIE-Speed-8K'):

@@ -7,7 +7,34 @@ from time import mktime
 import time, websocket, json, ssl
 
 class Completion(Base):
-    def __init__(self, jfile, version='2.0'):
+    def __init__(self, jfile, model='Spark Lite'):
+        # https://www.xfyun.cn/doc/spark/Web.html#_1-接口说明
+        self.api_list = {
+            'Spark3.5 Max': {
+                'path': '/v3.5/chat',
+                'domain': 'generalv3.5',
+            },
+            'Spark Pro': {
+                'path': '/v3.1/chat',
+                'domain': 'generalv3',
+            },
+            'Spark V2.0': {
+                'path': '/v2.1/chat',
+                'domain': 'generalv2',
+            },
+            'Spark Lite': {
+                'path': '/v1.1/chat',
+                'domain': 'general',
+            },
+        }
+
+        if model not in self.api_list:
+            raise RuntimeError(f'supported chat type: {self.api_list.keys()}')
+        self.host = 'spark-api.xf-yun.com'
+        self.api = self.api_list[model]
+        self.path = self.api['path']
+        self.domain = self.api['domain']
+
         # jfile: https://console.xfyun.cn/services/bm2
         # "xunfei": {
         #     "app_id": "x",
@@ -25,8 +52,6 @@ class Completion(Base):
         if "api_key" not in self.jdata or "api_secret" not in self.jdata:
             raise RuntimeError(f'please check <xunfei> api_key and api_secret in {jfile}')
 
-        self.host = 'spark-api.xf-yun.com'
-        self.path = '/v2.1/chat' if version != '1.5' else '/v1.1/chat'
         self.update_url()
         websocket.enableTrace(False)
         self.answer = ''
@@ -99,18 +124,63 @@ class Completion(Base):
             if status == 2:
                 wsapp.close()
 
-    def create(self, json, stream=False):
+    def make_message(self, history: list):
+        jmsg = {
+            "header": {
+                "app_id": self.jdata['app_id'],
+            },
+            "parameter": {
+                "chat": {
+                    "domain": self.domain,
+                }
+            },
+            "payload": {
+                "message": {
+                    "text": history
+                }
+            }
+        }
+        return jmsg
+
+    def create(self, message, stream=False):
+        jmsg = self.make_message([{
+            "role": "user", "content": message
+        }])
+
         self.answer = ''
         url = self.get_url()
         ws = websocket.WebSocketApp(
             url, on_message=self.on_message, on_error=self.on_error,
             on_close=self.on_close, on_open=self.on_open,
         )
-        ws.json = json
+        ws.json = jmsg
         ws.stream = stream
         ws.run_forever(sslopt={"cert_reqs": ssl.CERT_NONE})
         return self.answer
 
-class Chat():
-    def __init__(self):
-        ...
+class Chat(Completion):
+    def __init__(self, jfile, model='Spark Lite', history=[]):
+        super().__init__(jfile, model=model)
+        self.history = history
+
+    def chat(self, message, stream=False):
+        self.history.append({
+            "role": "user", "content": message
+        })
+        jmsg = self.make_message(self.history)
+
+        self.answer = ''
+        url = self.get_url()
+        ws = websocket.WebSocketApp(
+            url, on_message=self.on_message, on_error=self.on_error,
+            on_close=self.on_close, on_open=self.on_open,
+        )
+        ws.json = jmsg
+        ws.stream = stream
+        ws.run_forever(sslopt={"cert_reqs": ssl.CERT_NONE})
+
+        self.history.append({
+            "role": "assistant", "content": self.answer,
+        })
+
+        return self.answer
