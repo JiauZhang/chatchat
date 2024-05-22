@@ -49,4 +49,13 @@ class Chat(Completion):
         self.history = history
 
     def chat(self, message):
-        ...
+        self.history.append({
+            'role': 'user',
+            'content': message,
+        })
+
+        r = self.send_message(self.history)
+        assistant_output = r['output']['choices'][0]['message']
+        self.history.append(assistant_output)
+
+        return r
