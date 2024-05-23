@@ -11,3 +11,20 @@ pip install chatchat
 
 ### Usage
 > Refer to [\[examples\]](./examples)
+
+### Sponsor
+<table align="center">
+    <thead>
+        <tr>
+            <th>AliPay</th>
+            <th>WeChatPay</th>
+        </tr>
+    </thead>
+    <tbody align="center" valign="center">
+        <tr>
+            <td><img src="https://www.chatqkv.com/AliPay.png" style="width: 196px; height: 196px" alt="AliPay.png"></td>
+            <td><img src="https://www.chatqkv.com/WeChatPay.png" style="width: 196px; height: 196px" alt="WeChatPay.png"></td>
+        </tr>
+    </tbody>
+</table>
+
