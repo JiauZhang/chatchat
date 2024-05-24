@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 setup(
     name = 'chatchat',
     packages = find_packages(exclude=['examples']),
-    version = '0.1.1',
+    version = '0.1.2',
     license = 'GPL-2.0',
     description = 'Large Language Model API',
     author = 'JiauZhang',
@@ -24,4 +24,7 @@ setup(
         'License :: OSI Approved :: GNU General Public License v2 (GPLv2)',
         'Programming Language :: Python :: 3.8',
     ],
+    entry_points = {
+        'console_scripts': ['chatchat=chatchat.__main__:main'],
+    },
 )
