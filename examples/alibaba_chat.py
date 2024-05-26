@@ -1,6 +1,6 @@
 from chatchat.alibaba import Chat
 
-chat = Chat('./data.json')
+chat = Chat()
 while True:
     user = input('user: ')
     r = chat.chat(user)

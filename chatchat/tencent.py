@@ -1,25 +1,28 @@
 from chatchat.base import Base
-import hashlib, hmac, json, os, sys, time
+import hashlib, hmac, json, time
 from datetime import datetime
 import httpx
 
 class Completion(Base):
-    def __init__(self, jfile, model='hunyuan-lite'):
+    def __init__(self, model='hunyuan-lite'):
+        super().__init__()
+
+        plat = 'tencent'
+        self.verify_secret_data(plat, ('secret_id', 'secret_key'))
+        self.jdata = self.secret_data[plat]
+        self.secret_id = self.jdata['secret_id']
+        self.secret_key = self.jdata['secret_key']
+
         self.model_type = set([
             'hunyuan-lite',
             'hunyuan-standard',
             'hunyuan-standard-256K',
             'hunyuan-pro',
         ])
-
         if model not in self.model_type:
             raise RuntimeError(f'supported chat type: {list(self.model_type)}')
         self.model = model
 
-        self.jfile = jfile
-        self.jdata = self.load_json(jfile)['tencent']
-        self.secret_id = self.jdata['secret_id']
-        self.secret_key = self.jdata['secret_key']
         self.host = 'hunyuan.tencentcloudapi.com'
         self.endpoint = f'https://{self.host}'
         self.client = httpx.Client()
@@ -102,8 +105,8 @@ class Completion(Base):
         return self.send_message(jmsg)
 
 class Chat(Completion):
-    def __init__(self, jfile, model='hunyuan-lite', history=[]):
-        super().__init__(jfile, model=model)
+    def __init__(self, model='hunyuan-lite', history=[]):
+        super().__init__(model=model)
         self.history = history
 
     def chat(self, message):

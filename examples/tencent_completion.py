@@ -1,6 +1,6 @@
 from chatchat.tencent import Completion
 
-completion = Completion('./data.json')
+completion = Completion()
 r = completion.create('你好！')
 # {
 #     'Response': {

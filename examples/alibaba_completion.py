@@ -1,12 +1,11 @@
 from chatchat.alibaba import Completion
 
-# data.json:
 # {
 #     "alibaba": {
 #         "api_key": "x",
 #     }
 # }
-completion = Completion('./data.json')
+completion = Completion()
 r = completion.create("简单介绍一下你自己。")
 # {
 #     'output': {

@@ -4,10 +4,22 @@ from chatchat.base import Base
 import base64, hashlib, hmac
 from datetime import datetime
 from time import mktime
-import time, websocket, json, ssl
+import websocket, json, ssl
 
 class Completion(Base):
-    def __init__(self, jfile, model='Spark Lite'):
+    def __init__(self, model='Spark Lite'):
+        super().__init__()
+
+        # https://console.xfyun.cn/services/bm2
+        # "xunfei": {
+        #     "app_id": "x",
+        #     "api_secret": "y",
+        #     "api_key": "z"
+        # }
+        plat = 'xunfei'
+        self.verify_secret_data(plat, ('api_key', 'api_secret', 'app_id'))
+        self.jdata = self.secret_data[plat]
+
         # https://www.xfyun.cn/doc/spark/Web.html#_1-接口说明
         self.api_list = {
             'Spark3.5 Max': {
@@ -35,24 +47,12 @@ class Completion(Base):
         self.path = self.api['path']
         self.domain = self.api['domain']
 
-        # jfile: https://console.xfyun.cn/services/bm2
-        # "xunfei": {
-        #     "app_id": "x",
-        #     "api_secret": "y",
-        #     "api_key": "z"
-        # }
-        self.jfile = jfile
-        self.jdata = self.load_json(jfile)['xunfei']
         self.update_interval = 150
         self.headers = {
             'Content-Type': 'application/json',
             'Accept': 'application/json'
         }
 
-        if "api_key" not in self.jdata or "api_secret" not in self.jdata:
-            raise RuntimeError(f'please check <xunfei> api_key and api_secret in {jfile}')
-
-        self.update_url()
         websocket.enableTrace(False)
         self.answer = ''
 
@@ -83,21 +83,6 @@ class Completion(Base):
         url = f'wss://{self.host}{self.path}?{urlencode(query)}'
 
         return url
-
-    def update_url(self):
-        if 'expires_in' not in self.jdata or not self.jdata['expires_in'] \
-            or self.jdata['expires_in'] < time.time() + self.update_interval:
-            cur_time = time.time()
-            url = self.create_url()
-            self.jdata['url'] = url
-            self.jdata['expires_in'] = cur_time + 300
-            jdata = self.load_json(self.jfile)
-            jdata.update({'xunfei': self.jdata})
-            self.write_json(self.jfile, jdata)
-
-    def get_url(self):
-        self.update_url()
-        return self.jdata['url']
 
     def on_error(self, wsapp, error):
         print(f'Error: {error}')
@@ -148,7 +133,7 @@ class Completion(Base):
         }])
 
         self.answer = ''
-        url = self.get_url()
+        url = self.create_url()
         ws = websocket.WebSocketApp(
             url, on_message=self.on_message, on_error=self.on_error,
             on_close=self.on_close, on_open=self.on_open,
@@ -159,8 +144,8 @@ class Completion(Base):
         return self.answer
 
 class Chat(Completion):
-    def __init__(self, jfile, model='Spark Lite', history=[]):
-        super().__init__(jfile, model=model)
+    def __init__(self, model='Spark Lite', history=[]):
+        super().__init__(model=model)
         self.history = history
 
     def chat(self, message, stream=False):
@@ -170,7 +155,7 @@ class Chat(Completion):
         jmsg = self.make_message(self.history)
 
         self.answer = ''
-        url = self.get_url()
+        url = self.create_url()
         ws = websocket.WebSocketApp(
             url, on_message=self.on_message, on_error=self.on_error,
             on_close=self.on_close, on_open=self.on_open,

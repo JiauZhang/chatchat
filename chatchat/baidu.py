@@ -2,7 +2,23 @@ from chatchat.base import Base
 import httpx, time
 
 class Completion(Base):
-    def __init__(self, jfile, model='ERNIE-Speed-8K'):
+    def __init__(self, model='ERNIE-Speed-8K'):
+        super().__init__()
+
+        # https://console.bce.baidu.com/qianfan/ais/console/applicationConsole/application
+        #     {
+        #         "baidu": {
+        #             "api_key": "x",
+        #             "secret_key": "y",
+        #             "expires_in": "z",
+        #             "access_token": "k"
+        #         }
+        #     }
+        plat = 'baidu'
+        self.verify_secret_data(plat, ('api_key', 'secret_key'))
+        self.jdata = self.secret_data[plat]
+        self.update_interval = 3600
+
         # https://console.bce.baidu.com/qianfan/ais/console/onlineService
         self.api_list = {
             'ERNIE-Speed-8K': 'ernie_speed',
@@ -19,26 +35,11 @@ class Completion(Base):
             raise RuntimeError(f'supported chat type: {self.api_list.keys()}')
         self.api = 'https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat/' + self.api_list[model]
         self.client = httpx.Client()
-
-        # jfile: https://console.bce.baidu.com/qianfan/ais/console/applicationConsole/application
-        #     {
-        #         "baidu": {
-        #             "api_key": "x",
-        #             "secret_key": "y",
-        #             "expires_in": "z",
-        #             "access_token": "k"
-        #         }
-        #     }
-        self.jfile = jfile
-        self.jdata = self.load_json(jfile)['baidu']
-        self.update_interval = 3600
         self.headers = {
             'Content-Type': 'application/json',
             'Accept': 'application/json'
         }
 
-        if "api_key" not in self.jdata or "secret_key" not in self.jdata:
-            raise RuntimeError(f'please check <baidu> api_key and secret_key in {jfile}')
         self.update_access_token()
 
     def update_access_token(self):
@@ -87,8 +88,8 @@ class Completion(Base):
         return self.send_messages(messages)
 
 class Chat(Completion):
-    def __init__(self, jfile, model='ERNIE-Speed-8K', history=[]):
-        super().__init__(jfile, model=model)
+    def __init__(self, model='ERNIE-Speed-8K', history=[]):
+        super().__init__(model=model)
         self.history = history
 
     def chat(self, message):

@@ -1,8 +1,14 @@
 from chatchat.base import Base
-import httpx, time
+import httpx
 
 class Completion(Base):
-    def __init__(self, jfile, model='qwen-turbo'):
+    def __init__(self, model='qwen-turbo'):
+        super().__init__()
+
+        plat = 'alibaba'
+        self.verify_secret_data(plat, ('api_key',))
+        self.jdata = self.secret_data[plat]
+
         # https://dashscope.console.aliyun.com/dashboard?apiKey=all&model=qwen-turbo
         self.model_type = set([
             'qwen-turbo',
@@ -14,8 +20,6 @@ class Completion(Base):
             raise RuntimeError(f'supported chat type: {list(self.model_type)}')
         self.model = model
 
-        self.jfile = jfile
-        self.jdata = self.load_json(jfile)['alibaba']
         self.api = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation'
         self.client = httpx.Client()
         self.headers = {
@@ -44,8 +48,8 @@ class Completion(Base):
         return self.send_message(jmsg)
 
 class Chat(Completion):
-    def __init__(self, jfile, model='qwen-turbo', history=[]):
-        super().__init__(jfile, model=model)
+    def __init__(self, model='qwen-turbo', history=[]):
+        super().__init__(model=model)
         self.history = history
 
     def chat(self, message):
