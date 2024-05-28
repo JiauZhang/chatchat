@@ -10,6 +10,17 @@ pip install chatchat
 ```
 
 ### Usage
+```shell
+# set YOUR secret keys
+# tencent
+chatchat config tencent.secret_id=YOUR_SECRET_ID
+chatchat config tencent.secret_key=YOUR_SECRET_KEY
+# baidu
+chatchat config baidu.api_key=YOUR_API_KEY
+chatchat config baidu.secret_key=YOUR_SECRET_KEY
+# list info of all supported platform
+chatchat config --list
+```
 > Refer to [\[examples\]](./examples)
 
 ### Sponsor
