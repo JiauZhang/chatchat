@@ -27,6 +27,7 @@ def parse_config(args):
 
         plat = cfg[0]
         if plat not in __platform_config__:
+            print(f'Platform <{plat}> is currently NOT supported!')
             supported_platforms()
             return
 
@@ -37,16 +38,15 @@ def parse_config(args):
         key, value = kv
 
         if key not in __platform_config__[plat]:
-            supported_platforms()
+            print(f'Platform <{plat}> do NOT has secret key <{key}>!\nYou can set the following keys:')
+            for key in __platform_config__[plat]:
+                print(f'\t{key}')
             return
 
-        home = str(pathlib.Path.home())
-        dot_filename = os.path.join(home, '.chatchat.json')
-
         util = Base()
-        dot_content = {}
-        if os.path.exists(dot_filename):
-            dot_content = util.load_json(dot_filename)
+        dot_filename = util.secret_file
+        dot_content = util.secret_data
+
         if plat in dot_content:
             dot_content[plat][key] = value
         else:
@@ -54,6 +54,7 @@ def parse_config(args):
         util.write_json(dot_filename, dot_content)
 
 parser = argparse.ArgumentParser()
+parser.set_defaults(parser=None)
 subparser = parser.add_subparsers()
 
 config_parser = subparser.add_parser('config', help='config platform secret key')
@@ -64,7 +65,10 @@ config_parser.set_defaults(parser=parse_config)
 args = parser.parse_args()
 
 def main():
-    args.parser(args)
+    if args.parser:
+        args.parser(args)
+    else:
+        parser.print_help()
 
 if __name__ == '__main__':
     main()
