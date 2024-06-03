@@ -2,7 +2,7 @@ from chatchat.base import Base
 import httpx, time
 
 class Completion(Base):
-    def __init__(self, model='ERNIE-Speed-8K'):
+    def __init__(self, model='ERNIE-Speed-8K', proxy=None, timeout=None):
         super().__init__()
 
         # https://console.bce.baidu.com/qianfan/ais/console/applicationConsole/application
@@ -34,7 +34,7 @@ class Completion(Base):
         if model not in self.api_list:
             raise RuntimeError(f'supported chat type: {self.api_list.keys()}')
         self.api = 'https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat/' + self.api_list[model]
-        self.client = httpx.Client()
+        self.client = httpx.Client(proxy=proxy, timeout=timeout)
         self.headers = {
             'Content-Type': 'application/json',
             'Accept': 'application/json'

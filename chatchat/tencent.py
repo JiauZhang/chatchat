@@ -4,7 +4,7 @@ from datetime import datetime
 import httpx
 
 class Completion(Base):
-    def __init__(self, model='hunyuan-lite'):
+    def __init__(self, model='hunyuan-lite', proxy=None, timeout=None):
         super().__init__()
 
         plat = 'tencent'
@@ -25,7 +25,7 @@ class Completion(Base):
 
         self.host = 'hunyuan.tencentcloudapi.com'
         self.endpoint = f'https://{self.host}'
-        self.client = httpx.Client()
+        self.client = httpx.Client(proxy=proxy, timeout=timeout)
 
     def encode_message(self, jmsg):
         # step 1

@@ -2,7 +2,7 @@ from chatchat.base import Base
 import httpx
 
 class Completion(Base):
-    def __init__(self, model='qwen-turbo'):
+    def __init__(self, model='qwen-turbo', proxy=None, timeout=None):
         super().__init__()
 
         plat = 'alibaba'
@@ -21,7 +21,7 @@ class Completion(Base):
         self.model = model
 
         self.api = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation'
-        self.client = httpx.Client()
+        self.client = httpx.Client(proxy=proxy, timeout=timeout)
         self.headers = {
             'Content-Type': 'application/json',
             'Authorization': f'Bearer {self.jdata["api_key"]}',
