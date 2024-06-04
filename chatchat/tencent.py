@@ -105,8 +105,8 @@ class Completion(Base):
         return self.send_message(jmsg)
 
 class Chat(Completion):
-    def __init__(self, model='hunyuan-lite', history=[]):
-        super().__init__(model=model)
+    def __init__(self, model='hunyuan-lite', history=[], proxy=None, timeout=None):
+        super().__init__(model=model, proxy=proxy, timeout=timeout)
         self.history = history
 
     def chat(self, message):

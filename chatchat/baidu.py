@@ -88,8 +88,8 @@ class Completion(Base):
         return self.send_messages(messages)
 
 class Chat(Completion):
-    def __init__(self, model='ERNIE-Speed-8K', history=[]):
-        super().__init__(model=model)
+    def __init__(self, model='ERNIE-Speed-8K', history=[], proxy=None, timeout=None):
+        super().__init__(model=model, proxy=proxy, timeout=timeout)
         self.history = history
 
     def chat(self, message):
