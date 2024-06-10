@@ -7,6 +7,7 @@ __platform_config__ = {
     'tencent': ['secret_id', 'secret_key'],
     'xunfei': ['app_id', 'api_key', 'api_secret'],
     'deepseek': ['api_key'],
+    'zhipu': ['api_key'],
 }
 
 def supported_platforms():
@@ -20,23 +21,18 @@ def parse_config(args):
     if args.list:
         supported_platforms()
     elif args.cfgs:
-        cfg = args.cfgs.split('.')
+        cfg = args.cfgs.split('=')
+        plat_key = cfg[0].split('.')
         usage = 'Usage: chatchat config platform.key=value'
-        if len(cfg) != 2:
+        if len(cfg) != 2 and len(plat_key) != 2:
             print(usage)
             return
 
-        plat = cfg[0]
+        (plat, key), value = plat_key, cfg[1]
         if plat not in __platform_config__:
             print(f'Platform <{plat}> is currently NOT supported!')
             supported_platforms()
             return
-
-        kv = cfg[1].split('=')
-        if len(kv) != 2:
-            print(usage)
-            return
-        key, value = kv
 
         if key not in __platform_config__[plat]:
             print(f'Platform <{plat}> do NOT has secret key <{key}>!\nYou can set the following keys:')
