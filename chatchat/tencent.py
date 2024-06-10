@@ -116,7 +116,8 @@ class Chat(Completion):
         })
 
         r = self.send_message(self.history)
-        assistant_output = r['Response']['Choices'][0]['Message']
-        self.history.append(assistant_output)
+        if 'Choices' in r['Response']:
+            assistant_output = r['Response']['Choices'][0]['Message']
+            self.history.append(assistant_output)
 
         return r

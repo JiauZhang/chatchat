@@ -3,6 +3,7 @@
 - ✅ 阿里通义千问/QWen
 - ✅ 讯飞星火大模型/Spark
 - ✅ 腾讯混元大模型/Hunyuan
+- ✅ DeepSeek
 
 ### Install
 ```shell

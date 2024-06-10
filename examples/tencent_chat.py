@@ -6,4 +6,3 @@ while True:
     r = chat.chat(user)
     message = r['Response']['Choices'][0]['Message']
     print(f"{message['Role']}: {message['Content']}")
-

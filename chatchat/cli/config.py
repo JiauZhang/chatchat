@@ -6,6 +6,7 @@ __platform_config__ = {
     'baidu': ['api_key', 'secret_key'],
     'tencent': ['secret_id', 'secret_key'],
     'xunfei': ['app_id', 'api_key', 'api_secret'],
+    'deepseek': ['api_key'],
 }
 
 def supported_platforms():
