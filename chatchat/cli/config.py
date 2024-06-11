@@ -24,7 +24,7 @@ def parse_config(args):
         cfg = args.cfgs.split('=')
         plat_key = cfg[0].split('.')
         usage = 'Usage: chatchat config platform.key=value'
-        if len(cfg) != 2 and len(plat_key) != 2:
+        if len(cfg) != 2 or len(plat_key) != 2:
             print(usage)
             return
 

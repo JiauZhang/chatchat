@@ -25,8 +25,6 @@ class Completion(Base):
             'ERNIE-Speed-128K': 'ernie-speed-128k',
             'ERNIE-Speed-AppBuilder': 'ai_apaas',
             'ERNIE-Lite-8K': 'ernie-lite-8k',
-            'ERNIE-Lite-8K-0922': 'eb-instant',
-            'ERNIE-Bot-turbo-0922': 'eb-instant',
             'ERNIE-Tiny-8K': 'ernie-tiny-8k',
             'Yi-34B-Chat': 'yi_34b_chat',
         }
