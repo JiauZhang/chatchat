@@ -11,6 +11,7 @@ class Completion(Base):
 
         self.model_type = set([
             'deepseek-chat',
+            'deepseek-reasoner',
             'deepseek-coder',
         ])
 
