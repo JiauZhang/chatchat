@@ -11,12 +11,10 @@ class Completion(Base):
         self.app_id = self.secret_data[__vendor_keys__[0]]
         # https://console.bce.baidu.com/qianfan/ais/console/onlineService
         self.model_set = set([
-            'ernie-4.0-8k-latest', 'ernie-4.0-8k', 'ernie-speed-8k',
+            'ernie-lite-8k', 'ernie-tiny-8k', 'ernie-speed-8k', 'ernie-speed-128k',
             'deepseek-v3', 'deepseek-r1',
         ])
 
-        if model not in self.model_set:
-            raise RuntimeError(f'supported chat type: {self.model_set}')
         self.model = model
         self.api = 'https://qianfan.baidubce.com/v2/chat/completions'
         self.client = httpx.Client(proxy=proxy, timeout=timeout)

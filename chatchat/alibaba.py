@@ -10,7 +10,7 @@ class Completion(Base):
 
         self.api_key = self.secret_data[__vendor_keys__[0]]
 
-        # https://dashscope.console.aliyun.com/dashboard?apiKey=all&model=qwen-turbo
+        # https://bailian.console.aliyun.com
         self.model_type = set([
             'qwen-turbo',
             'qwen-plus',
