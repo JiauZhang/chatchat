@@ -1,57 +1,54 @@
-import os, argparse, pathlib, json
-from chatchat.base import Base
+from conippets import json
+from chatchat import (
+    base, alibaba, baidu, deepseek, tencent, xunfei, zhipu,
+)
 
-__platform_config__ = {
-    'alibaba': ['api_key'],
-    'baidu': ['api_key', 'secret_key'],
-    'tencent': ['secret_id', 'secret_key'],
-    'xunfei': ['app_id', 'api_key', 'api_secret'],
-    'deepseek': ['api_key'],
-    'zhipu': ['api_key'],
+__vendor__ = (alibaba, baidu, deepseek, tencent, xunfei, zhipu)
+__vendor_config__ = {
+    vendor.__vendor__: vendor.__vendor_keys__ for vendor in __vendor__
 }
 
-def supported_platforms():
-    print(f'Supported platforms:')
-    for plat, attrs in __platform_config__.items():
-        print(plat)
+def supported_vendors():
+    print(f'Supported vendors:')
+    for vendor, attrs in __vendor_config__.items():
+        print(vendor)
         for attr in attrs:
             print(f'\t{attr}')
 
 def parse_config(args):
     if args.list:
-        supported_platforms()
+        supported_vendors()
     elif args.cfgs:
         cfg = args.cfgs.split('=')
-        plat_key = cfg[0].split('.')
-        usage = 'Usage: chatchat config platform.key=value'
-        if len(cfg) != 2 or len(plat_key) != 2:
+        vendor_key = cfg[0].split('.')
+        usage = 'Usage: chatchat config vendor.key=value'
+        if len(cfg) != 2 or len(vendor_key) != 2:
             print(usage)
             return
 
-        (plat, key), value = plat_key, cfg[1]
-        if plat not in __platform_config__:
-            print(f'Platform <{plat}> is currently NOT supported!')
-            supported_platforms()
+        (vendor, key), value = vendor_key, cfg[1]
+        if vendor not in __vendor_config__:
+            print(f'Vendor <{vendor}> is currently NOT supported!')
+            supported_vendors()
             return
 
-        if key not in __platform_config__[plat]:
-            print(f'Platform <{plat}> do NOT has secret key <{key}>!\nYou can set the following keys:')
-            for key in __platform_config__[plat]:
+        if key not in __vendor_config__[vendor]:
+            print(f'Vendor <{vendor}> do NOT has secret key <{key}>!\nYou can set the following keys:')
+            for key in __vendor_config__[vendor]:
                 print(f'\t{key}')
             return
 
-        util = Base()
-        dot_filename = util.secret_file
-        dot_content = util.secret_data
+        secret_file = base.__secret_file__
+        secret_data = json.read(secret_file)
 
-        if plat in dot_content:
-            dot_content[plat][key] = value
+        if vendor in secret_data:
+            secret_data[vendor][key] = value
         else:
-            dot_content[plat] = {key: value}
-        util.write_json(dot_filename, dot_content)
+            secret_data[vendor] = {key: value}
+        json.write(secret_file, secret_data)
 
 def cli_config(subparser):
-    config_parser = subparser.add_parser('config', help='config platform secret key')
+    config_parser = subparser.add_parser('config', help='config vendor secret key')
     config_parser.add_argument('cfgs', type=str, nargs='?')
     config_parser.add_argument('--list', action='store_true')
     config_parser.set_defaults(parser=parse_config)

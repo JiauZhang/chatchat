@@ -1,13 +1,14 @@
 from chatchat.base import Base
 import httpx
 
+__vendor__ = 'zhipu'
+__vendor_keys__ = ('api_key',)
+
 class Completion(Base):
     def __init__(self, model='glm-4-flash', proxy=None, timeout=None):
-        super().__init__()
+        super().__init__(__vendor__, __vendor_keys__)
 
-        plat = 'zhipu'
-        self.verify_secret_data(plat, ('api_key',))
-        self.jdata = self.secret_data[plat]
+        self.api_key = self.secret_data[__vendor_keys__[0]]
 
         self.model_type = set([
             'glm-4-0520',
@@ -28,7 +29,7 @@ class Completion(Base):
         self.headers = {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
-            'Authorization': f'Bearer {self.jdata["api_key"]}',
+            'Authorization': f'Bearer {self.api_key}',
         }
 
     def create(self, message, max_tokens=1024, temperature=0.95, top_p=0.7, stream=False):

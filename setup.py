@@ -17,7 +17,7 @@ setup(
         'chatbot',
     ],
     install_requires=[
-        'httpx', 'websocket-client',
+        'conippets >= 0.1.1', 'httpx', 'websocket-client',
     ],
     classifiers=[
         'Intended Audience :: Developers',

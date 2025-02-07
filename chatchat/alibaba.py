@@ -1,13 +1,14 @@
 from chatchat.base import Base
 import httpx
 
+__vendor__ = 'alibaba'
+__vendor_keys__ = ('api_key',)
+
 class Completion(Base):
     def __init__(self, model='qwen-turbo', proxy=None, timeout=None):
-        super().__init__()
+        super().__init__(__vendor__, __vendor_keys__)
 
-        plat = 'alibaba'
-        self.verify_secret_data(plat, ('api_key',))
-        self.jdata = self.secret_data[plat]
+        self.api_key = self.secret_data[__vendor_keys__[0]]
 
         # https://dashscope.console.aliyun.com/dashboard?apiKey=all&model=qwen-turbo
         self.model_type = set([
@@ -24,7 +25,7 @@ class Completion(Base):
         self.client = httpx.Client(proxy=proxy, timeout=timeout)
         self.headers = {
             'Content-Type': 'application/json',
-            'Authorization': f'Bearer {self.jdata["api_key"]}',
+            'Authorization': f'Bearer {self.api_key}',
         }
 
     def send_message(self, messages: list):

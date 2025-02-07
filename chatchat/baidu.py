@@ -1,11 +1,14 @@
 from chatchat.base import Base
 import httpx
 
+__vendor__ = 'baidu'
+__vendor_keys__ = ('app_id',)
+
 class Completion(Base):
     def __init__(self, model='ernie-speed-8k', proxy=None, timeout=None):
-        super().__init__()
+        super().__init__(__vendor__, __vendor_keys__)
 
-        self.appid = ''
+        self.app_id = self.secret_data[__vendor_keys__[0]]
         # https://console.bce.baidu.com/qianfan/ais/console/onlineService
         self.model_set = set([
             'ernie-4.0-8k-latest', 'ernie-4.0-8k', 'ernie-speed-8k',
@@ -19,7 +22,7 @@ class Completion(Base):
         self.client = httpx.Client(proxy=proxy, timeout=timeout)
         self.headers = {
             'Content-Type': 'application/json',
-            'Authorization': f'Bearer {self.appid}',
+            'Authorization': f'Bearer {self.app_id}',
         }
 
     def send_messages(self, messages: list):

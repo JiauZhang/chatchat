@@ -6,9 +6,12 @@ from datetime import datetime
 from time import mktime
 import websocket, json, ssl
 
+__vendor__ = 'xunfei'
+__vendor_keys__ = ('api_key', 'api_secret', 'app_id')
+
 class Completion(Base):
     def __init__(self, model='Spark Lite'):
-        super().__init__()
+        super().__init__(__vendor__, __vendor_keys__)
 
         # https://console.xfyun.cn/services/bm2
         # "xunfei": {
@@ -16,9 +19,9 @@ class Completion(Base):
         #     "api_secret": "y",
         #     "api_key": "z"
         # }
-        plat = 'xunfei'
-        self.verify_secret_data(plat, ('api_key', 'api_secret', 'app_id'))
-        self.jdata = self.secret_data[plat]
+        self.api_key = self.secret_data[__vendor_keys__[0]]
+        self.api_secret = self.secret_data[__vendor_keys__[1]]
+        self.app_id = self.secret_data[__vendor_keys__[2]]
 
         # https://www.xfyun.cn/doc/spark/Web.html#_1-接口说明
         self.api_list = {
@@ -63,13 +66,13 @@ class Completion(Base):
 
         signature_raw = f'host: {self.host}\ndate: {date}\nGET {self.path} HTTP/1.1'
         signature_sha = hmac.new(
-            self.jdata['api_secret'].encode('utf-8'),
+            self.api_secret.encode('utf-8'),
             signature_raw.encode('utf-8'),
             digestmod=hashlib.sha256,
         ).digest()
         signature_sha_base64 = base64.b64encode(signature_sha).decode(encoding='utf-8')
         authorization_raw = ', '.join([
-            f'api_key="{self.jdata["api_key"]}"',
+            f'api_key="{self.api_key}"',
             'algorithm="hmac-sha256"',
             'headers="host date request-line"',
             f'signature="{signature_sha_base64}"',
@@ -112,7 +115,7 @@ class Completion(Base):
     def make_message(self, history: list):
         jmsg = {
             "header": {
-                "app_id": self.jdata['app_id'],
+                "app_id": self.app_id,
             },
             "parameter": {
                 "chat": {

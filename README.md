@@ -34,7 +34,7 @@ chatchat config --list
     </thead>
     <tbody align="center" valign="center">
         <tr>
-            <td colspan="2"><img src="https://www.chatqkv.com/ghstatic/images/ofa_m.png" style="height: 196px" alt="AliPay.png"></td>
+            <td colspan="2"><img src="https://jiauzhang.github.io/ghstatic/images/ofa_m.png" style="height: 196px" alt="AliPay.png"></td>
         </tr>
     </tbody>
     <thead>
@@ -45,9 +45,8 @@ chatchat config --list
     </thead>
     <tbody align="center" valign="center">
         <tr>
-            <td><img src="https://www.chatqkv.com/AliPay.png" style="width: 196px; height: 196px" alt="AliPay.png"></td>
-            <td><img src="https://www.chatqkv.com/WeChatPay.png" style="width: 196px; height: 196px" alt="WeChatPay.png"></td>
+            <td><img src="https://jiauzhang.github.io/AliPay.png" style="width: 196px; height: 196px" alt="AliPay.png"></td>
+            <td><img src="https://jiauzhang.github.io/WeChatPay.png" style="width: 196px; height: 196px" alt="WeChatPay.png"></td>
         </tr>
     </tbody>
 </table>
-

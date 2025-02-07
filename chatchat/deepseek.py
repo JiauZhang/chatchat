@@ -1,13 +1,14 @@
 from chatchat.base import Base
 import httpx
 
+__vendor__ = 'deepseek'
+__vendor_keys__ = ('api_key',)
+
 class Completion(Base):
     def __init__(self, model='deepseek-chat', proxy=None, timeout=None):
-        super().__init__()
+        super().__init__(__vendor__, __vendor_keys__)
 
-        plat = 'deepseek'
-        self.verify_secret_data(plat, ('api_key',))
-        self.jdata = self.secret_data[plat]
+        self.api_key = self.secret_data[__vendor_keys__[0]]
 
         self.model_type = set([
             'deepseek-chat',
@@ -26,7 +27,7 @@ class Completion(Base):
         self.headers = {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
-            'Authorization': f'Bearer {self.jdata["api_key"]}',
+            'Authorization': f'Bearer {self.api_key}',
         }
 
     def model_list(self):

@@ -3,15 +3,15 @@ import hashlib, hmac, json, time
 from datetime import datetime
 import httpx
 
+__vendor__ = 'tencent'
+__vendor_keys__ = ('secret_id', 'secret_key')
+
 class Completion(Base):
     def __init__(self, model='hunyuan-lite', proxy=None, timeout=None):
-        super().__init__()
+        super().__init__(__vendor__, __vendor_keys__)
 
-        plat = 'tencent'
-        self.verify_secret_data(plat, ('secret_id', 'secret_key'))
-        self.jdata = self.secret_data[plat]
-        self.secret_id = self.jdata['secret_id']
-        self.secret_key = self.jdata['secret_key']
+        self.secret_id = self.secret_data['secret_id']
+        self.secret_key = self.secret_data['secret_key']
 
         self.model_type = set([
             'hunyuan-lite',
