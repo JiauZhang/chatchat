@@ -1,9 +1,10 @@
 from setuptools import setup, find_packages
+from chatchat.version import __version__
 
 setup(
     name = 'chatchat',
     packages = find_packages(exclude=['examples']),
-    version = '0.1.9',
+    version = __version__,
     license = 'GPL-2.0',
     description = 'Large Language Model API',
     author = 'JiauZhang',
