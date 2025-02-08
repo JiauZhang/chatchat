@@ -10,19 +10,9 @@ class Completion(Base):
     def __init__(self, model='hunyuan-lite', proxy=None, timeout=None):
         super().__init__(__vendor__, __vendor_keys__)
 
-        self.secret_id = self.secret_data['secret_id']
-        self.secret_key = self.secret_data['secret_key']
-
-        self.model_type = set([
-            'hunyuan-lite',
-            'hunyuan-standard',
-            'hunyuan-standard-256K',
-            'hunyuan-pro',
-        ])
-        if model not in self.model_type:
-            raise RuntimeError(f'supported chat type: {list(self.model_type)}')
+        self.secret_id = self.secret_data[__vendor_keys__[0]]
+        self.secret_key = self.secret_data[__vendor_keys__[1]]
         self.model = model
-
         self.host = 'hunyuan.tencentcloudapi.com'
         self.endpoint = f'https://{self.host}'
         self.client = httpx.Client(proxy=proxy, timeout=timeout)

@@ -9,12 +9,6 @@ class Completion(Base):
         super().__init__(__vendor__, __vendor_keys__)
 
         self.app_id = self.secret_data[__vendor_keys__[0]]
-        # https://console.bce.baidu.com/qianfan/ais/console/onlineService
-        self.model_set = set([
-            'ernie-lite-8k', 'ernie-tiny-8k', 'ernie-speed-8k', 'ernie-speed-128k',
-            'deepseek-v3', 'deepseek-r1',
-        ])
-
         self.model = model
         self.api = 'https://qianfan.baidubce.com/v2/chat/completions'
         self.client = httpx.Client(proxy=proxy, timeout=timeout)

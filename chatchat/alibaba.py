@@ -9,18 +9,7 @@ class Completion(Base):
         super().__init__(__vendor__, __vendor_keys__)
 
         self.api_key = self.secret_data[__vendor_keys__[0]]
-
-        # https://bailian.console.aliyun.com
-        self.model_type = set([
-            'qwen-turbo',
-            'qwen-plus',
-            'qwen-max',
-        ])
-
-        if model not in self.model_type:
-            raise RuntimeError(f'supported chat type: {list(self.model_type)}')
         self.model = model
-
         self.api = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation'
         self.client = httpx.Client(proxy=proxy, timeout=timeout)
         self.headers = {

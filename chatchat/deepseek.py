@@ -9,17 +9,7 @@ class Completion(Base):
         super().__init__(__vendor__, __vendor_keys__)
 
         self.api_key = self.secret_data[__vendor_keys__[0]]
-
-        self.model_type = set([
-            'deepseek-chat',
-            'deepseek-reasoner',
-            'deepseek-coder',
-        ])
-
-        if model not in self.model_type:
-            raise RuntimeError(f'supported chat type: {list(self.model_type)}')
         self.model = model
-
         self.host = 'https://api.deepseek.com'
         self.model_url = f'{self.host}/models'
         self.chat_url = f'{self.host}/chat/completions'

@@ -1,10 +1,46 @@
 ### Large Language Models Python API
-- ✅ 百度文心一言/ERNIE
-- ✅ 阿里通义千问/QWen
-- ✅ 讯飞星火大模型/Spark
-- ✅ 腾讯混元大模型/Hunyuan
-- ✅ DeepSeek
-- ✅ 智谱/ChatGLM
+<table align="center">
+    <tr>
+        <th>Vendor</th>
+        <th>Model</th>
+    </tr>
+    <tr>
+        <td>DeepSeek</td>
+        <td>
+            deepseek-chat, deepseek-reasoner, deepseek-coder
+        </td>
+    </tr>
+    <tr>
+        <td>百度</td>
+        <td>
+            ernie-lite-8k, ernie-tiny-8k, ernie-speed-8k, ernie-speed-128k, deepseek-v3, deepseek-r1
+        </td>
+    </tr>
+    <tr>
+        <td>阿里巴巴</td>
+        <td>
+            deepseek-v3, deepseek-r1, deepseek-r1-distill-qwen-1.5b, deepseek-r1-distill-qwen-7b, deepseek-r1-distill-qwen-14b, deepseek-r1-distill-qwen-32b
+        </td>
+    </tr>
+    <tr>
+        <td>讯飞</td>
+        <td>
+            lite, generalv3, pro-128k, generalv3.5, max-32k, 4.0Ultra
+        </td>
+    </tr>
+    <tr>
+        <td>腾讯</td>
+        <td>
+            hunyuan-lite, hunyuan-standard, hunyuan-standard-256K, hunyuan-pro
+        </td>
+    </tr>
+    <tr>
+        <td>智谱</td>
+        <td>
+            glm-4-plus, glm-4-air, glm-4-long, glm-4-flash
+        </td>
+    </tr>
+</table>
 
 ### Install
 ```shell

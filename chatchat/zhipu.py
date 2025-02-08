@@ -9,21 +9,7 @@ class Completion(Base):
         super().__init__(__vendor__, __vendor_keys__)
 
         self.api_key = self.secret_data[__vendor_keys__[0]]
-
-        self.model_type = set([
-            'glm-4-0520',
-            'glm-4',
-            'glm-4-air',
-            'glm-4-airx',
-            'glm-4-flash',
-            'glm-4v',
-            'glm-3-turbo',
-        ])
-
-        if model not in self.model_type:
-            raise RuntimeError(f'supported chat type: {list(self.model_type)}')
         self.model = model
-
         self.url = 'https://open.bigmodel.cn/api/paas/v4/chat/completions'
         self.client = httpx.Client(proxy=proxy, timeout=timeout)
         self.headers = {
