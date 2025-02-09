@@ -1,12 +1,5 @@
 from chatchat.xunfei import Chat
 
-# {
-#     "xunfei": {
-#         "app_id": "x",
-#         "api_secret": "y",
-#         "api_key": "z"
-#     }
-# }
 history = [
     # 设置对话背景或者模型角色
     {"role": "system", "content": "你是一名物理学家，你的名字叫爱因斯坦"},
