@@ -7,37 +7,37 @@
     <tr>
         <td>DeepSeek</td>
         <td>
-            deepseek-chat, deepseek-reasoner, deepseek-coder
+            <code>deepseek-chat</code> <code>deepseek-reasoner</code> <code>deepseek-coder</code>
         </td>
     </tr>
     <tr>
         <td>百度</td>
         <td>
-            ernie-lite-8k, ernie-tiny-8k, ernie-speed-8k, ernie-speed-128k, deepseek-v3, deepseek-r1
+            <code>ernie-lite-8k</code> <code>ernie-tiny-8k</code> <code>ernie-speed-8k</code> <code>ernie-speed-128k</code> <code>deepseek-v3</code> <code>deepseek-r1</code>
         </td>
     </tr>
     <tr>
         <td>阿里巴巴</td>
         <td>
-            deepseek-v3, deepseek-r1, deepseek-r1-distill-qwen-1.5b, deepseek-r1-distill-qwen-7b, deepseek-r1-distill-qwen-14b, deepseek-r1-distill-qwen-32b
+            <code>deepseek-v3</code> <code>deepseek-r1</code> <code>deepseek-r1-distill-qwen-1.5b</code> <code>deepseek-r1-distill-qwen-7b</code> <code>deepseek-r1-distill-qwen-14b</code> <code>deepseek-r1-distill-qwen-32b</code>
         </td>
     </tr>
     <tr>
         <td>讯飞</td>
         <td>
-            lite, generalv3, pro-128k, generalv3.5, max-32k, 4.0Ultra
+            <code>lite</code> <code>generalv3</code> <code>pro-128k</code> <code>generalv3.5</code> <code>max-32k</code> <code>4.0Ultra</code>
         </td>
     </tr>
     <tr>
         <td>腾讯</td>
         <td>
-            hunyuan-lite, hunyuan-standard, hunyuan-standard-256K, hunyuan-pro
+            <code>hunyuan-lite</code> <code>hunyuan-standard</code> <code>hunyuan-standard-256K</code> <code>hunyuan-pro</code>
         </td>
     </tr>
     <tr>
         <td>智谱</td>
         <td>
-            glm-4-plus, glm-4-air, glm-4-long, glm-4-flash
+            <code>glm-4-plus</code> <code>glm-4-air</code> <code>glm-4-long</code> <code>glm-4-flash</code>
         </td>
     </tr>
 </table>

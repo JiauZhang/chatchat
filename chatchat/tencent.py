@@ -4,7 +4,7 @@ from datetime import datetime
 import httpx
 
 __vendor__ = 'tencent'
-__vendor_keys__ = ('secret_id', 'secret_key')
+__vendor_keys__ = ('secret_id', 'secret_key') # https://console.cloud.tencent.com/cam/capi
 
 class Completion(Base):
     def __init__(self, model='hunyuan-lite', proxy=None, timeout=None):
@@ -13,7 +13,7 @@ class Completion(Base):
         self.secret_id = self.secret_data[__vendor_keys__[0]]
         self.secret_key = self.secret_data[__vendor_keys__[1]]
         self.model = model
-        self.host = 'hunyuan.tencentcloudapi.com'
+        self.host = 'cvm.tencentcloudapi.com'
         self.endpoint = f'https://{self.host}'
         self.client = httpx.Client(proxy=proxy, timeout=timeout)
 
@@ -37,7 +37,7 @@ class Completion(Base):
                             hashed_request_payload)
 
         # step 2
-        service = "hunyuan"
+        service = "cvm"
         algorithm = "TC3-HMAC-SHA256"
         timestamp = int(time.time())
         date = datetime.utcfromtimestamp(timestamp).strftime("%Y-%m-%d")
