@@ -32,12 +32,6 @@ def parse_config(args):
             supported_vendors()
             return
 
-        if key not in __vendor_config__[vendor]:
-            print(f'Vendor <{vendor}> do NOT has secret key <{key}>!\nYou can set the following keys:')
-            for key in __vendor_config__[vendor]:
-                print(f'\t{key}')
-            return
-
         secret_file = base.__secret_file__
         secret_data = json.read(secret_file)
 

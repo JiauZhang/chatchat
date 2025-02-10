@@ -6,7 +6,7 @@ setup(
     packages = find_packages(exclude=['examples']),
     version = __version__,
     license = 'GPL-2.0',
-    description = 'Large Language Model API',
+    description = 'Large Language Models Python API ',
     author = 'JiauZhang',
     author_email = 'jiauzhang@163.com',
     url = 'https://github.com/JiauZhang/chatchat',

@@ -3,14 +3,30 @@ import httpx
 
 __vendor__ = 'xunfei'
 __vendor_keys__ = ('api_key',) # https://console.xfyun.cn/services/cbm
+__vendor_service_keys__ = ('service_key',)
 
 class Completion(Base):
     def __init__(self, model='lite', proxy=None, timeout=None):
         super().__init__(__vendor__, __vendor_keys__)
 
-        self.model = model
-        self.api_key = self.secret_data[__vendor_keys__[0]]
-        self.api = 'https://spark-api-open.xf-yun.com/v1/chat/completions'
+        self.model_service = {
+            'deepseek-r1': 'xdeepseekr1',
+            'deepseek-v3': 'xdeepseekv3',
+        }
+
+        # https://training.xfyun.cn/modelService
+        if model in self.model_service:
+            self.model = self.model_service[model]
+            self.api = 'http://maas-api.cn-huabei-1.xf-yun.com/v1/chat/completions'
+            if __vendor_service_keys__[0] not in self.secret_data:
+                # manually exit with info
+                self.verify_secret_data(self.secret_data, __vendor__, __vendor_service_keys__)
+            self.api_key = self.secret_data[__vendor_service_keys__[0]]
+        else:
+            self.model = model
+            self.api_key = self.secret_data[__vendor_keys__[0]]
+            self.api = 'https://spark-api-open.xf-yun.com/v1/chat/completions'
+
         self.client = httpx.Client(proxy=proxy, timeout=timeout)
         self.headers = {
             'Content-Type': 'application/json',

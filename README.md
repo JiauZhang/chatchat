@@ -25,7 +25,7 @@
     <tr>
         <td>讯飞</td>
         <td>
-            <code>lite</code> <code>generalv3</code> <code>pro-128k</code> <code>generalv3.5</code> <code>max-32k</code> <code>4.0Ultra</code>
+            <code>lite</code> <code>generalv3</code> <code>pro-128k</code> <code>generalv3.5</code> <code>max-32k</code> <code>4.0Ultra</code> <code>deepseek-r1</code> <code>deepseek-v3</code>
         </td>
     </tr>
     <tr>
