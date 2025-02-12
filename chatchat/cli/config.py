@@ -13,7 +13,7 @@ def supported_vendors():
     for vendor, attrs in __vendor_config__.items():
         print(vendor)
         for attr in attrs:
-            print(f'\t{attr}')
+            print(f'    {attr}')
 
 def parse_config(args):
     if args.list:
