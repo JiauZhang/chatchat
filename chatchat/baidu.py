@@ -25,6 +25,17 @@ class Completion(Base):
         r = self.client.post(url, headers=self.headers, json=jmsg)
         return r.json()
 
+    def text(self, response, history=False):
+        if 'choices' in response:
+            content = response['choices'][0]['message']['content']
+            if history: self.history.append({
+                "role": "assistant",
+                "content": content,
+            })
+            return content
+        print(response)
+        return None
+
     def create(self, message):
         messages = [
             {
@@ -32,7 +43,8 @@ class Completion(Base):
                 "content": message,
             }
         ]
-        return self.send_messages(messages)
+        r = self.send_messages(messages)
+        return self.text(r, history=False)
 
 class Chat(Completion):
     def __init__(self, model='ernie-speed-8k', history=[], client_kwargs={}):
@@ -45,10 +57,4 @@ class Chat(Completion):
             "content": message,
         })
         r = self.send_messages(self.history)
-        if 'result' in r:
-            self.history.append({
-                "role": "assistant",
-                "content": r['result']
-            })
-
-        return r
+        return self.text(r, history=True)
