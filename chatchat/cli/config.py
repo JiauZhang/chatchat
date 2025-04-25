@@ -1,9 +1,9 @@
 from conippets import json
 from chatchat import (
-    base, alibaba, baidu, deepseek, tencent, xunfei, zhipu,
+    base, alibaba, baidu, deepseek, tencent, xunfei, zhipu, google,
 )
 
-__vendor__ = (alibaba, baidu, deepseek, tencent, xunfei, zhipu)
+__vendor__ = (alibaba, baidu, deepseek, tencent, xunfei, zhipu, google)
 __vendor_config__ = {
     vendor.__vendor__: vendor.__vendor_keys__ for vendor in __vendor__
 }
