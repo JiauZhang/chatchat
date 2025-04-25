@@ -1,18 +1,16 @@
 from chatchat.base import Base
-import httpx
 
 __vendor__ = 'google'
 __vendor_keys__ = ('api_key',)
 
 class Completion(Base):
-    def __init__(self, model='gemini-2.0-flash', proxy=None, timeout=None):
-        super().__init__(__vendor__, __vendor_keys__)
+    def __init__(self, model='gemini-2.0-flash', client_kwargs={}):
+        super().__init__(__vendor__, __vendor_keys__, client_kwargs=client_kwargs)
 
         self.api_key = self.secret_data[__vendor_keys__[0]]
         self.model = model
         self.host = 'https://generativelanguage.googleapis.com/v1beta/models'
         self.chat_url = f'{self.host}/{model}:generateContent'
-        self.client = httpx.Client(proxy=proxy, timeout=timeout)
         self.headers = {'Content-Type': 'application/json'}
         self.params = {'key': self.api_key}
         self.history = []
@@ -31,8 +29,8 @@ class Completion(Base):
         return r.json()
 
 class Chat(Completion):
-    def __init__(self, model='gemini-2.0-flash', history=[], proxy=None, timeout=None):
-        super().__init__(model=model, proxy=proxy, timeout=timeout)
+    def __init__(self, model='gemini-2.0-flash', history=[], client_kwargs={}):
+        super().__init__(model=model, client_kwargs=client_kwargs)
         self.history = history
 
     def chat(self, message):

@@ -1,21 +1,19 @@
 from chatchat.base import Base
 import hashlib, hmac, json, time
 from datetime import datetime
-import httpx
 
 __vendor__ = 'tencent'
 __vendor_keys__ = ('secret_id', 'secret_key') # https://console.cloud.tencent.com/cam/capi
 
 class Completion(Base):
-    def __init__(self, model='hunyuan-lite', proxy=None, timeout=None):
-        super().__init__(__vendor__, __vendor_keys__)
+    def __init__(self, model='hunyuan-lite', client_kwargs={}):
+        super().__init__(__vendor__, __vendor_keys__, client_kwargs=client_kwargs)
 
         self.secret_id = self.secret_data[__vendor_keys__[0]]
         self.secret_key = self.secret_data[__vendor_keys__[1]]
         self.model = model
         self.host = 'cvm.tencentcloudapi.com'
         self.endpoint = f'https://{self.host}'
-        self.client = httpx.Client(proxy=proxy, timeout=timeout)
 
     def encode_message(self, jmsg):
         # step 1
@@ -95,8 +93,8 @@ class Completion(Base):
         return self.send_message(jmsg)
 
 class Chat(Completion):
-    def __init__(self, model='hunyuan-lite', history=[], proxy=None, timeout=None):
-        super().__init__(model=model, proxy=proxy, timeout=timeout)
+    def __init__(self, model='hunyuan-lite', history=[], client_kwargs={}):
+        super().__init__(model=model, client_kwargs=client_kwargs)
         self.history = history
 
     def chat(self, message):

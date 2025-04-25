@@ -1,17 +1,15 @@
 from chatchat.base import Base
-import httpx
 
 __vendor__ = 'alibaba'
 __vendor_keys__ = ('api_key',)
 
 class Completion(Base):
-    def __init__(self, model='qwen-turbo', proxy=None, timeout=None):
-        super().__init__(__vendor__, __vendor_keys__)
+    def __init__(self, model='qwen-turbo', client_kwargs={}):
+        super().__init__(__vendor__, __vendor_keys__, client_kwargs=client_kwargs)
 
         self.api_key = self.secret_data[__vendor_keys__[0]]
         self.model = model
         self.api = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation'
-        self.client = httpx.Client(proxy=proxy, timeout=timeout)
         self.headers = {
             'Content-Type': 'application/json',
             'Authorization': f'Bearer {self.api_key}',
@@ -38,8 +36,8 @@ class Completion(Base):
         return self.send_message(jmsg)
 
 class Chat(Completion):
-    def __init__(self, model='qwen-turbo', history=[], proxy=None, timeout=None):
-        super().__init__(model=model, proxy=proxy, timeout=timeout)
+    def __init__(self, model='qwen-turbo', history=[], client_kwargs={}):
+        super().__init__(model=model, client_kwargs=client_kwargs)
         self.history = history
 
     def chat(self, message):

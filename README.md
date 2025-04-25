@@ -5,6 +5,12 @@
         <th>Model</th>
     </tr>
     <tr>
+        <td align="center">Google</td>
+        <td>
+            <code>gemini-2.0-flash</code>
+        </td>
+    </tr>
+    <tr>
         <td align="center">DeepSeek</td>
         <td>
             <code>deepseek-chat</code> <code>deepseek-reasoner</code> <code>deepseek-coder</code>

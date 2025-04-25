@@ -1,17 +1,15 @@
 from chatchat.base import Base
-import httpx
 
 __vendor__ = 'zhipu'
 __vendor_keys__ = ('api_key',)
 
 class Completion(Base):
-    def __init__(self, model='glm-4-flash', proxy=None, timeout=None):
-        super().__init__(__vendor__, __vendor_keys__)
+    def __init__(self, model='glm-4-flash', client_kwargs={}):
+        super().__init__(__vendor__, __vendor_keys__, client_kwargs=client_kwargs)
 
         self.api_key = self.secret_data[__vendor_keys__[0]]
         self.model = model
         self.url = 'https://open.bigmodel.cn/api/paas/v4/chat/completions'
-        self.client = httpx.Client(proxy=proxy, timeout=timeout)
         self.headers = {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
@@ -34,8 +32,8 @@ class Completion(Base):
         return r.json()
 
 class Chat(Completion):
-    def __init__(self, model='glm-4-flash', history=[], proxy=None, timeout=None):
-        super().__init__(model=model, proxy=proxy, timeout=timeout)
+    def __init__(self, model='glm-4-flash', history=[], client_kwargs={}):
+        super().__init__(model=model, client_kwargs=client_kwargs)
         self.history = history
 
     def chat(self, message, max_tokens=1024, temperature=0.95, top_p=0.7, stream=False):
