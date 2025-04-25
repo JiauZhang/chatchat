@@ -1,7 +1,8 @@
 from chatchat.base import Base
+from .vendor import __vendor_info__
 
 __vendor__ = 'baidu'
-__vendor_keys__ = ('app_id',)
+__vendor_keys__ = __vendor_info__[__vendor__]
 
 class Completion(Base):
     def __init__(self, model='ernie-speed-8k', client_kwargs={}):

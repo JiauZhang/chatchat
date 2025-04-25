@@ -1,7 +1,8 @@
 from chatchat.base import Base
+from .vendor import __vendor_info__
 
 __vendor__ = 'deepseek'
-__vendor_keys__ = ('api_key',)
+__vendor_keys__ = __vendor_info__[__vendor__]
 
 class Completion(Base):
     def __init__(self, model='deepseek-chat', client_kwargs={}):

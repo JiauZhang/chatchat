@@ -1,16 +1,10 @@
 from conippets import json
-from chatchat import (
-    base, alibaba, baidu, deepseek, tencent, xunfei, zhipu, google,
-)
-
-__vendor__ = (alibaba, baidu, deepseek, tencent, xunfei, zhipu, google)
-__vendor_config__ = {
-    vendor.__vendor__: vendor.__vendor_keys__ for vendor in __vendor__
-}
+from chatchat import base
+from chatchat.vendor import __vendor_info__
 
 def supported_vendors():
     print(f'Supported vendors:')
-    for vendor, attrs in __vendor_config__.items():
+    for vendor, attrs in __vendor_info__.items():
         print(vendor)
         for attr in attrs:
             print(f'    {attr}')
@@ -27,7 +21,7 @@ def parse_config(args):
             return
 
         (vendor, key), value = vendor_key, cfg[1]
-        if vendor not in __vendor_config__:
+        if vendor not in __vendor_info__:
             print(f'Vendor <{vendor}> is currently NOT supported!')
             supported_vendors()
             return

@@ -1,9 +1,10 @@
 from chatchat.base import Base
 import hashlib, hmac, json, time
 from datetime import datetime
+from .vendor import __vendor_info__
 
 __vendor__ = 'tencent'
-__vendor_keys__ = ('secret_id', 'secret_key') # https://console.cloud.tencent.com/cam/capi
+__vendor_keys__ = __vendor_info__[__vendor__]
 
 class Completion(Base):
     def __init__(self, model='hunyuan-lite', client_kwargs={}):
