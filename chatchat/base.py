@@ -1,7 +1,24 @@
 import pathlib, os, httpx
 from conippets import json
+from functools import cached_property
 
 __secret_file__ = os.path.join(str(pathlib.Path.home()), '.chatchat.json')
+
+class Response(dict):
+    def __init__(self, raw_response, text_keys):
+        super().__init__(**raw_response)
+        self.text_keys = text_keys
+
+    @cached_property
+    def text(self):
+        text = self
+        for key in self.text_keys:
+            if key in text:
+                text = text[key]
+            else:
+                text = None
+                break
+        return text
 
 class Base():
     def __init__(self, vendor, vendor_keys, client_kwargs={}):
@@ -27,3 +44,6 @@ class Base():
             for key in vendor_keys:
                 print(f'    chatchat config {vendor}.{key}=YOUR_{key.upper()}')
             exit(-1)
+
+    def response(self, raw_response, text_keys):
+        return Response(raw_response, text_keys)
