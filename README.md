@@ -53,6 +53,20 @@
 pip install chatchat
 ```
 
+### Chat in the Terminal
+```shell
+$ chatchat with baidu ernie-lite-8k
+user> http://github.com/JiauZhang/chatchat 这个网址是干啥的？
+assistant> 这个网址 <http://github.com/JiauZhang/chatchat> 是一个指向GitHub上的一个开源项目的链接。
+
+"chatchat" 看起来像是一个项目名称或别名，由 "JiauZhang" 创建并托管在GitHub上。GitHub是一个流行的代码托管和协作平台，允许开发者存储、分享和协作开发代码。
+
+要了解这个网址具体是干什么的，你可以访问该链接并查看项目详情。通常，项目页面会包含项目的描述、代码、文档、问题跟踪等。通过查看这些信息，你可以了解该项目的目的、功能、使用方法等。
+
+请注意，由于这是一个开源项目，其具体内容和用途可能因项目而异。如果你对特定项目或其用途有更多疑问，建议直接访问GitHub上的项目页面或查看相关文档和说明。
+user> ^D
+```
+
 ### Usage
 ```shell
 # set YOUR secret keys

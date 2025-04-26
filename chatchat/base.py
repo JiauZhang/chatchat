@@ -13,9 +13,9 @@ class Response(dict):
     def text(self):
         text = self
         for key in self.text_keys:
-            if key in text:
+            try:
                 text = text[key]
-            else:
+            except:
                 text = None
                 break
         return text

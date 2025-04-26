@@ -15,8 +15,11 @@ def parse_config(args):
 
         while True:
             prompt = input("user> ")
-            assistant = chat.chat(prompt)
-            print(f'assistant> {assistant}')
+            if prompt == '\x04': # Ctrl+D
+                exit()
+            response = chat.chat(prompt)
+            text = response if response.text is None else response.text
+            print(f'assistant> {text}')
 
 def cli_chat(subparser):
     config_parser = subparser.add_parser('with', help='chat with AI')

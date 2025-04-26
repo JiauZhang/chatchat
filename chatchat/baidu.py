@@ -24,7 +24,7 @@ class Completion(Base):
         url = self.api
         r = self.client.post(url, headers=self.headers, json=jmsg)
         r = r.json()
-        r = self.response(r, ('choices', 0, 'messages', 'content'))
+        r = self.response(r, ('choices', 0, 'message', 'content'))
         return r
 
     def create(self, message):
