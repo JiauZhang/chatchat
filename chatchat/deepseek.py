@@ -23,19 +23,25 @@ class Completion(Base):
         r = self.client.get(self.model_url, headers=self.headers)
         return r.json()
 
-    def create(self, message, max_tokens=1024, temperature=1.0, top_p=1.0):
+    def send_message(self, message, max_tokens=1024, temperature=1.0, top_p=1.0):
         jmsg = {
             'model': self.model,
-            'messages': [{
-                "role": "user",
-                "content": message,
-            }],
+            'messages': message,
             'max_tokens': max_tokens,
             'temperature': temperature,
             'top_p': top_p,
         }
         r = self.client.post(self.chat_url, headers=self.headers, json=jmsg)
-        return r.json()
+        r = r.json()
+        r = self.response(r, ('choices', 0, 'message', 'content'))
+        return r
+
+    def create(self, message, max_tokens=1024, temperature=1.0, top_p=1.0):
+        jmsg = [{
+            "role": "user",
+            "content": message,
+        }]
+        return self.send_message(jmsg, max_tokens, temperature, top_p)
 
 class Chat(Completion):
     def __init__(self, model='deepseek-chat', history=[], client_kwargs={}):
@@ -47,18 +53,9 @@ class Chat(Completion):
             'role': 'user',
             'content': message,
         })
+        r = self.send_message(self.history, max_tokens, temperature, top_p)
 
-        jmsg = {
-            'model': self.model,
-            'messages': self.history,
-            'max_tokens': max_tokens,
-            'temperature': temperature,
-            'top_p': top_p,
-        }
-        r = self.client.post(self.chat_url, headers=self.headers, json=jmsg)
-        r = r.json()
-
-        if 'choices' in r:
+        if r.text:
             assistant_output = r['choices'][0]['message']
             self.history.append(assistant_output)
 

@@ -17,20 +17,26 @@ class Completion(Base):
             'Authorization': f'Bearer {self.api_key}',
         }
 
-    def create(self, message, max_tokens=1024, temperature=0.95, top_p=0.7, stream=False):
+    def send_message(self, message, max_tokens=1024, temperature=0.95, top_p=0.7, stream=False):
         jmsg = {
             'model': self.model,
-            'messages': [{
-                "role": "user",
-                "content": message,
-            }],
+            'messages': message,
             'max_tokens': max_tokens,
             'temperature': temperature,
             'top_p': top_p,
             'stream': stream,
         }
         r = self.client.post(self.url, headers=self.headers, json=jmsg)
-        return r.json()
+        r = r.json()
+        r = self.response(r, ('choices', 0, 'message', 'content'))
+        return r
+
+    def create(self, message, max_tokens=1024, temperature=0.95, top_p=0.7, stream=False):
+        jmsg = [{
+            "role": "user",
+            "content": message,
+        }]
+        return self.send_message(jmsg, max_tokens, temperature, top_p, stream)
 
 class Chat(Completion):
     def __init__(self, model='glm-4-flash', history=[], client_kwargs={}):
@@ -42,19 +48,8 @@ class Chat(Completion):
             'role': 'user',
             'content': message,
         })
-
-        jmsg = {
-            'model': self.model,
-            'messages': self.history,
-            'max_tokens': max_tokens,
-            'temperature': temperature,
-            'top_p': top_p,
-            'stream': stream,
-        }
-        r = self.client.post(self.url, headers=self.headers, json=jmsg)
-        r = r.json()
-
-        if 'choices' in r:
+        r = self.send_message(self.history, max_tokens, temperature, top_p, stream)
+        if r.text:
             assistant_output = r['choices'][0]['message']
             self.history.append(assistant_output)
 

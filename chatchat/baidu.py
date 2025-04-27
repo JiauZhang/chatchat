@@ -16,7 +16,7 @@ class Completion(Base):
             'Authorization': f'Bearer {self.app_id}',
         }
 
-    def send_messages(self, messages: list):
+    def send_messages(self, messages):
         jmsg = {
             'model': self.model,
             "messages": messages,

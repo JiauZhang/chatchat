@@ -55,7 +55,7 @@ pip install chatchat
 
 ### Chat in the Terminal
 ```shell
-$ chatchat with baidu ernie-lite-8k
+$ chatchat run baidu ernie-lite-8k
 user> http://github.com/JiauZhang/chatchat 这个网址是干啥的？
 assistant> 这个网址 <http://github.com/JiauZhang/chatchat> 是一个指向GitHub上的一个开源项目的链接。
 
@@ -68,6 +68,14 @@ GitHub是一个流行的代码托管和协作平台，允许开发者存储、�
 
 请注意，由于这是一个开源项目，其具体内容和用途可能因项目而异。
 如果你对特定项目或其用途有更多疑问，建议直接访问GitHub上的项目页面或查看相关文档和说明。
+user> ^D
+
+$ chatchat run google gemini-2.0-flash --proxy YOUR_PROXY
+user> Introduce yourself briefly.
+assistant> Hello! I am a large language model, trained by Google.
+I am designed to provide information and complete tasks based on the prompts I receive.
+I can generate text, translate languages, write different kinds of creative content,
+and answer your questions in an informative way. How can I help you today?
 user> ^D
 ```
 

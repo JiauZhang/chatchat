@@ -84,7 +84,9 @@ class Completion(Base):
         }
         headers, payload = self.encode_message(jmsg)
         r = self.client.post(self.endpoint, headers=headers, data=payload)
-        return r.json()
+        r = r.json()
+        r = self.response(r, ('Response', 'Choices', 0, 'Message', 'Content'))
+        return r
 
     def create(self, message, stream=False):
         jmsg = [{
@@ -105,7 +107,7 @@ class Chat(Completion):
         })
 
         r = self.send_message(self.history)
-        if 'Choices' in r['Response']:
+        if r.text:
             assistant_output = r['Response']['Choices'][0]['Message']
             self.history.append(assistant_output)
 

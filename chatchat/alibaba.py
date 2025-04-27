@@ -27,7 +27,9 @@ class Completion(Base):
             }
         }
         r = self.client.post(self.api, headers=self.headers, json=jmsg)
-        return r.json()
+        r = r.json()
+        r = self.response(r, ('output', 'choices', 0, 'message', 'content'))
+        return r
 
     def create(self, message):
         jmsg = [{

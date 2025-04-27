@@ -36,7 +36,9 @@ class Completion(Base):
         }
         url = self.api
         r = self.client.post(url, headers=self.headers, json=jmsg)
-        return r.json()
+        r = r.json()
+        r = self.response(r, ('choices', 0, 'message', 'content'))
+        return r
 
     def create(self, message, stream=False):
         messages = [{
@@ -55,7 +57,7 @@ class Chat(Completion):
             "role": "user", "content": message
         })
         r = self.send_messages(self.history)
-        if 'choices' in r:
+        if r.text:
             self.history.append(r['choices'][0]['message'])
 
         return r

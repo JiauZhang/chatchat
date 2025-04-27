@@ -14,7 +14,6 @@ class Completion(Base):
         self.chat_url = f'{self.host}/{model}:generateContent'
         self.headers = {'Content-Type': 'application/json'}
         self.params = {'key': self.api_key}
-        self.history = []
 
     def message_template(self, role, text):
         message = {
@@ -23,11 +22,16 @@ class Completion(Base):
         }
         return message
 
-    def create(self, message):
-        self.history = [self.message_template('user', message)]
-        jmsg = {'contents': self.history}
+    def send_message(self, message):
+        jmsg = {'contents': message}
         r = self.client.post(self.chat_url, headers=self.headers, json=jmsg, params=self.params)
-        return r.json()
+        r = r.json()
+        r = self.response(r, ('candidates', 0, 'content', 'parts', 0, 'text'))
+        return r
+
+    def create(self, message):
+        msg = [self.message_template('user', message)]
+        return self.send_message(msg)
 
 class Chat(Completion):
     def __init__(self, model='gemini-2.0-flash', history=[], client_kwargs={}):
@@ -36,11 +40,9 @@ class Chat(Completion):
 
     def chat(self, message):
         self.history.append(self.message_template('user', message))
-        jmsg = {'contents': self.history}
-        r = self.client.post(self.chat_url, headers=self.headers, json=jmsg, params=self.params)
-        r = r.json()
+        r = self.send_message(self.history)
 
-        if 'candidates' in r:
+        if r.text:
             assistant_output = r['candidates'][0]['content']
             self.history.append(assistant_output)
 
