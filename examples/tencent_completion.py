@@ -3,22 +3,14 @@ from chatchat.tencent import Completion
 completion = Completion()
 r = completion.create('你好！')
 # {
-#     'Response': {
-#         'RequestId': 'xxx',
-#         'Note': '以上内容为AI生成 ，不代表开发者立场，请勿删除或修改本标记',
-#         'Choices': [{
-#             'Message': {
-#                 'Role': 'assistant',
-#                 'Content': '您好，有什么可以帮您的吗？'
-#             }, 'FinishReason': 'stop'
-#         }],
-#         'Created': 111,
-#         'Id': 'yyy',
-#         'Usage': {
-#             'PromptTokens': 222,
-#             'CompletionTokens': 333,
-#             'TotalTokens': 444
-#         }
-#     }
+#     'id': 'bcfad08f30616a687c14b569313ad6b3',
+#     'object': 'chat.completion', 'created': 1758460610,
+#     'model': 'hunyuan-lite', 'system_fingerprint': '',
+#     'choices': [{
+#         'index': 0, 'message': {
+#             'role': 'assistant', 'content': '你好！很高兴与你交流。xxx'},
+#             'finish_reason': 'stop'
+#     }], 'usage': {'prompt_tokens': 4, 'completion_tokens': 33, 'total_tokens': 37},
+#     'note': '以上内容为AI生成，不代表开发者立场，请勿删除或修改本标记'
 # }
 print(r)
