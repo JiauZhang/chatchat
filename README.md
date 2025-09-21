@@ -83,8 +83,7 @@ user> ^D
 ```shell
 # set YOUR secret keys
 # tencent
-chatchat config tencent.secret_id=YOUR_SECRET_ID
-chatchat config tencent.secret_key=YOUR_SECRET_KEY
+chatchat config tencent.api_key=YOUR_API_KEY
 # baidu
 chatchat config baidu.app_id=YOUR_APP_ID
 # list info of all supported vendors
