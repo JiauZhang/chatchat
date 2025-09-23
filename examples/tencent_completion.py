@@ -1,7 +1,7 @@
-from chatchat.tencent import Completion
+from chatchat.tencent import TencentClient
 
-completion = Completion()
-r = completion.create('你好！')
+client = TencentClient()
+r = client.complete('你好！', model='hunyuan-lite')
 # {
 #     'id': 'bcfad08f30616a687c14b569313ad6b3',
 #     'object': 'chat.completion', 'created': 1758460610,

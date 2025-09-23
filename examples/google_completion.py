@@ -1,7 +1,7 @@
-from chatchat.google import Completion
+from chatchat.google import GoogleClient
 
-completion = Completion()
-r = completion.create('Hi')
+client = GoogleClient()
+r = client.complete('Hi', model='gemini-2.5-flash-lite')
 # {
 #     'choices': [{
 #         'finish_reason': 'stop', 'index': 0, 'message': {

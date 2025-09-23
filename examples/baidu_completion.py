@@ -1,13 +1,7 @@
-from chatchat.baidu import Completion
+from chatchat.baidu import BaiduClient
 
-# {
-#     "baidu": {
-#         "api_key": "x",
-#         "secret_key": "y"
-#     }
-# }
-completion = Completion()
-r = completion.create("简单介绍一下你自己，控制在五十个字之内。")
+client = BaiduClient()
+r = client.complete("简单介绍一下你自己，控制在五十个字之内。", model='ernie-lite-8k')
 # {
 #     'id': 'xxx',
 #     'object': 'chat.completion',
