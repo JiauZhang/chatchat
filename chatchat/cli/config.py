@@ -1,29 +1,21 @@
 from conippets import json
-from chatchat import base
-from chatchat.vendor import __vendor_info__
-
-def supported_vendors():
-    print(f'Supported vendors:')
-    for vendor, attrs in __vendor_info__.items():
-        print(vendor)
-        for attr in attrs:
-            print(f'    {attr}')
+from chatchat import base, __vendors__
 
 def parse_config(args):
     if args.list:
-        supported_vendors()
+        print(f'supported vendors: {__vendors__}')
     elif args.cfgs:
         cfg = args.cfgs.split('=')
         vendor_key = cfg[0].split('.')
-        usage = 'Usage: chatchat config vendor.key=value'
+        usage = 'Usage: chatchat config {vendor}.api_key=YOUR_API_KEY'
         if len(cfg) != 2 or len(vendor_key) != 2:
             print(usage)
             return
 
         (vendor, key), value = vendor_key, cfg[1]
-        if vendor not in __vendor_info__:
-            print(f'Vendor <{vendor}> is currently NOT supported!')
-            supported_vendors()
+        if vendor not in __vendors__:
+            print(f'vendor `{vendor}` is currently NOT supported!')
+            print(f'supported vendors: {__vendors__}')
             return
 
         secret_file = base.__secret_file__

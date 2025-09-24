@@ -5,5 +5,5 @@ class GoogleClient(Base):
         super().__init__(
             'google',
             'https://generativelanguage.googleapis.com/v1beta/openai/v1',
-            client_kwargs=client_kwargs,
+            client_kwargs=client_kwargs, model=model,
         )

@@ -5,5 +5,5 @@ class BaiduClient(Base):
         super().__init__(
             'baidu',
             'https://qianfan.baidubce.com/v2',
-            client_kwargs=client_kwargs,
+            client_kwargs=client_kwargs, model=model,
         )

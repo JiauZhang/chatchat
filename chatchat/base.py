@@ -32,12 +32,14 @@ class Base():
         self.secret_data = secret_data[self.vendor]
         self.api_key = self.secret_data['api_key']
         self.model = model
-        self.url = base_url + '/chat/completions'
-        self.client = httpx.Client(**client_kwargs)
-        self.headers = {
-            'Content-Type': 'application/json',
-            'Authorization': f'Bearer {self.api_key}',
-        }
+        self.client = httpx.Client(
+            base_url=base_url, **client_kwargs, headers={
+                'Content-Type': 'application/json',
+                'Authorization': f'Bearer {self.api_key}',
+            },
+        )
+        self.base_url = self.client.base_url
+        self.headers = self.client.headers
         self.history = []
 
     def verify_secret_data(self, secret_data, vendor):
@@ -60,7 +62,7 @@ class Base():
             'model': model if model else self.model,
             "messages": messages,
         }
-        r = self.client.post(self.url, headers=self.headers, json=jmsg)
+        r = self.client.post('/chat/completions', headers=self.headers, json=jmsg)
         r = r.json()
         r = self.response(r, ('choices', 0, 'message', 'content'))
         return r

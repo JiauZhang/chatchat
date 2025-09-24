@@ -5,5 +5,5 @@ class AlibabaClient(Base):
         super().__init__(
             'alibaba',
             'https://dashscope.aliyuncs.com/compatible-mode/v1',
-            client_kwargs=client_kwargs,
+            client_kwargs=client_kwargs, model=model,
         )

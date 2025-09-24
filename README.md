@@ -7,7 +7,7 @@
     <tr>
         <td align="center">Google</td>
         <td>
-            <code>gemini-2.0-flash</code>
+            <code>gemini-2.5-flash</code>
         </td>
     </tr>
     <tr>
