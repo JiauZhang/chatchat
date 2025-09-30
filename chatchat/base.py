@@ -56,23 +56,17 @@ class Base():
         message = {'role': role, 'content': text}
         return message
 
-    def send_messages(self, messages, model=None):
-        jmsg = {
-            'model': model if model else self.model,
-            "messages": messages,
-        }
-        r = self.client.post('/chat/completions', json=jmsg)
+    def send_messages_impl(self, url, jmsg, record=False):
+        r = self.client.post(url, json=jmsg)
         r = r.json()
         r = self.response(r, ('choices', 0, 'message', 'content'))
+        if record and (text := r.text):
+            jmsg['messages'].append(self.make_message('assistant', text))
         return r
 
-    def send_messages_stream(self, messages, model=None):
-        jmsg = {
-            'model': model if model else self.model,
-            "messages": messages,
-            'stream': True,
-        }
-        with self.client.stream('POST', '/chat/completions', json=jmsg) as r:
+    def send_messages_stream_impl(self, url, jmsg, record=False):
+        with self.client.stream('POST', url, json=jmsg) as r:
+            completion = ''
             for chunk in r.iter_lines():
                 if chunk:
                     # remove chunk prefix: 'data: '
@@ -80,9 +74,26 @@ class Base():
                     chunk = json.loads(chunk)
                     chunk_response = Response(chunk, ('choices', 0, 'finish_reason'))
                     if chunk_response.text == 'stop':
+                        if record and completion:
+                            jmsg['messages'].append(self.make_message('assistant', completion))
                         break
                     chunk_response.text_keys = ('choices', 0, 'delta', 'content')
+                    if text := chunk_response.text:
+                        completion += text
                     yield chunk_response
+
+    def send_messages(self, messages: list, model=None, record=False, stream=False):
+        jmsg = {
+            'model': model if model else self.model,
+            "messages": messages,
+        }
+        url = '/chat/completions'
+
+        if not stream:
+            return self.send_messages_impl(url, jmsg, record=record)
+        else:
+            jmsg['stream'] = True
+            return self.send_messages_stream_impl(url, jmsg, record=record)
 
     def response(self, raw_response, text_keys):
         if not isinstance(raw_response, dict):
@@ -91,10 +102,7 @@ class Base():
 
     def complete(self, prompt, model=None, stream=False, generation_kwargs={}):
         message = self.make_message('user', prompt)
-        if not stream:
-            return self.send_messages([message], model=model)
-        else:
-            return self.send_messages_stream([message], model=model)
+        return self.send_messages([message], model=model, stream=stream, record=False)
 
     def clear(self):
         self.history = []
@@ -103,7 +111,4 @@ class Base():
         message = self.make_message('user', text)
         messages = history if history else self.history
         messages.append(message)
-        r = self.send_messages(messages, model=model)
-        if text := r.text:
-            messages.append(self.make_message('assistant', text))
-        return r
+        return self.send_messages(messages, model=model, stream=stream, record=True)
