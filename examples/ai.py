@@ -26,7 +26,18 @@ print('2. chat mode\n')
 while True:
     prompt = input("user> ")
     if prompt == '\x04': # Ctrl+D
-        exit()
+        break
     response = ai.chat(prompt)
     text = response if response.text is None else response.text
     print(f'assistant> {text}')
+
+# stream mode
+print('\n3. stream completion mode\n')
+prompt = 'Generate 1000 words to me about China.'
+response = ai.complete(prompt, stream=True)
+for chunk in response:
+    print(chunk.text, end="", flush=True)
+print()
+
+ai.clear()
+print('\n4. stream completion mode\n')

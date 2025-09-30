@@ -85,7 +85,7 @@ user> ^D
 # tencent
 chatchat config tencent.api_key=YOUR_API_KEY
 # baidu
-chatchat config baidu.api_key=YOUR_APP_ID
+chatchat config baidu.api_key=YOUR_API_KEY
 # list info of all supported vendors
 chatchat config --list
 ```

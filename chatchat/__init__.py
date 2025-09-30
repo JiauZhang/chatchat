@@ -20,11 +20,16 @@ class AI:
         client_class = dynamic_import_client(vendor)
         self.client = client_class(model=model, client_kwargs=client_kwargs)
 
-    def complete(self, prompt, model=None):
-        return self.client.complete(prompt, model=model)
+    def complete(self, prompt, model=None, stream=False, generation_kwargs={}):
+        return self.client.complete(
+            prompt, model=model, stream=stream, generation_kwargs=generation_kwargs,
+        )
 
     def clear(self):
         self.client.clear()
 
-    def chat(self, text, model=None, history=None):
-        return self.client.chat(text, model=model, history=history)
+    def chat(self, text, model=None, history=None, stream=False, generation_kwargs={}):
+        return self.client.chat(
+            text, model=model, history=history, stream=stream,
+            generation_kwargs=generation_kwargs,
+        )

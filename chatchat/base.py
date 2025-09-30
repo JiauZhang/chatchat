@@ -1,6 +1,5 @@
 import pathlib, os, httpx
 from conippets import json
-from functools import cached_property
 
 __secret_file__ = os.path.join(str(pathlib.Path.home()), '.chatchat.json')
 
@@ -9,7 +8,7 @@ class Response(dict):
         super().__init__(**raw_response)
         self.text_keys = text_keys
 
-    @cached_property
+    @property
     def text(self):
         text = self
         for key in self.text_keys:
@@ -62,24 +61,45 @@ class Base():
             'model': model if model else self.model,
             "messages": messages,
         }
-        r = self.client.post('/chat/completions', headers=self.headers, json=jmsg)
+        r = self.client.post('/chat/completions', json=jmsg)
         r = r.json()
         r = self.response(r, ('choices', 0, 'message', 'content'))
         return r
+
+    def send_messages_stream(self, messages, model=None):
+        jmsg = {
+            'model': model if model else self.model,
+            "messages": messages,
+            'stream': True,
+        }
+        with self.client.stream('POST', '/chat/completions', json=jmsg) as r:
+            for chunk in r.iter_lines():
+                if chunk:
+                    # remove chunk prefix: 'data: '
+                    chunk = chunk[6:]
+                    chunk = json.loads(chunk)
+                    chunk_response = Response(chunk, ('choices', 0, 'finish_reason'))
+                    if chunk_response.text == 'stop':
+                        break
+                    chunk_response.text_keys = ('choices', 0, 'delta', 'content')
+                    yield chunk_response
 
     def response(self, raw_response, text_keys):
         if not isinstance(raw_response, dict):
             raw_response = {'raw_response': raw_response}
         return Response(raw_response, text_keys)
 
-    def complete(self, prompt, model=None):
+    def complete(self, prompt, model=None, stream=False, generation_kwargs={}):
         message = self.make_message('user', prompt)
-        return self.send_messages([message], model=model)
+        if not stream:
+            return self.send_messages([message], model=model)
+        else:
+            return self.send_messages_stream([message], model=model)
 
     def clear(self):
         self.history = []
 
-    def chat(self, text, model=None, history=None):
+    def chat(self, text, model=None, history=None, stream=False, generation_kwargs={}):
         message = self.make_message('user', text)
         messages = history if history else self.history
         messages.append(message)
