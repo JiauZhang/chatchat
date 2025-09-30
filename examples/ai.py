@@ -2,8 +2,8 @@ import argparse
 from chatchat import AI
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--vendor', type=str, required=True)
-parser.add_argument('--model', type=str, required=True)
+parser.add_argument('--vendor', type=str, default='tencent')
+parser.add_argument('--model', type=str, default='hunyuan-lite')
 parser.add_argument('--timeout', type=int, default=None)
 parser.add_argument('--proxy', type=str, default=None)
 args = parser.parse_args()
@@ -15,11 +15,14 @@ ai = AI(args.vendor, model=args.model, client_kwargs={
 })
 
 # completion
-response = ai.complete('Hi')
+print('1. completion mode\n')
+prompt = 'Hi'
+response = ai.complete(prompt)
 text = response if response.text is None else response.text
-print(text, end='\n\n')
+print(f'user> {prompt}\nassistant> {text}\n')
 
 # chat
+print('2. chat mode\n')
 while True:
     prompt = input("user> ")
     if prompt == '\x04': # Ctrl+D

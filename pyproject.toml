@@ -16,7 +16,7 @@ classifiers = [
 ]
 keywords = ['Artificial Intelligence']
 requires-python = ">=3.10"
-dependencies = ['conippets >= 0.1.8', 'httpx']
+dependencies = ['conippets>=0.1.8', 'httpx']
 
 [project.urls]
 Homepage = "https://github.com/jiauzhang/chatchat"

@@ -19,19 +19,19 @@
     <tr>
         <td align="center">百度</td>
         <td>
-            <code>ernie-lite-8k</code> <code>ernie-tiny-8k</code> <code>ernie-speed-8k</code> <code>ernie-speed-128k</code> <code>deepseek-v3</code> <code>deepseek-r1</code>
+            <code>ernie-lite-8k</code> <code>ernie-tiny-8k</code> <code>ernie-speed-8k</code> <code>ernie-speed-128k</code>
         </td>
     </tr>
     <tr>
         <td align="center">阿里巴巴</td>
         <td>
-            <code>deepseek-v3</code> <code>deepseek-r1</code> <code>deepseek-r1-distill-qwen-1.5b</code> <code>deepseek-r1-distill-qwen-7b</code> <code>deepseek-r1-distill-qwen-14b</code> <code>deepseek-r1-distill-qwen-32b</code>
+            <code>qwen3-max</code> <code>qwen-plus</code> <code>qwen-flash</code> <code>qwen-turbo</code>
         </td>
     </tr>
     <tr>
         <td align="center">讯飞</td>
         <td>
-            <code>lite</code> <code>generalv3</code> <code>pro-128k</code> <code>generalv3.5</code> <code>max-32k</code> <code>4.0Ultra</code> <code>deepseek-r1</code> <code>deepseek-v3</code>
+            <code>lite</code> <code>generalv3</code> <code>pro-128k</code> <code>generalv3.5</code> <code>max-32k</code> <code>4.0Ultra</code>
         </td>
     </tr>
     <tr>
@@ -85,7 +85,7 @@ user> ^D
 # tencent
 chatchat config tencent.api_key=YOUR_API_KEY
 # baidu
-chatchat config baidu.app_id=YOUR_APP_ID
+chatchat config baidu.api_key=YOUR_APP_ID
 # list info of all supported vendors
 chatchat config --list
 ```

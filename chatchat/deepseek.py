@@ -1,6 +1,6 @@
 from chatchat.base import Base
 
-class DeepSeekClient(Base):
+class DeepseekClient(Base):
     def __init__(self, model=None, client_kwargs={}):
         super().__init__(
             'deepseek',
