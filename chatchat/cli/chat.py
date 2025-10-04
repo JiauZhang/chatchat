@@ -9,9 +9,11 @@ def parse_config(args):
             prompt = input("user> ")
             if prompt == '\x04': # Ctrl+D
                 exit()
-            response = ai.chat(prompt)
-            text = response if response.text is None else response.text
-            print(f'assistant> {text}')
+            response = ai.chat(prompt, stream=True)
+            print('assistant> ', end='')
+            for chunk in response:
+                print(chunk.text, end="", flush=True)
+            print()
 
 def cli_chat(subparser):
     config_parser = subparser.add_parser('run', help='Chat with AI')
