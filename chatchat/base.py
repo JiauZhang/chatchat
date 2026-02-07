@@ -20,15 +20,15 @@ class Response(dict):
         return text
 
 class Base():
-    def __init__(self, vendor, base_url, model=None, client_kwargs={}):
-        self.vendor = vendor
+    def __init__(self, provider, base_url, model=None, instruction=None, client_kwargs={}):
+        self.provider = provider
+        self._instruction = instruction
         if not os.path.exists(__secret_file__):
             json.write(__secret_file__, {})
-
         secret_data = json.read(__secret_file__)
-        self.verify_secret_data(secret_data, self.vendor)
+        self.verify_secret_data(secret_data, self.provider)
         self.secret_file = __secret_file__
-        self.secret_data = secret_data[self.vendor]
+        self.secret_data = secret_data[self.provider]
         self.api_key = self.secret_data['api_key']
         self.model = model
         self.client = httpx.Client(
@@ -40,16 +40,17 @@ class Base():
         self.base_url = self.client.base_url
         self.headers = self.client.headers
         self.history = []
+        self.clear()
 
-    def verify_secret_data(self, secret_data, vendor):
-        has_vendor = vendor in secret_data
+    def verify_secret_data(self, secret_data, provider):
+        has_provider = provider in secret_data
         has_key = False
-        if has_vendor:
-            vendor_data = secret_data[vendor]
-            has_key = 'api_key' in vendor_data
-        if not (has_vendor and has_key):
-            print('You need to configure your target vendor first as bellow.')
-            print(f'    chatchat config {vendor}.api_key=YOUR_API_KEY')
+        if has_provider:
+            provider_data = secret_data[provider]
+            has_key = 'api_key' in provider_data
+        if not (has_provider and has_key):
+            print('You need to configure your target provider first as bellow.')
+            print(f'    chatchat config {provider}.api_key=YOUR_API_KEY')
             exit(-1)
 
     def make_message(self, role, text):
@@ -102,10 +103,20 @@ class Base():
 
     def complete(self, prompt, model=None, stream=False, generation_kwargs={}):
         message = self.make_message('user', prompt)
-        return self.send_messages([message], model=model, stream=stream, record=False)
+        messages = [message] if self._instruction is None else [self.history[0], message]
+        return self.send_messages(messages, model=model, stream=stream, record=False)
+
+    @property
+    def instruction(self):
+        return self._instruction
+
+    @instruction.setter
+    def instruction(self, value):
+        self._instruction = value
+        self.clear()
 
     def clear(self):
-        self.history = []
+        self.history = [self.make_message('system', self._instruction)] if self._instruction else []
 
     def chat(self, text, model=None, history=None, stream=False, generation_kwargs={}):
         message = self.make_message('user', text)

@@ -1,7 +1,7 @@
 ### Large Language Models Python API
 <table align="center">
     <tr>
-        <th>Vendor</th>
+        <th>Provider</th>
         <th>Model</th>
     </tr>
     <tr>
@@ -86,7 +86,7 @@ user> ^D
 chatchat config tencent.api_key=YOUR_API_KEY
 # baidu
 chatchat config baidu.api_key=YOUR_API_KEY
-# list info of all supported vendors
+# list info of all supported providers
 chatchat config --list
 ```
 > Refer to [\[examples\]](./examples)

@@ -2,8 +2,8 @@ from chatchat import AI
 
 def parse_config(args):
     if args.params:
-        vendor, model = args.params
-        ai = AI(vendor, model=model, client_kwargs={'proxy': args.proxy})
+        provider, model = args.params
+        ai = AI(provider, model=model, client_kwargs={'proxy': args.proxy})
 
         while True:
             prompt = input("user> ")

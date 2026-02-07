@@ -2,14 +2,14 @@ import argparse
 from chatchat import AI
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--vendor', type=str, default='tencent')
+parser.add_argument('--provider', type=str, default='tencent')
 parser.add_argument('--model', type=str, default='hunyuan-lite')
 parser.add_argument('--timeout', type=int, default=None)
 parser.add_argument('--proxy', type=str, default=None)
 args = parser.parse_args()
 
-# `chatchat config --list` check supported vendors
-ai = AI(args.vendor, model=args.model, client_kwargs={
+# `chatchat config --list` check supported providers
+ai = AI(args.provider, model=args.model, client_kwargs={
     'timeout': args.timeout,
     'proxy': args.proxy,
 })
