@@ -1,8 +1,14 @@
 import argparse
+from chatchat import __version__
 from chatchat.cli.config import cli_config
 from chatchat.cli.chat import cli_chat
 
 parser = argparse.ArgumentParser()
+parser.add_argument(
+    '-V', '--version',
+    action='version',
+    version=f'%(prog)s {__version__}',
+)
 parser.set_defaults(parser=None)
 subparser = parser.add_subparsers()
 

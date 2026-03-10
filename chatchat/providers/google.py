@@ -1,9 +1,9 @@
-from chatchat.base import Base
+from chatchat.client import BaseClient
 
-class BaiduClient(Base):
+class GoogleClient(BaseClient):
     def __init__(self, model=None, instruction=None, client_kwargs={}):
         super().__init__(
-            'baidu',
-            'https://qianfan.baidubce.com/v2',
+            'google',
+            'https://generativelanguage.googleapis.com/v1beta/openai/v1',
             client_kwargs=client_kwargs, model=model, instruction=instruction,
         )

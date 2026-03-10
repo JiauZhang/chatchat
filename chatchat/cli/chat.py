@@ -1,22 +1,22 @@
-from chatchat import AI
+from chatchat.client import Client
 
 def parse_config(args):
     if args.params:
         provider, model = args.params
-        ai = AI(provider, model=model, client_kwargs={'proxy': args.proxy})
+        llm = Client(provider, model=model, client_kwargs={'proxy': args.proxy})
 
         while True:
             prompt = input("user> ")
-            if prompt == '\x04': # Ctrl+D
+            if prompt == '/exit':
                 exit()
-            response = ai.chat(prompt, stream=True)
+            response = llm.chat(prompt, stream=True)
             print('assistant> ', end='')
             for chunk in response:
                 print(chunk.text, end="", flush=True)
             print()
 
 def cli_chat(subparser):
-    config_parser = subparser.add_parser('run', help='Chat with AI')
+    config_parser = subparser.add_parser('run', help='Chat with LLM')
     config_parser.add_argument('params', type=str, nargs=2)
     config_parser.add_argument('--proxy', type=str, default=None)
     config_parser.set_defaults(parser=parse_config)

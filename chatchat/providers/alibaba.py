@@ -1,6 +1,6 @@
-from chatchat.base import Base
+from chatchat.client import BaseClient
 
-class AlibabaClient(Base):
+class AlibabaClient(BaseClient):
     def __init__(self, model=None, instruction=None, client_kwargs={}):
         super().__init__(
             'alibaba',

@@ -1,5 +1,7 @@
 import pathlib, os, httpx
 from conippets import json
+from importlib import import_module
+from chatchat.providers import __providers__
 
 __secret_file__ = os.path.join(str(pathlib.Path.home()), '.chatchat.json')
 
@@ -19,7 +21,7 @@ class Response(dict):
                 break
         return text
 
-class Base():
+class BaseClient():
     def __init__(self, provider, base_url, model=None, instruction=None, client_kwargs={}):
         self.provider = provider
         self._instruction = instruction
@@ -72,7 +74,12 @@ class Base():
                 if chunk:
                     # remove chunk prefix: 'data: '
                     chunk = chunk[6:]
-                    chunk = json.loads(chunk)
+                    try:
+                        chunk = json.loads(chunk)
+                    except Exception as e:
+                        print(f'{e}\njson.loads failed, chunk data:\n{chunk}')
+                        exit(1)
+
                     chunk_response = Response(chunk, ('choices', 0, 'finish_reason'))
                     if chunk_response.text == 'stop':
                         if record and completion:
@@ -123,3 +130,44 @@ class Base():
         messages = history if history else self.history
         messages.append(message)
         return self.send_messages(messages, model=model, stream=stream, record=True)
+
+
+def dynamic_import_client(provider):
+    if provider not in __providers__:
+            print(f'provider `{provider}` is currently not supported!')
+            print(f'supported providers: {__providers__}')
+            exit(-1)
+    client_module = import_module(f'chatchat.providers.{provider}')
+    client_class = getattr(client_module, f'{provider.capitalize()}Client')
+    return client_class
+
+class Client:
+    def __init__(self, provider, model=None, instruction=None, client_kwargs={}):
+        client_class = dynamic_import_client(provider)
+        self.client = client_class(model=model, instruction=instruction, client_kwargs=client_kwargs)
+
+    def complete(self, prompt, model=None, stream=False, generation_kwargs={}):
+        return self.client.complete(
+            prompt, model=model, stream=stream, generation_kwargs=generation_kwargs,
+        )
+
+    @property
+    def history(self):
+        return self.client.history
+
+    @property
+    def instruction(self):
+         return self.client.instruction
+    
+    @instruction.setter
+    def instruction(self, value):
+         self.client.instruction = value
+
+    def clear(self):
+        self.client.clear()
+
+    def chat(self, text, model=None, history=None, stream=False, generation_kwargs={}):
+        return self.client.chat(
+            text, model=model, history=history, stream=stream,
+            generation_kwargs=generation_kwargs,
+        )

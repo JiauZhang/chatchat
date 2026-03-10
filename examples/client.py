@@ -1,5 +1,5 @@
 import argparse
-from chatchat import AI
+from chatchat.client import Client
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--provider', type=str, default='tencent')
@@ -9,7 +9,7 @@ parser.add_argument('--proxy', type=str, default=None)
 args = parser.parse_args()
 
 # `chatchat config --list` check supported providers
-ai = AI(args.provider, model=args.model, client_kwargs={
+llm = Client(args.provider, model=args.model, client_kwargs={
     'timeout': args.timeout,
     'proxy': args.proxy,
 })
@@ -17,7 +17,7 @@ ai = AI(args.provider, model=args.model, client_kwargs={
 # completion
 print('1. completion mode\n')
 prompt = 'Hi'
-response = ai.complete(prompt)
+response = llm.complete(prompt)
 text = response if response.text is None else response.text
 print(f'user> {prompt}\nassistant> {text}\n')
 
@@ -25,28 +25,28 @@ print(f'user> {prompt}\nassistant> {text}\n')
 print('2. chat mode\n')
 while True:
     prompt = input("user> ")
-    if prompt == '\x04': # Ctrl+D
+    if prompt == '/exit':
         break
-    response = ai.chat(prompt)
+    response = llm.chat(prompt)
     text = response if response.text is None else response.text
     print(f'assistant> {text}')
 
 # stream mode
 print('\n3. stream completion mode\n')
 prompt = 'Generate 200 words to me about China.'
-response = ai.complete(prompt, stream=True)
+response = llm.complete(prompt, stream=True)
 print(f'user> {prompt}\nassistant> ', end='')
 for chunk in response:
     print(chunk.text, end="", flush=True)
 print()
 
-ai.clear()
+llm.clear()
 print('\n4. stream chat mode\n')
 while True:
     prompt = input("user> ")
-    if prompt == '\x04': # Ctrl+D
+    if prompt == '/exit':
         break
-    response = ai.chat(prompt, stream=True)
+    response = llm.chat(prompt, stream=True)
     print('assistant> ', end='')
     for chunk in response:
         print(chunk.text, end="", flush=True)

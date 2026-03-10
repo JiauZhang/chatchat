@@ -1,5 +1,6 @@
 from conippets import json
-from chatchat import base, __providers__
+from chatchat.providers import __providers__
+from chatchat.client import __secret_file__
 
 def parse_config(args):
     if args.list:
@@ -18,7 +19,7 @@ def parse_config(args):
             print(f'supported providers: {__providers__}')
             return
 
-        secret_file = base.__secret_file__
+        secret_file = __secret_file__
         secret_data = json.read(secret_file)
 
         if provider in secret_data:

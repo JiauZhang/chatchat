@@ -128,5 +128,6 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# secret data
-examples/data.json
+# MacOS
+.DS_Store
+**/.DS_Store
