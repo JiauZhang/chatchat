@@ -3,7 +3,10 @@ from chatchat.client import Client
 def parse_config(args):
     if args.params:
         provider, model = args.params
-        llm = Client(provider, model=model, client_kwargs={'proxy': args.proxy})
+        llm = Client(provider, model=model, http_options={
+                'proxy': args.proxy, 'timeout': args.timeout,
+            }
+        )
 
         while True:
             prompt = input("user> ")
@@ -19,4 +22,5 @@ def cli_chat(subparser):
     config_parser = subparser.add_parser('run', help='Chat with LLM')
     config_parser.add_argument('params', type=str, nargs=2)
     config_parser.add_argument('--proxy', type=str, default=None)
+    config_parser.add_argument('--timeout', type=float, default=None)
     config_parser.set_defaults(parser=parse_config)

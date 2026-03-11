@@ -3,5 +3,5 @@ class Agent:
         self.model = model
         self.model.instruction = instruction
 
-    def __call__(self, text, stream=False, generation_kwargs={}):
-        return self.model.chat(text, stream=stream, generation_kwargs=generation_kwargs)
+    def __call__(self, text, generation_options={}):
+        return self.model.chat(text, generation_options=generation_options)

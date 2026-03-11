@@ -9,7 +9,7 @@ parser.add_argument('--proxy', type=str, default=None)
 args = parser.parse_args()
 
 # `chatchat config --list` check supported providers
-llm = Client(args.provider, model=args.model, client_kwargs={
+llm = Client(args.provider, model=args.model, http_options={
     'timeout': args.timeout,
     'proxy': args.proxy,
 })
@@ -34,7 +34,8 @@ while True:
 # stream mode
 print('\n3. stream completion mode\n')
 prompt = 'Generate 200 words to me about China.'
-response = llm.complete(prompt, stream=True)
+generation_options = {'stream': True}
+response = llm.complete(prompt, generation_options=generation_options)
 print(f'user> {prompt}\nassistant> ', end='')
 for chunk in response:
     print(chunk.text, end="", flush=True)
@@ -46,7 +47,7 @@ while True:
     prompt = input("user> ")
     if prompt == '/exit':
         break
-    response = llm.chat(prompt, stream=True)
+    response = llm.chat(prompt, generation_options=generation_options)
     print('assistant> ', end='')
     for chunk in response:
         print(chunk.text, end="", flush=True)

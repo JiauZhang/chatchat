@@ -9,7 +9,7 @@ parser.add_argument('--timeout', type=int, default=None)
 parser.add_argument('--proxy', type=str, default=None)
 args = parser.parse_args()
 
-llm = Client(args.provider, model=args.model, client_kwargs={
+llm = Client(args.provider, model=args.model, http_options={
     'timeout': args.timeout,
     'proxy': args.proxy,
 })
@@ -22,7 +22,7 @@ while True:
     prompt = input("user> ")
     if prompt == '/exit':
         break
-    response = agent(prompt, stream=True)
+    response = agent(prompt, generation_options={'stream': True})
     print('assistant> ', end='')
     for chunk in response:
         print(chunk.text, end="", flush=True)

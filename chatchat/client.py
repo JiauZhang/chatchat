@@ -22,7 +22,7 @@ class Response(dict):
         return text
 
 class BaseClient():
-    def __init__(self, provider, base_url, model=None, instruction=None, client_kwargs={}):
+    def __init__(self, provider, base_url, model=None, instruction=None, http_options={}):
         self.provider = provider
         self._instruction = instruction
         if not os.path.exists(__secret_file__):
@@ -34,7 +34,7 @@ class BaseClient():
         self.api_key = self.secret_data['api_key']
         self.model = model
         self.client = httpx.Client(
-            base_url=base_url, **client_kwargs, headers={
+            base_url=base_url, **http_options, headers={
                 'Content-Type': 'application/json',
                 'Authorization': f'Bearer {self.api_key}',
             },
@@ -90,12 +90,13 @@ class BaseClient():
                         completion += text
                     yield chunk_response
 
-    def send_messages(self, messages: list, model=None, record=False, stream=False):
+    def send_messages(self, messages, generation_options={}, model=None, record=False):
         jmsg = {
             'model': model if model else self.model,
             "messages": messages,
         }
         url = '/chat/completions'
+        stream = generation_options.get('stream', False)
 
         if not stream:
             return self.send_messages_impl(url, jmsg, record=record)
@@ -108,10 +109,10 @@ class BaseClient():
             raw_response = {'raw_response': raw_response}
         return Response(raw_response, text_keys)
 
-    def complete(self, prompt, model=None, stream=False, generation_kwargs={}):
+    def complete(self, prompt, model=None, generation_options={}):
         message = self.make_message('user', prompt)
         messages = [message] if self._instruction is None else [self.history[0], message]
-        return self.send_messages(messages, model=model, stream=stream, record=False)
+        return self.send_messages(messages, model=model, record=False, generation_options=generation_options)
 
     @property
     def instruction(self):
@@ -125,12 +126,11 @@ class BaseClient():
     def clear(self):
         self.history = [self.make_message('system', self._instruction)] if self._instruction else []
 
-    def chat(self, text, model=None, history=None, stream=False, generation_kwargs={}):
+    def chat(self, text, model=None, history=None, generation_options={}):
         message = self.make_message('user', text)
         messages = history if history else self.history
         messages.append(message)
-        return self.send_messages(messages, model=model, stream=stream, record=True)
-
+        return self.send_messages(messages, model=model, generation_options=generation_options, record=True)
 
 def dynamic_import_client(provider):
     if provider not in __providers__:
@@ -142,14 +142,12 @@ def dynamic_import_client(provider):
     return client_class
 
 class Client:
-    def __init__(self, provider, model=None, instruction=None, client_kwargs={}):
+    def __init__(self, provider, model=None, instruction=None, http_options={}):
         client_class = dynamic_import_client(provider)
-        self.client = client_class(model=model, instruction=instruction, client_kwargs=client_kwargs)
+        self.client: BaseClient = client_class(model=model, instruction=instruction, http_options=http_options)
 
-    def complete(self, prompt, model=None, stream=False, generation_kwargs={}):
-        return self.client.complete(
-            prompt, model=model, stream=stream, generation_kwargs=generation_kwargs,
-        )
+    def complete(self, prompt, model=None, generation_options={}):
+        return self.client.complete(prompt, model=model, generation_options=generation_options)
 
     @property
     def history(self):
@@ -158,7 +156,7 @@ class Client:
     @property
     def instruction(self):
          return self.client.instruction
-    
+
     @instruction.setter
     def instruction(self, value):
          self.client.instruction = value
@@ -166,8 +164,5 @@ class Client:
     def clear(self):
         self.client.clear()
 
-    def chat(self, text, model=None, history=None, stream=False, generation_kwargs={}):
-        return self.client.chat(
-            text, model=model, history=history, stream=stream,
-            generation_kwargs=generation_kwargs,
-        )
+    def chat(self, text, model=None, history=None, generation_options={}):
+        return self.client.chat(text, model=model, history=history, generation_options=generation_options)
