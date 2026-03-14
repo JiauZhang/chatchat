@@ -126,7 +126,6 @@ class BaseClient:
 
         jmsg['messages'].append(message)
         if need_tool_calls:
-            print(f'need_tool_calls: {need_tool_calls}')
             tool_result_messages = self.handle_tool_calls(message, tools)
             jmsg['messages'] += tool_result_messages
             yield from self.send_messages_stream_impl(url, jmsg, thinking=thinking, tools=tools)
@@ -180,8 +179,9 @@ class Client:
         client_class = dynamic_import_client(provider)
         self.client: BaseClient = client_class(model=model, instruction=instruction, http_options=http_options)
 
-    def complete(self, prompt, model=None, generation_options={}):
-        return self.client.complete(prompt, model=model, generation_options=generation_options)
+        self.chat = self.client.chat
+        self.complete = self.client.complete
+        self.clear = self.client.clear
 
     @property
     def history(self):
@@ -194,12 +194,3 @@ class Client:
     @instruction.setter
     def instruction(self, value):
          self.client.instruction = value
-
-    def clear(self):
-        self.client.clear()
-
-    def chat(self, text, *, model=None, history=None, generation_options={}, tools=None):
-        return self.client.chat(
-            text, model=model, history=history, generation_options=generation_options,
-            tools=tools,
-        )

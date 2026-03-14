@@ -6,12 +6,12 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--provider', type=str, default='zhipu')
 parser.add_argument('--model', type=str, default='glm-4.7-flash')
 parser.add_argument('--timeout', type=int, default=None)
-parser.add_argument('--streaming', action='store_true')
+parser.add_argument('--non-streaming', action='store_true')
 parser.add_argument('--thinking', action='store_true')
 args = parser.parse_args()
 
 llm = Client(args.provider, model=args.model, http_options={'timeout': args.timeout})
-generation_options = {'stream': args.streaming, 'thinking': args.thinking}
+generation_options = {'stream': not args.non_streaming, 'thinking': args.thinking}
 
 @Tool(
     name='get_weather', description='getting weather information for a specified city',

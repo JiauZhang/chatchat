@@ -1,7 +1,9 @@
-class Agent:
-    def __init__(self, model, instruction):
-        self.model = model
-        self.model.instruction = instruction
+from .client import Client
 
-    def __call__(self, text, generation_options={}):
-        return self.model.chat(text, generation_options=generation_options)
+class Agent:
+    def __init__(self, client: Client, instruction):
+        self.client = client
+        self.client.instruction = instruction
+
+    def __call__(self, text, *, generation_options={}, tools=None, memory=None):
+        return self.client.chat(text, generation_options=generation_options, tools=tools)
