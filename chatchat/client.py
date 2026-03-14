@@ -55,11 +55,21 @@ class BaseClient():
             print(f'    chatchat config {provider}.api_key=YOUR_API_KEY')
             exit(-1)
 
-    def make_message(self, role, text):
-        message = {'role': role, 'content': text}
+    def make_message(self, role, text, thinking=False):
+        content_type = 'content' if not thinking else 'reasoning_content'
+        message = {'role': role, content_type: text}
         return message
 
-    def send_messages_impl(self, url, jmsg, record=False):
+    def build_client_messages(self, model, messages, generation_options):
+        jmsg = {
+            'model': model if model else self.model,
+            "messages": messages,
+        }
+        if generation_options.get('stream'):
+            jmsg['stream'] = True
+        return jmsg
+
+    def send_messages_impl(self, url, jmsg, record=False, thinking=False):
         r = self.client.post(url, json=jmsg)
         r = r.json()
         r = self.response(r, ('choices', 0, 'message', 'content'))
@@ -67,42 +77,52 @@ class BaseClient():
             jmsg['messages'].append(self.make_message('assistant', text))
         return r
 
-    def send_messages_stream_impl(self, url, jmsg, record=False):
+    def send_messages_stream_impl(self, url, jmsg, record=False, thinking=False):
         with self.client.stream('POST', url, json=jmsg) as r:
             completion = ''
+            content_type = 'content' if not thinking else 'reasoning_content'
+
+            if thinking:
+                yield '\n<think>\n'
+
             for chunk in r.iter_lines():
                 if chunk:
                     # remove chunk prefix: 'data: '
                     chunk = chunk[6:]
+
+                    if chunk == '[DONE]':
+                        if record and completion:
+                            jmsg['messages'].append({'role': 'assistant', content_type: completion})
+                        break
                     try:
                         chunk = json.loads(chunk)
                     except Exception as e:
                         print(f'{e}\njson.loads failed, chunk data:\n{chunk}')
                         exit(1)
 
-                    chunk_response = Response(chunk, ('choices', 0, 'finish_reason'))
-                    if chunk_response.text == 'stop':
+                    chunk_response = chunk['choices'][0]['delta']
+                    if thinking and 'content' in chunk_response:
+                        yield '\n</think>\n'
                         if record and completion:
-                            jmsg['messages'].append(self.make_message('assistant', completion))
-                        break
-                    chunk_response.text_keys = ('choices', 0, 'delta', 'content')
-                    if text := chunk_response.text:
+                            jmsg['messages'].append({'role': 'assistant', content_type: completion})
+                        content_type = 'content'
+                        completion = ''
+                        thinking = False
+
+                    text = chunk_response[content_type]
+                    if text:
                         completion += text
-                    yield chunk_response
+                    yield text
 
     def send_messages(self, messages, generation_options={}, model=None, record=False):
-        jmsg = {
-            'model': model if model else self.model,
-            "messages": messages,
-        }
+        jmsg = self.build_client_messages(model, messages, generation_options)
         url = '/chat/completions'
-        stream = generation_options.get('stream', False)
+        thinking = generation_options.get('thinking')
 
-        if not stream:
-            return self.send_messages_impl(url, jmsg, record=record)
+        if not generation_options.get('stream', False):
+            return self.send_messages_impl(url, jmsg, record=record, thinking=thinking)
         else:
-            jmsg['stream'] = True
-            return self.send_messages_stream_impl(url, jmsg, record=record)
+            return self.send_messages_stream_impl(url, jmsg, record=record, thinking=thinking)
 
     def response(self, raw_response, text_keys):
         if not isinstance(raw_response, dict):

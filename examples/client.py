@@ -38,7 +38,7 @@ generation_options = {'stream': True}
 response = llm.complete(prompt, generation_options=generation_options)
 print(f'user> {prompt}\nassistant> ', end='')
 for chunk in response:
-    print(chunk.text, end="", flush=True)
+    print(chunk, end="", flush=True)
 print()
 
 llm.clear()
@@ -50,5 +50,5 @@ while True:
     response = llm.chat(prompt, generation_options=generation_options)
     print('assistant> ', end='')
     for chunk in response:
-        print(chunk.text, end="", flush=True)
+        print(chunk, end="", flush=True)
     print()

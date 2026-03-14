@@ -25,5 +25,5 @@ while True:
     response = agent(prompt, generation_options={'stream': True})
     print('assistant> ', end='')
     for chunk in response:
-        print(chunk.text, end="", flush=True)
+        print(chunk, end="", flush=True)
     print()
