@@ -5,23 +5,7 @@ from chatchat.providers import __providers__
 
 __secret_file__ = os.path.join(str(pathlib.Path.home()), '.chatchat.json')
 
-class Response(dict):
-    def __init__(self, raw_response, text_keys):
-        super().__init__(**raw_response)
-        self.text_keys = text_keys
-
-    @property
-    def text(self):
-        text = self
-        for key in self.text_keys:
-            try:
-                text = text[key]
-            except:
-                text = None
-                break
-        return text
-
-class BaseClient():
+class BaseClient:
     def __init__(self, provider, base_url, model=None, instruction=None, http_options={}):
         self.provider = provider
         self._instruction = instruction
@@ -55,37 +39,53 @@ class BaseClient():
             print(f'    chatchat config {provider}.api_key=YOUR_API_KEY')
             exit(-1)
 
-    def make_message(self, role, text, thinking=False):
-        content_type = 'content' if not thinking else 'reasoning_content'
-        message = {'role': role, content_type: text}
-        return message
-
-    def build_client_messages(self, model, messages, generation_options):
+    def build_client_messages(self, *, model, messages, generation_options, tools=None):
         jmsg = {
             'model': model if model else self.model,
             "messages": messages,
         }
         if generation_options.get('stream'):
             jmsg['stream'] = True
+        if tools:
+            jmsg['tools'] = tools.to_dict()
         return jmsg
 
-    def send_messages_impl(self, url, jmsg, record=False, thinking=False):
+    def is_tool_calls(self, message):
+        return 'tool_calls' in message
+
+    def handle_tool_calls(self, message, tools):
+        raise NotImplementedError(f'{self.provider} dose not support tool call.')
+
+    def send_messages_impl(self, url, jmsg, thinking=False, tools=None):
         r = self.client.post(url, json=jmsg)
         r = r.json()
         r = r['choices'][0]['message']
-        if record:
+
+        if self.is_tool_calls(r):
             jmsg['messages'].append(r)
+            text = ''
+            if thinking:
+                text = f'\n<think>\n{r['reasoning_content']}\n</think>\n'
+            text += r['content']
+            tool_result_messages = self.handle_tool_calls(r, tools)
+            jmsg['messages'] += tool_result_messages
+            text += self.send_messages_impl(url, jmsg, thinking=thinking)
+            return text
+
+        jmsg['messages'].append(r)
         text = ''
         if thinking:
             text = f'\n<think>\n{r['reasoning_content']}\n</think>\n'
         text += r['content']
         return text
 
-    def send_messages_stream_impl(self, url, jmsg, record=False, thinking=False):
+    def send_messages_stream_impl(self, url, jmsg, thinking=False, tools=None):
+        need_tool_calls = False
+        message = {'role': 'assistant'}
+        thinking_done = not thinking
         with self.client.stream('POST', url, json=jmsg) as r:
             completion = ''
             content_type = 'content' if not thinking else 'reasoning_content'
-            message = {'role': 'assistant'}
 
             if thinking:
                 yield '\n<think>\n'
@@ -96,7 +96,7 @@ class BaseClient():
                     chunk = chunk[6:]
 
                     if chunk == '[DONE]':
-                        if record and completion:
+                        if completion:
                             message[content_type] = completion
                         break
                     try:
@@ -106,40 +106,47 @@ class BaseClient():
                         exit(1)
 
                     chunk_response = chunk['choices'][0]['delta']
-                    if thinking and 'content' in chunk_response:
+                    if  not thinking_done and thinking and 'content' in chunk_response:
                         yield '\n</think>\n'
-                        if record and completion:
+                        if completion:
                             message[content_type] = completion
                         content_type = 'content'
                         completion = ''
-                        thinking = False
+                        thinking_done = True
+
+                    if self.is_tool_calls(chunk_response):
+                        message.update(chunk_response)
+                        need_tool_calls = True
+                        continue
 
                     text = chunk_response[content_type]
                     if text:
                         completion += text
                     yield text
 
-            jmsg['messages'].append(message)
+        jmsg['messages'].append(message)
+        if need_tool_calls:
+            print(f'need_tool_calls: {need_tool_calls}')
+            tool_result_messages = self.handle_tool_calls(message, tools)
+            jmsg['messages'] += tool_result_messages
+            yield from self.send_messages_stream_impl(url, jmsg, thinking=thinking, tools=tools)
 
-    def send_messages(self, messages, generation_options={}, model=None, record=False):
-        jmsg = self.build_client_messages(model, messages, generation_options)
+    def send_messages(self, messages, *, generation_options={}, model=None, tools=None):
+        jmsg = self.build_client_messages(
+            model=model, messages=messages, generation_options=generation_options, tools=tools,
+        )
         url = '/chat/completions'
         thinking = generation_options.get('thinking')
 
         if not generation_options.get('stream', False):
-            return self.send_messages_impl(url, jmsg, record=record, thinking=thinking)
+            return self.send_messages_impl(url, jmsg, thinking=thinking, tools=tools)
         else:
-            return self.send_messages_stream_impl(url, jmsg, record=record, thinking=thinking)
+            return self.send_messages_stream_impl(url, jmsg, thinking=thinking, tools=tools)
 
-    def response(self, raw_response, text_keys):
-        if not isinstance(raw_response, dict):
-            raw_response = {'raw_response': raw_response}
-        return Response(raw_response, text_keys)
-
-    def complete(self, prompt, model=None, generation_options={}):
-        message = self.make_message('user', prompt)
+    def complete(self, prompt, *, model=None, generation_options={}):
+        message = {'role': 'user', 'content': prompt}
         messages = [message] if self._instruction is None else [self.history[0], message]
-        return self.send_messages(messages, model=model, record=False, generation_options=generation_options)
+        return self.send_messages(messages, model=model, generation_options=generation_options)
 
     @property
     def instruction(self):
@@ -151,13 +158,13 @@ class BaseClient():
         self.clear()
 
     def clear(self):
-        self.history = [self.make_message('system', self._instruction)] if self._instruction else []
+        self.history = [{'role': 'system', 'content': self._instruction}] if self._instruction else []
 
-    def chat(self, text, model=None, history=None, generation_options={}):
-        message = self.make_message('user', text)
+    def chat(self, text, *, model=None, history=None, generation_options={}, tools=None):
+        message = {'role': 'user', 'content': text}
         messages = history if history else self.history
         messages.append(message)
-        return self.send_messages(messages, model=model, generation_options=generation_options, record=True)
+        return self.send_messages(messages, model=model, generation_options=generation_options, tools=tools)
 
 def dynamic_import_client(provider):
     if provider not in __providers__:
@@ -169,7 +176,7 @@ def dynamic_import_client(provider):
     return client_class
 
 class Client:
-    def __init__(self, provider, model=None, instruction=None, http_options={}):
+    def __init__(self, provider, *, model=None, instruction=None, http_options={}):
         client_class = dynamic_import_client(provider)
         self.client: BaseClient = client_class(model=model, instruction=instruction, http_options=http_options)
 
@@ -191,5 +198,8 @@ class Client:
     def clear(self):
         self.client.clear()
 
-    def chat(self, text, model=None, history=None, generation_options={}):
-        return self.client.chat(text, model=model, history=history, generation_options=generation_options)
+    def chat(self, text, *, model=None, history=None, generation_options={}, tools=None):
+        return self.client.chat(
+            text, model=model, history=history, generation_options=generation_options,
+            tools=tools,
+        )
