@@ -72,15 +72,20 @@ class BaseClient():
     def send_messages_impl(self, url, jmsg, record=False, thinking=False):
         r = self.client.post(url, json=jmsg)
         r = r.json()
-        r = self.response(r, ('choices', 0, 'message', 'content'))
-        if record and (text := r.text):
-            jmsg['messages'].append(self.make_message('assistant', text))
-        return r
+        r = r['choices'][0]['message']
+        if record:
+            jmsg['messages'].append(r)
+        text = ''
+        if thinking:
+            text = f'\n<think>\n{r['reasoning_content']}\n</think>\n'
+        text += r['content']
+        return text
 
     def send_messages_stream_impl(self, url, jmsg, record=False, thinking=False):
         with self.client.stream('POST', url, json=jmsg) as r:
             completion = ''
             content_type = 'content' if not thinking else 'reasoning_content'
+            message = {'role': 'assistant'}
 
             if thinking:
                 yield '\n<think>\n'
@@ -92,7 +97,7 @@ class BaseClient():
 
                     if chunk == '[DONE]':
                         if record and completion:
-                            jmsg['messages'].append({'role': 'assistant', content_type: completion})
+                            message[content_type] = completion
                         break
                     try:
                         chunk = json.loads(chunk)
@@ -104,7 +109,7 @@ class BaseClient():
                     if thinking and 'content' in chunk_response:
                         yield '\n</think>\n'
                         if record and completion:
-                            jmsg['messages'].append({'role': 'assistant', content_type: completion})
+                            message[content_type] = completion
                         content_type = 'content'
                         completion = ''
                         thinking = False
@@ -113,6 +118,8 @@ class BaseClient():
                     if text:
                         completion += text
                     yield text
+
+            jmsg['messages'].append(message)
 
     def send_messages(self, messages, generation_options={}, model=None, record=False):
         jmsg = self.build_client_messages(model, messages, generation_options)

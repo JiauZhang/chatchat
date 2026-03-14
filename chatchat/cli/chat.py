@@ -7,7 +7,7 @@ def parse_config(args):
                 'proxy': args.proxy, 'timeout': args.timeout,
             }
         )
-        generation_options = {'stream': True, 'thinking': args.thinking}
+        generation_options = {'stream': not args.non_streaming, 'thinking': args.thinking}
 
         while True:
             prompt = input("user> ")
@@ -25,4 +25,5 @@ def cli_chat(subparser):
     config_parser.add_argument('--proxy', type=str, default=None)
     config_parser.add_argument('--timeout', type=float, default=None)
     config_parser.add_argument('--thinking', action='store_true')
+    config_parser.add_argument('--non-streaming', action='store_true')
     config_parser.set_defaults(parser=parse_config)
