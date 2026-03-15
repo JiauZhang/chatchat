@@ -30,7 +30,7 @@ class Tool:
         }
 
 class Tools:
-    def __init__(self, tools: list[Tool]):
+    def __init__(self, *tools: Tool):
         self.tools = tools
         self.name_to_tool = {}
         for tool in self.tools:

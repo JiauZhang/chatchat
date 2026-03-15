@@ -29,7 +29,7 @@ generation_options = {'stream': not args.non_streaming, 'thinking': args.thinkin
 def get_weather(city):
     return f'{city} is Sunny.'
 
-tools = Tools([get_weather])
+tools = Tools(get_weather)
 while True:
     prompt = input("user> ")
     if prompt == '/exit':
