@@ -1,4 +1,4 @@
-import pathlib, os, httpx
+import pathlib, os, httpx, types
 from conippets import json
 from importlib import import_module
 from chatchat.providers import __providers__
@@ -44,6 +44,8 @@ class BaseClient:
             'model': model if model else self.model,
             "messages": messages,
         }
+        thinking = 'enabled' if generation_options.get('thinking') else 'disabled'
+        jmsg['thinking'] = {'type': thinking}
         if generation_options.get('stream'):
             jmsg['stream'] = True
         if tools:
@@ -54,7 +56,22 @@ class BaseClient:
         return 'tool_calls' in message
 
     def handle_tool_calls(self, message, tools):
-        raise NotImplementedError(f'{self.provider} dose not support tool call.')
+        tool_calls = message['tool_calls']
+        tool_result_messages = []
+        for tool_call in tool_calls:
+            func = tool_call['function']
+            name = func['name']
+            args = json.loads(func['arguments'])
+            id = tool_call['id']
+            tool = tools[name]
+            tool_result = tool(**args)
+            tool_content = tool_result
+            if isinstance(tool_result, types.GeneratorType):
+                tool_content = ''
+                for chunk in tool_result:
+                    tool_content += chunk
+            tool_result_messages.append({'role': 'tool', 'content': tool_content, 'tool_call_id': id})
+        return tool_result_messages
 
     def send_messages_impl(self, url, jmsg, thinking=False, tools=None):
         r = self.client.post(url, json=jmsg)

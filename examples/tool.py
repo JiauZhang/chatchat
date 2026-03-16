@@ -1,6 +1,6 @@
 import argparse
 from chatchat.client import Client
-from chatchat.tool import Tool, Tools
+from chatchat.tool import tool, Tools
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--provider', type=str, default='zhipu')
@@ -13,7 +13,7 @@ args = parser.parse_args()
 llm = Client(args.provider, model=args.model, http_options={'timeout': args.timeout})
 generation_options = {'stream': not args.non_streaming, 'thinking': args.thinking}
 
-@Tool(
+@tool(
     name='get_weather', description='getting weather information for a specified city',
     parameters={
         'type': 'object',

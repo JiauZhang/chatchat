@@ -1,7 +1,7 @@
 import argparse, random
 from chatchat.client import Client
 from chatchat.agent import Agent
-from chatchat.tool import Tool, Tools
+from chatchat.tool import tool, Tools
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--provider', type=str, default='zhipu')
@@ -11,7 +11,7 @@ parser.add_argument('--proxy', type=str, default=None)
 parser.add_argument('--non-streaming', action='store_true')
 args = parser.parse_args()
 
-@Tool(
+@tool(
     name='query_train_ticket', description='query how many train tickets from a specified city to another city',
     parameters={
         'type': 'object',
@@ -31,7 +31,7 @@ args = parser.parse_args()
 def query_train_ticket(from_city, to_city):
     return f'{from_city} to {to_city} has {random.randint(1, 10)} tickets.'
 
-@Tool(
+@tool(
     name='query_ticket_price', description='query the ticket price from a specified city to another city',
     parameters={
         'type': 'object',

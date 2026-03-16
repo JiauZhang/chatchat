@@ -1,22 +1,12 @@
 class Tool:
-    def __init__(self, *, name, description, parameters=None):
+    def __init__(self, *, tool, name, description, parameters=None):
         self.name = name
         self.description = description
         self.parameters = parameters
-        self.tool = None
+        self.tool = tool
 
-    def __tool_call__(self, *args, **kwargs):
+    def __call__(self, **kwargs):
         return self.tool(**kwargs)
-
-    def __class_call__(self, *args, **kwargs):
-        self.tool = args[0]
-        return self
-
-    def __call__(self, *args, **kwargs):
-        if self.tool is None:
-            return self.__class_call__(*args, **kwargs)
-        else:
-            return self.__tool_call__(*args, **kwargs)
 
     def to_dict(self):
         parameters = {} if self.parameters is None else {'parameters': self.parameters}
@@ -28,6 +18,11 @@ class Tool:
                 **parameters,
             }
         }
+
+def tool(*, name, description, parameters):
+    def decorator(func):
+        return Tool(tool=func, name=name, description=description, parameters=parameters)
+    return decorator
 
 class Tools:
     def __init__(self, *tools: Tool):
