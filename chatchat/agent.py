@@ -1,4 +1,5 @@
 from .client import Client
+from .tool import Tools
 
 class Agent:
     def __init__(
@@ -9,7 +10,7 @@ class Agent:
         self.client.instruction = instruction
         self.name = name
         self.description = description
-        self.tools = tools
+        self.tools = Tools(*tools) if tools else None
         self.generation_options = generation_options
         self.memory = memory
 

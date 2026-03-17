@@ -13,6 +13,9 @@ args = parser.parse_args()
 llm = Client(args.provider, model=args.model, http_options={'timeout': args.timeout})
 generation_options = {'stream': not args.non_streaming, 'thinking': args.thinking}
 
+def on_start(self, **kwargs):
+    print(f'\n<tool>{self.name} {kwargs}</tool>\n')
+
 @tool(
     name='get_weather', description='getting weather information for a specified city',
     parameters={
@@ -24,12 +27,23 @@ generation_options = {'stream': not args.non_streaming, 'thinking': args.thinkin
             }
         },
         'required': ['city'],
-    }
+    },
+    on_start=on_start,
 )
 def get_weather(city):
     return f'{city} is Sunny.'
 
-tools = Tools(get_weather)
+def on_error(self, exception):
+    print(f'\n<tool>{self.name} {exception}</tool>\n')
+
+@tool(
+    name='get_datetime', description='getting current datetime',
+    on_error=on_error,
+)
+def get_datetime():
+    raise RuntimeError()
+
+tools = Tools(get_weather, get_datetime)
 while True:
     prompt = input("user> ")
     if prompt == '/exit':

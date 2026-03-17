@@ -1,7 +1,7 @@
 import argparse, random
 from chatchat.client import Client
 from chatchat.agent import Agent
-from chatchat.tool import tool, Tools
+from chatchat.tool import tool
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--provider', type=str, default='zhipu')
@@ -59,7 +59,7 @@ travel_agent = Agent(
     name='travel_agent',
     description='query tickets and fares between cities',
     client=llm,
-    tools=Tools(query_train_ticket, query_ticket_price),
+    tools=[query_train_ticket, query_ticket_price],
     generation_options={'stream': not args.non_streaming},
 )
 
@@ -69,7 +69,7 @@ llm = Client(args.provider, model=args.model, http_options={
 })
 agent = Agent(
     name='super_agent', description='',
-    client=llm, tools=Tools(travel_agent),
+    client=llm, tools=[travel_agent],
     generation_options={'stream': not args.non_streaming},
 )
 
