@@ -10,7 +10,10 @@ parser.add_argument('--non-streaming', action='store_true')
 parser.add_argument('--thinking', action='store_true')
 args = parser.parse_args()
 
-llm = Client(args.provider, model=args.model, http_options={'timeout': args.timeout})
+llm = Client(
+    args.provider, model=args.model, http_options={'timeout': args.timeout},
+    instruction='You are a helpful assistant.',
+)
 generation_options = {'stream': not args.non_streaming, 'thinking': args.thinking}
 
 def on_start(self, **kwargs):
@@ -41,7 +44,7 @@ def on_error(self, exception):
     on_error=on_error,
 )
 def get_datetime():
-    raise RuntimeError()
+    raise RuntimeError('get datetime failed.')
 
 tools = Tools(get_weather, get_datetime)
 while True:

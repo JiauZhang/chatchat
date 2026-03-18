@@ -1,5 +1,4 @@
 import argparse, random
-from chatchat.client import Client
 from chatchat.agent import Agent
 from chatchat.tool import tool
 
@@ -51,25 +50,22 @@ def query_train_ticket(from_city, to_city):
 def query_ticket_price(from_city, to_city):
     return f'the ticket from {from_city} to {to_city} is {random.randint(100, 200)} RMB.'
 
-llm = Client(args.provider, model=args.model, http_options={
-    'timeout': args.timeout,
-    'proxy': args.proxy,
-})
 travel_agent = Agent(
     name='travel_agent',
     description='query tickets and fares between cities',
-    client=llm,
+    provider=args.provider, model=args.model, http_options={
+        'timeout': args.timeout,
+        'proxy': args.proxy,
+    },
     tools=[query_train_ticket, query_ticket_price],
     generation_options={'stream': not args.non_streaming},
 )
-
-llm = Client(args.provider, model=args.model, http_options={
-    'timeout': args.timeout,
-    'proxy': args.proxy,
-})
 agent = Agent(
-    name='super_agent', description='',
-    client=llm, tools=[travel_agent],
+    provider=args.provider, model=args.model, http_options={
+        'timeout': args.timeout,
+        'proxy': args.proxy,
+    },
+    tools=[travel_agent],
     generation_options={'stream': not args.non_streaming},
 )
 

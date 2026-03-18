@@ -3,11 +3,13 @@ from .tool import Tools
 
 class Agent:
     def __init__(
-        self, *, name, description, client: Client, instruction=None, memory=None,
-        generation_options={}, tools=None,
+        self, *, provider, model, name=None, description=None, instruction=None, memory=None,
+        generation_options={}, tools=None, http_options={},
     ):
-        self.client = client
-        self.client.instruction = instruction
+        self.client = Client(
+            provider=provider, model=model, instruction=instruction,
+            http_options=http_options,
+        )
         self.name = name
         self.description = description
         self.tools = Tools(*tools) if tools else None
@@ -18,6 +20,7 @@ class Agent:
         return self.client.chat(message, generation_options=self.generation_options, tools=self.tools)
 
     def to_dict(self):
+        assert self.name and self.description
         return {
             'type': 'function',
             'function': {

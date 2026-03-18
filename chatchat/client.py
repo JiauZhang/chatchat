@@ -83,7 +83,7 @@ class BaseClient:
             text = ''
             if thinking:
                 text = f'\n<think>\n{r['reasoning_content']}\n</think>\n'
-            text += r['content']
+            # text += r['content'] # tool call content
             tool_result_messages = self.handle_tool_calls(r, tools)
             jmsg['messages'] += tool_result_messages
             text += self.send_messages_impl(url, jmsg, thinking=thinking)
@@ -192,7 +192,7 @@ def dynamic_import_client(provider):
     return client_class
 
 class Client:
-    def __init__(self, provider, *, model=None, instruction=None, http_options={}):
+    def __init__(self, provider, model, instruction=None, http_options={}):
         client_class = dynamic_import_client(provider)
         self.client: BaseClient = client_class(model=model, instruction=instruction, http_options=http_options)
 

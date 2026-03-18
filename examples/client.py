@@ -18,8 +18,7 @@ llm = Client(args.provider, model=args.model, http_options={
 print('1. completion mode\n')
 prompt = 'Hi'
 response = llm.complete(prompt)
-text = response if response.text is None else response.text
-print(f'user> {prompt}\nassistant> {text}\n')
+print(f'user> {prompt}\nassistant> {response}\n')
 
 # chat
 print('2. chat mode\n')
@@ -28,8 +27,7 @@ while True:
     if prompt == '/exit':
         break
     response = llm.chat(prompt)
-    text = response if response.text is None else response.text
-    print(f'assistant> {text}')
+    print(f'assistant> {response}')
 
 # stream mode
 print('\n3. stream completion mode\n')
