@@ -8,7 +8,7 @@ __secret_file__ = os.path.join(str(pathlib.Path.home()), '.chatchat.json')
 class BaseClient:
     def __init__(self, provider, base_url, model=None, instruction=None, http_options={}):
         self.provider = provider
-        self._instruction = instruction
+        self.instruction = instruction
         if not os.path.exists(__secret_file__):
             json.write(__secret_file__, {})
         secret_data = json.read(__secret_file__)
@@ -25,8 +25,19 @@ class BaseClient:
         )
         self.base_url = self.client.base_url
         self.headers = self.client.headers
-        self.history = []
-        self.clear()
+        self.history = [] if instruction is None else [self.system_message()]
+
+    def system_message(self):
+        return {'role': 'system', 'content': self.instruction}
+
+    def set_instruction(self, instruction):
+        is_none = self.instruction is None
+        self.instruction = instruction
+        system_message = self.system_message()
+        if is_none:
+            self.history = [system_message] + self.history
+        else:
+            self.history[0] = system_message
 
     def verify_secret_data(self, secret_data, provider):
         has_provider = provider in secret_data
@@ -161,20 +172,11 @@ class BaseClient:
 
     def complete(self, prompt, *, model=None, generation_options={}):
         message = {'role': 'user', 'content': prompt}
-        messages = [message] if self._instruction is None else [self.history[0], message]
+        messages = [message] if self.instruction is None else [self.system_message(), message]
         return self.send_messages(messages, model=model, generation_options=generation_options)
 
-    @property
-    def instruction(self):
-        return self._instruction
-
-    @instruction.setter
-    def instruction(self, value):
-        self._instruction = value
-        self.clear()
-
     def clear(self):
-        self.history = [{'role': 'system', 'content': self._instruction}] if self._instruction else []
+        self.history = [self.system_message()] if self.instruction else []
 
     def chat(self, text, *, model=None, history=None, generation_options={}, tools=None):
         message = {'role': 'user', 'content': text}

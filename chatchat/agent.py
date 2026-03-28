@@ -1,10 +1,11 @@
 from .client import Client
 from .tool import Tools
+from .skill import Skill
 
 class Agent:
     def __init__(
         self, *, provider, model, name=None, description=None, instruction=None, memory=None,
-        generation_options={}, tools=None, http_options={},
+        generation_options={}, tools=None, skills=None, http_options={},
     ):
         self.client = Client(
             provider=provider, model=model, instruction=instruction,
@@ -38,3 +39,8 @@ class Agent:
                 }
             }
         }
+
+class SubAgent(Agent):
+    def __call__(self, message):
+        self.client.clear()
+        return self.client.chat(message, generation_options=self.generation_options, tools=self.tools)
