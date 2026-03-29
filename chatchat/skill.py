@@ -1,9 +1,8 @@
 import os, yaml
 
 class Skill:
-    def __init__(self, *, source, subagent):
+    def __init__(self, source):
         self.source = source
-        self.subagent = subagent
         self.load_skill()
 
     def load_skill(self):

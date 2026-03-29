@@ -1,6 +1,8 @@
+import os
 from .client import Client
 from .tool import Tools
 from .skill import Skill
+from glob import glob
 
 class Agent:
     def __init__(
@@ -13,9 +15,17 @@ class Agent:
         )
         self.name = name
         self.description = description
-        self.tools = Tools(*tools) if tools else None
         self.generation_options = generation_options
         self.memory = memory
+
+        if skills:
+            md_skills = []
+            for skill in skills:
+                md_skills += glob(os.path.join(skill, '**/SKILL.md'), recursive=True)
+            md_skills = [Skill(os.path.dirname(md_skill)) for md_skill in md_skills]
+            tools = md_skills if tools is None else tools + md_skills
+
+        self.tools = Tools(*tools) if tools else None
 
     def __call__(self, message):
         return self.client.chat(message, generation_options=self.generation_options, tools=self.tools)
