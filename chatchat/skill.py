@@ -25,22 +25,3 @@ class Skill:
         self.name = self.metadata['name']
         self.description = self.metadata['description']
         self.instruction = f'You must strictly follow the following skill rules to perform the task:\n\n{instruction}'
-
-    def to_dict(self):
-        return {
-            'type': 'function',
-            'function': {
-                'name': self.name,
-                'description': self.description,
-                'parameters': {
-                    'type': 'object',
-                    'properties': {
-                        'message': {
-                            'type': 'string',
-                            'description': 'Accurately and concisely state what you want it to do.',
-                        }
-                    },
-                    'required': ['message'],
-                }
-            }
-        }
