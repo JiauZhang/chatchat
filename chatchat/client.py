@@ -27,6 +27,11 @@ class BaseClient:
         self.headers = self.client.headers
         self.history = [] if instruction is None else [self.system_message()]
 
+        self._role_key = 'role'
+        self._reasoning_content_key = 'reasoning_content'
+        self._content_key = 'content'
+        self._tool_calls_key = 'tool_calls'
+
     def system_message(self):
         return {'role': 'system', 'content': self.instruction}
 
@@ -63,11 +68,11 @@ class BaseClient:
             jmsg['tools'] = tools.to_dict()
         return jmsg
 
-    def is_tool_calls(self, message):
-        return 'tool_calls' in message
+    def has_tool_calls(self, message: dict):
+        return bool(message.get(self._tool_calls_key))
 
     def handle_tool_calls(self, message, tools):
-        tool_calls = message['tool_calls']
+        tool_calls = message[self._tool_calls_key]
         tool_result_messages = []
         for tool_call in tool_calls:
             func = tool_call['function']
@@ -84,91 +89,132 @@ class BaseClient:
             tool_result_messages.append({'role': 'tool', 'content': tool_content, 'tool_call_id': id})
         return tool_result_messages
 
-    def send_messages_impl(self, url, jmsg, thinking=False, tools=None):
+    def send_messages_impl(self, url, jmsg, tools=None):
         r = self.client.post(url, json=jmsg)
         r = r.json()
         r = r['choices'][0]['message']
 
-        if self.is_tool_calls(r):
-            jmsg['messages'].append(r)
-            text = ''
-            if thinking:
-                text = f'\n<think>\n{r['reasoning_content']}\n</think>\n'
-            # text += r['content'] # tool call content
+        message = {}
+        self._parse_role(r, message)
+        text = self._parse_reasoning_content(r, message, streaming=False)
+        text += self._parse_content(r, message, streaming=False)
+        text += self._parse_tool_calls(r, message, streaming=False)
+
+        if self.has_tool_calls(message):
+            jmsg['messages'].append(message)
             tool_result_messages = self.handle_tool_calls(r, tools)
             jmsg['messages'] += tool_result_messages
-            text += self.send_messages_impl(url, jmsg, thinking=thinking)
+            text += self.send_messages_impl(url, jmsg)
             return text
 
-        jmsg['messages'].append(r)
-        text = ''
-        if thinking:
-            text = f'\n<think>\n{r['reasoning_content']}\n</think>\n'
-        text += r['content']
+        jmsg['messages'].append(message)
         return text
 
-    def send_messages_stream_impl(self, url, jmsg, thinking=False, tools=None):
-        need_tool_calls = False
-        message = {'role': 'assistant'}
-        thinking_done = not thinking
-        with self.client.stream('POST', url, json=jmsg) as r:
-            completion = ''
-            content_type = 'content' if not thinking else 'reasoning_content'
+    def _parse_role(self, r: dict, message: dict):
+        role = message.get(self._role_key, None)
+        if not role:
+            message[self._role_key] = r[self._role_key]
 
-            if thinking:
-                yield '\n<think>\n'
+    def _parse_reasoning_content(self, r: dict, message: dict, streaming=False):
+        reasoning_content = r.get(self._reasoning_content_key)
+        if not reasoning_content:
+            return ''
+        if streaming:
+            if message.get(self._reasoning_content_key):
+                message[self._reasoning_content_key] += reasoning_content
+                return reasoning_content
+            else:
+                message[self._reasoning_content_key] = reasoning_content
+                return f'\n<think>\n{reasoning_content}'
+        else:
+            message[self._reasoning_content_key] = reasoning_content
+            return f'\n<think>\n{reasoning_content}\n</think>'
 
-            for chunk in r.iter_lines():
-                if chunk:
-                    # remove chunk prefix: 'data: '
-                    chunk = chunk[6:]
+    def _parse_content(self, r: dict, message: dict, streaming=False):
+        content = r.get(self._content_key)
+        if not content:
+            return ''
+        if streaming:
+            if message.get(self._content_key):
+                message[self._content_key] += content
+                return content
+            else:
+                message[self._content_key] = content
+                return f'\n</think>\n{content}' if message.get(self._reasoning_content_key) else content
+        else:
+            message[self._content_key] = content
+            return content
 
-                    if chunk == '[DONE]':
-                        if completion:
-                            message[content_type] = completion
+    def _parse_tool_calls(self, r: dict, message: dict, streaming=True):
+        tool_calls: list[dict] = r.get(self._tool_calls_key)
+        if not tool_calls:
+            return ''
+        if streaming:
+            for tool_call in tool_calls:
+                msg_tool_calls: list[dict] = message.get(self._tool_calls_key, [])
+                target_tool_call = None
+                for msg_tool_call in msg_tool_calls:
+                    if msg_tool_call.get('id') == tool_call.get('id'):
+                        target_tool_call = msg_tool_call
                         break
-                    try:
-                        chunk = json.loads(chunk)
-                    except Exception as e:
-                        print(f'{e}\njson.loads failed, chunk data:\n{chunk}')
-                        exit(1)
+                if target_tool_call:
+                    tool_call_func = tool_call['function']
+                    target_tool_call_func = target_tool_call['function']
+                    for name, value in tool_call_func.items():
+                        if name in target_tool_call_func:
+                            target_tool_call_func[name] += value
+                        else:
+                            target_tool_call_func[name] = value
+                else:
+                    msg_tool_calls.append(tool_call)
+                    message[self._tool_calls_key] = msg_tool_calls
+        else:
+            message[self._tool_calls_key] = tool_calls
+        return ''
 
-                    chunk_response = chunk['choices'][0]['delta']
-                    if  not thinking_done and thinking and 'content' in chunk_response:
-                        yield '\n</think>\n'
-                        if completion:
-                            message[content_type] = completion
-                        content_type = 'content'
-                        completion = ''
-                        thinking_done = True
+    def send_messages_stream_impl(self, url, jmsg, tools=None):
+        message = {}
+        with self.client.stream('POST', url, json=jmsg) as r:
+            for chunk in r.iter_lines():
+                if not chunk:
+                    continue
 
-                    if self.is_tool_calls(chunk_response):
-                        message.update(chunk_response)
-                        need_tool_calls = True
-                        continue
+                # remove chunk prefix: 'data: '
+                chunk = chunk[6:]
+                if chunk == '[DONE]':
+                    break
 
-                    text = chunk_response[content_type]
-                    if text:
-                        completion += text
-                    yield text
+                try:
+                    chunk = json.loads(chunk)
+                except Exception as e:
+                    print(f'{e}\njson.loads failed, chunk data:\n{chunk}')
+                    exit(1)
+
+                chunk_response = chunk['choices'][0]['delta']
+
+                self._parse_role(chunk_response, message)
+                text = self._parse_reasoning_content(chunk_response, message, streaming=True)
+                text += self._parse_content(chunk_response, message, streaming=True)
+                text += self._parse_tool_calls(chunk_response, message, streaming=True)
+
+                yield text
 
         jmsg['messages'].append(message)
-        if need_tool_calls:
+        if self.has_tool_calls(message):
             tool_result_messages = self.handle_tool_calls(message, tools)
             jmsg['messages'] += tool_result_messages
-            yield from self.send_messages_stream_impl(url, jmsg, thinking=thinking, tools=tools)
+            yield from self.send_messages_stream_impl(url, jmsg, tools=tools)
 
     def send_messages(self, messages, *, generation_options={}, model=None, tools=None):
         jmsg = self.build_client_messages(
             model=model, messages=messages, generation_options=generation_options, tools=tools,
         )
         url = '/chat/completions'
-        thinking = generation_options.get('thinking')
 
         if not generation_options.get('stream', False):
-            return self.send_messages_impl(url, jmsg, thinking=thinking, tools=tools)
+            return self.send_messages_impl(url, jmsg, tools=tools)
         else:
-            return self.send_messages_stream_impl(url, jmsg, thinking=thinking, tools=tools)
+            return self.send_messages_stream_impl(url, jmsg, tools=tools)
 
     def complete(self, prompt, *, model=None, generation_options={}):
         message = {'role': 'user', 'content': prompt}
