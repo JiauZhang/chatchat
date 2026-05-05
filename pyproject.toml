@@ -17,7 +17,7 @@ classifiers = [
 keywords = ['Artificial Intelligence']
 requires-python = ">=3.10"
 dependencies = [
-    'conippets>=0.1.8',
+    'conippets>=0.1.14',
     'httpx',
     'PyYAML>=6.0.3',
 ]
