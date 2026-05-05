@@ -1,9 +1,10 @@
-import pathlib, os, httpx, types
+import os, httpx, types
+from pathlib import Path
 from conippets import json
 from importlib import import_module
 from chatchat.providers import __providers__
 
-__secret_file__ = os.path.join(str(pathlib.Path.home()), '.chatchat.json')
+__secret_file__ = os.environ.get('CHATCHAT_SECRET_FILE', str(Path.home() / '.chatchat.json'))
 
 class BaseClient:
     def __init__(self, provider, base_url, model=None, instruction=None, http_options={}):
