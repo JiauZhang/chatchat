@@ -48,7 +48,14 @@ for chunk in llm.complete('Hello', generation_options={'stream': True}):
 from chatchat.tool import tool
 from chatchat.agent import Agent
 
-@tool(name='get_weather', description='get weather for a city')
+@tool(
+    name='get_weather', description='get weather for a city',
+    parameters={
+        'type': 'object',
+        'properties': {'city': {'type': 'string'}},
+        'required': ['city'],
+    }
+)
 def get_weather(city):
     return f'{city} is Sunny.'
 
@@ -60,12 +67,27 @@ response = agent('How is the weather in Shanghai?')
 
 ```python
 from chatchat.agent import SubAgent, Agent
+from chatchat.tool import tool
+
+@tool(
+    name='query_ticket', description='query train tickets',
+    parameters={
+        'type': 'object',
+        'properties': {
+            'from_city': {'type': 'string'},
+            'to_city': {'type': 'string'},
+        },
+        'required': ['from_city', 'to_city'],
+    }
+)
+def query_ticket(from_city, to_city):
+    ...
 
 travel_agent = SubAgent(
     name='travel_agent',
-    description='query tickets and fares between cities',
+    description='query tickets between cities',
     provider='zhipu', model='glm-4.7-flash',
-    tools=[query_train_ticket, query_ticket_price],
+    tools=[query_ticket],
 )
 
 agent = Agent('zhipu', model='glm-4.7-flash', tools=[travel_agent])
