@@ -1,6 +1,6 @@
 import argparse
 from chatchat.client import Client
-from chatchat.tool import tool, Tools
+from chatchat.tool import tool
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--provider', type=str, default='zhipu')
@@ -46,12 +46,11 @@ def on_error(self, exception):
 def get_datetime():
     raise RuntimeError('get datetime failed.')
 
-tools = Tools(get_weather, get_datetime)
 while True:
     prompt = input("user> ")
     if prompt == '/exit':
         break
-    response = llm.chat(prompt, generation_options=generation_options, tools=tools)
+    response = llm.chat(prompt, generation_options=generation_options, tools=[get_weather, get_datetime])
     print('assistant> ', end='')
     for chunk in response:
         print(chunk, end="", flush=True)
