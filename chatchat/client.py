@@ -31,6 +31,8 @@ class BaseClient:
         self._reasoning_content_key = 'reasoning_content'
         self._content_key = 'content'
         self._tool_calls_key = 'tool_calls'
+        self._tool_call_index_key = 'index'
+        self._tool_call_id_key = 'id'
 
     def system_message(self):
         return {'role': 'system', 'content': self.instruction}
@@ -78,7 +80,7 @@ class BaseClient:
             func = tool_call['function']
             name = func['name']
             args = json.loads(func['arguments'])
-            id = tool_call['id']
+            id = tool_call[self._tool_call_id_key]
             tool = tools[name]
             tool_result = tool(**args)
             tool_content = tool_result
@@ -128,7 +130,7 @@ class BaseClient:
                 return f'\n<think>\n{reasoning_content}'
         else:
             message[self._reasoning_content_key] = reasoning_content
-            return f'\n<think>\n{reasoning_content}\n</think>'
+            return f'\n<think>\n{reasoning_content}\n</think>\n'
 
     def _parse_content(self, r: dict, message: dict, streaming=False):
         content = r.get(self._content_key)
@@ -150,13 +152,20 @@ class BaseClient:
         if not tool_calls:
             return ''
         if streaming:
+            msg_tool_calls: list[dict] = message.get(self._tool_calls_key, [])
             for tool_call in tool_calls:
-                msg_tool_calls: list[dict] = message.get(self._tool_calls_key, [])
                 target_tool_call = None
                 for msg_tool_call in msg_tool_calls:
                     if msg_tool_call.get('id') == tool_call.get('id'):
                         target_tool_call = msg_tool_call
                         break
+
+                if target_tool_call is None:
+                    if self._tool_call_index_key in tool_call and tool_call[self._tool_call_index_key] < len(msg_tool_calls):
+                        target_tool_call = msg_tool_calls[tool_call[self._tool_call_index_key]]
+                    elif self._tool_call_id_key not in tool_call and msg_tool_calls:
+                        target_tool_call = msg_tool_calls[-1]
+
                 if target_tool_call:
                     tool_call_func = tool_call['function']
                     target_tool_call_func = target_tool_call['function']
@@ -183,6 +192,10 @@ class BaseClient:
                 chunk = chunk[6:]
                 if chunk == '[DONE]':
                     break
+
+                # openrouter
+                if chunk == 'ROUTER PROCESSING':
+                    continue
 
                 try:
                     chunk = json.loads(chunk)

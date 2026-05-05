@@ -2,7 +2,7 @@ from conippets import json
 from chatchat.providers import __providers__
 from chatchat.client import __secret_file__
 
-def parse_config(args):
+def parse_config(args, secret_file=None):
     if args.list:
         print(f'supported providers: {__providers__}')
     elif args.cfgs:
@@ -19,7 +19,7 @@ def parse_config(args):
             print(f'supported providers: {__providers__}')
             return
 
-        secret_file = __secret_file__
+        secret_file = secret_file if secret_file else __secret_file__
         secret_data = json.read(secret_file)
 
         if provider in secret_data:
