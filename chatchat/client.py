@@ -86,9 +86,7 @@ class BaseClient:
             tool_result = tool(**args)
             tool_content = tool_result
             if isinstance(tool_result, types.GeneratorType):
-                tool_content = ''
-                for chunk in tool_result:
-                    tool_content += chunk
+                tool_content = ''.join(tool_result)
             tool_result_messages.append({'role': 'tool', 'content': tool_content, 'tool_call_id': id})
         return tool_result_messages
 
@@ -115,8 +113,9 @@ class BaseClient:
 
     def _parse_role(self, r: dict, message: dict):
         role = message.get(self._role_key, None)
-        if not role:
-            message[self._role_key] = r[self._role_key]
+        r_role = r.get(self._role_key)
+        if not role and r_role:
+            message[self._role_key] = r_role
 
     def _parse_reasoning_content(self, r: dict, message: dict, streaming=False):
         reasoning_content = r.get(self._reasoning_content_key)
@@ -152,8 +151,14 @@ class BaseClient:
         tool_calls: list[dict] = r.get(self._tool_calls_key)
         if not tool_calls:
             return ''
+
+        msg_tool_calls: list[dict] = message.get(self._tool_calls_key, [])
+        text = ''
+
+        if not msg_tool_calls and not message.get(self._content_key) and message.get(self._reasoning_content_key):
+            text = '\n</think>\n'
+
         if streaming:
-            msg_tool_calls: list[dict] = message.get(self._tool_calls_key, [])
             for tool_call in tool_calls:
                 target_tool_call = None
                 for msg_tool_call in msg_tool_calls:
@@ -180,7 +185,8 @@ class BaseClient:
                     message[self._tool_calls_key] = msg_tool_calls
         else:
             message[self._tool_calls_key] = tool_calls
-        return ''
+
+        return text
 
     def send_messages_stream_impl(self, url, jmsg, tools=None):
         message = {}

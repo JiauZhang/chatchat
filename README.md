@@ -52,7 +52,12 @@ from chatchat.agent import Agent
     name='get_weather', description='get weather for a city',
     parameters={
         'type': 'object',
-        'properties': {'city': {'type': 'string'}},
+        'properties': {
+            'city': {
+                'type': 'string',
+                'description': 'the city name, e.g., Shanghai',
+            }
+        },
         'required': ['city'],
     }
 )
@@ -74,8 +79,14 @@ from chatchat.tool import tool
     parameters={
         'type': 'object',
         'properties': {
-            'from_city': {'type': 'string'},
-            'to_city': {'type': 'string'},
+            'from_city': {
+                'type': 'string',
+                'description': 'the city name, e.g., Shanghai',
+            },
+            'to_city': {
+                'type': 'string',
+                'description': 'the city name, e.g., Beijing',
+            }
         },
         'required': ['from_city', 'to_city'],
     }
