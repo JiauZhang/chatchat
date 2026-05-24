@@ -1,8 +1,7 @@
-from conippets import json
 from chatchat.providers import __providers__
-from chatchat.client import __secret_file__
+from chatchat.config import save_config
 
-def parse_config(args, secret_file=None):
+def parse_config(args):
     if args.list:
         print(f'supported providers: {__providers__}')
     elif args.cfgs:
@@ -19,14 +18,7 @@ def parse_config(args, secret_file=None):
             print(f'supported providers: {__providers__}')
             return
 
-        secret_file = secret_file if secret_file else __secret_file__
-        secret_data = json.read(secret_file)
-
-        if provider in secret_data:
-            secret_data[provider][key] = value
-        else:
-            secret_data[provider] = {key: value}
-        json.write(secret_file, secret_data)
+        save_config(provider, key, value)
 
 def cli_config(subparser):
     config_parser = subparser.add_parser('config', help='config provider secret key')

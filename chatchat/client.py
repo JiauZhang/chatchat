@@ -1,22 +1,13 @@
-import os, httpx, types
-from pathlib import Path
-from conippets import json
+import json, httpx, types
 from importlib import import_module
+from chatchat.config import load_config
 from chatchat.providers import __providers__
-
-__secret_file__ = os.environ.get('CHATCHAT_SECRET_FILE', str(Path.home() / '.chatchat.json'))
 
 class BaseClient:
     def __init__(self, provider, base_url, model=None, instruction=None, http_options={}):
         self.provider = provider
         self.instruction = instruction
-        if not os.path.exists(__secret_file__):
-            json.write(__secret_file__, {})
-        secret_data = json.read(__secret_file__)
-        self.verify_secret_data(secret_data, self.provider)
-        self.secret_file = __secret_file__
-        self.secret_data = secret_data[self.provider]
-        self.api_key = self.secret_data['api_key']
+        self.api_key = load_config(provider)
         self.model = model
         self.client = httpx.Client(
             base_url=base_url, **http_options, headers={
@@ -46,17 +37,6 @@ class BaseClient:
             self.history = [system_message] + self.history
         else:
             self.history[0] = system_message
-
-    def verify_secret_data(self, secret_data, provider):
-        has_provider = provider in secret_data
-        has_key = False
-        if has_provider:
-            provider_data = secret_data[provider]
-            has_key = 'api_key' in provider_data
-        if not (has_provider and has_key):
-            print('You need to configure your target provider first as bellow.')
-            print(f'    chatchat config {provider}.api_key=YOUR_API_KEY')
-            exit(-1)
 
     def build_client_messages(self, *, model, messages, generation_options, tools=None):
         jmsg = {
