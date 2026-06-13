@@ -4,7 +4,7 @@ from importlib import import_module
 from typing import Generator, Literal, overload
 
 from chatchat.config import load_config
-from chatchat.providers import __providers__
+from chatchat.providers import __providers__, __custom_providers__
 from chatchat import ProviderError, APIError
 from chatchat.response import (
     ChatCompletion,
@@ -236,10 +236,13 @@ class BaseClient:
 
 
 def dynamic_import_client(provider):
+    if provider in __custom_providers__:
+        return __custom_providers__[provider]
     if provider not in __providers__:
+        name_list = list(__custom_providers__) + list(__providers__)
         raise ProviderError(
             f'Provider `{provider}` is not supported. '
-            f'Supported providers: {__providers__}'
+            f'Supported providers: {name_list}'
         )
     client_module = import_module(f'chatchat.providers.{provider}')
     client_class = getattr(client_module, f'{provider.capitalize()}Client')
