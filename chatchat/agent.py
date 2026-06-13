@@ -11,7 +11,7 @@ from chatchat.response import Message, ToolCall
 
 class BaseAgent:
     def __init__(
-        self, *, provider, model, name, description, instruction=None,
+        self, *, provider, model, name=None, description=None, instruction=None,
         stream=True, thinking=False, tools=None, skills=None, http_options=None,
     ):
         self.provider = provider
@@ -136,19 +136,5 @@ class SubAgent(BaseAgent):
 
 
 class Agent(SubAgent):
-    def __init__(
-        self, *, provider, model, name=None, description=None, instruction=None,
-        stream=True, thinking=False, tools=None, skills=None, http_options=None,
-    ):
-        super().__init__(
-            provider=provider, model=model, name=name, description=description,
-            instruction=instruction, stream=stream, thinking=thinking,
-            tools=tools, skills=skills, http_options=http_options,
-        )
-        self.client = Client(
-            provider=provider, model=model, instruction=instruction,
-            http_options=http_options,
-        )
-
     def __call__(self, message):
         return self._chat_with_tools(self.client, message)
