@@ -14,11 +14,13 @@ llm = Client(args.provider, model=args.model, http_options={
     'proxy': args.proxy,
 })
 
+
 # completion
 print('1. completion mode\n')
 prompt = 'Hi'
-response = llm.complete(prompt)
-print(f'user> {prompt}\nassistant> {response}\n')
+new_messages = [{'role': 'user', 'content': prompt}]
+response = llm.chat(new_messages)
+print(f'user> {prompt}\nassistant> {response.choices[0].message.content}\n')
 
 # chat
 print('2. chat mode\n')
@@ -26,17 +28,18 @@ while True:
     prompt = input("user> ")
     if prompt == '/exit':
         break
-    response = llm.chat(prompt)
-    print(f'assistant> {response}')
+    new_messages = [{'role': 'user', 'content': prompt}]
+    response = llm.chat(new_messages)
+    print(f'assistant> {response.choices[0].message.content}')
 
-# stream mode
+# stream completion
 print('\n3. stream completion mode\n')
 prompt = 'Generate 200 words to me about China.'
-generation_options = {'stream': True}
-response = llm.complete(prompt, generation_options=generation_options)
+new_messages = [{'role': 'user', 'content': prompt}]
+response = llm.chat(new_messages, stream=True)
 print(f'user> {prompt}\nassistant> ', end='')
 for chunk in response:
-    print(chunk, end="", flush=True)
+    print(chunk.choices[0].delta.content or '', end='', flush=True)
 print()
 
 llm.clear()
@@ -45,8 +48,9 @@ while True:
     prompt = input("user> ")
     if prompt == '/exit':
         break
-    response = llm.chat(prompt, generation_options=generation_options)
+    new_messages = [{'role': 'user', 'content': prompt}]
+    response = llm.chat(new_messages, stream=True)
     print('assistant> ', end='')
     for chunk in response:
-        print(chunk, end="", flush=True)
+        print(chunk.choices[0].delta.content or '', end='', flush=True)
     print()

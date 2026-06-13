@@ -58,7 +58,7 @@ travel_agent = SubAgent(
         'proxy': args.proxy,
     },
     tools=[query_train_ticket, query_ticket_price],
-    generation_options={'stream': not args.non_streaming},
+    stream=not args.non_streaming,
 )
 agent = Agent(
     provider=args.provider, model=args.model, http_options={
@@ -66,7 +66,7 @@ agent = Agent(
         'proxy': args.proxy,
     },
     tools=[travel_agent],
-    generation_options={'stream': not args.non_streaming},
+    stream=not args.non_streaming,
 )
 
 while True:

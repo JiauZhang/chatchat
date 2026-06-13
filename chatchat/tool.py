@@ -22,13 +22,12 @@ class Tool:
         return tool_result
 
     def to_dict(self):
-        parameters = {} if self.parameters is None else {'parameters': self.parameters}
         return {
             'type': 'function',
             'function': {
                 'name': self.name,
                 'description': self.description,
-                **parameters,
+                'parameters': self.parameters or {'type': 'object', 'properties': {}},
             }
         }
 

@@ -1,23 +1,42 @@
-import json, httpx, types
+import json
+import httpx
 from importlib import import_module
+from typing import Generator, Literal, overload
+
 from chatchat.config import load_config
 from chatchat.providers import __providers__
+from chatchat import ProviderError, APIError
+from chatchat.response import (
+    ChatCompletion,
+    ChatCompletionChunk,
+    Choice,
+    ChunkChoice,
+    Delta,
+    Message,
+    ToolCall,
+    Usage,
+)
+
 
 class BaseClient:
-    def __init__(self, provider, base_url, model=None, instruction=None, http_options={}):
+    def __init__(self, provider, base_url, model=None, instruction=None, http_options=None):
+        http_options = http_options or {}
+        http_options.setdefault('timeout', 60.0)
         self.provider = provider
-        self.instruction = instruction
+        self._instruction = instruction
         self.api_key = load_config(provider)
         self.model = model
         self.client = httpx.Client(
-            base_url=base_url, **http_options, headers={
+            base_url=base_url,
+            **http_options,
+            headers={
                 'Content-Type': 'application/json',
                 'Authorization': f'Bearer {self.api_key}',
             },
         )
         self.base_url = self.client.base_url
         self.headers = self.client.headers
-        self.history = [] if instruction is None else [self.system_message()]
+        self.messages = [] if instruction is None else [self._system_message()]
 
         self._role_key = 'role'
         self._reasoning_content_key = 'reasoning_content'
@@ -26,236 +45,231 @@ class BaseClient:
         self._tool_call_index_key = 'index'
         self._tool_call_id_key = 'id'
 
-    def system_message(self):
-        return {'role': 'system', 'content': self.instruction}
+    def _system_message(self):
+        return {'role': 'system', 'content': self._instruction}
 
-    def set_instruction(self, instruction):
-        is_none = self.instruction is None
-        self.instruction = instruction
-        system_message = self.system_message()
-        if is_none:
-            self.history = [system_message] + self.history
-        else:
-            self.history[0] = system_message
+    def _to_provider_format(self, messages):
+        return messages
 
-    def build_client_messages(self, *, model, messages, generation_options, tools=None):
-        jmsg = {
+    def _to_openai_format(self, msg: Message) -> dict:
+        d = {'role': msg.role}
+        if msg.content:
+            d['content'] = msg.content
+        if msg.reasoning_content:
+            d['reasoning_content'] = msg.reasoning_content
+        if msg.tool_calls:
+            d['tool_calls'] = [
+                {
+                    'id': tc.id,
+                    'type': 'function',
+                    'function': {
+                        'name': tc.name,
+                        'arguments': tc.arguments,
+                    },
+                }
+                for tc in msg.tool_calls
+            ]
+        return d
+
+    def _build_request_body(self, *, model, messages, stream=False, thinking=False, tools=None, **kwargs):
+        payload = {
             'model': model if model else self.model,
-            "messages": messages,
+            'messages': messages,
+            **kwargs,
         }
-        thinking = 'enabled' if generation_options.get('thinking') else 'disabled'
-        jmsg['thinking'] = {'type': thinking}
-        if generation_options.get('stream'):
-            jmsg['stream'] = True
+        if thinking:
+            payload['thinking'] = {'type': 'enabled'}
+        if stream:
+            payload['stream'] = True
         if tools:
-            jmsg['tools'] = tools.to_dict()
-        return jmsg
+            payload['tools'] = tools.to_dict()
+        return payload
 
-    def has_tool_calls(self, message: dict):
-        return bool(message.get(self._tool_calls_key))
+    def _to_tool_call(self, data: dict) -> ToolCall:
+        func = data.get('function', {})
+        return ToolCall(
+            index=data.get('index', 0),
+            id=data.get('id', ''),
+            name=func.get('name', ''),
+            arguments=func.get('arguments', ''),
+        )
 
-    def handle_tool_calls(self, message, tools):
-        tool_calls = message[self._tool_calls_key]
-        tool_result_messages = []
-        for tool_call in tool_calls:
-            func = tool_call['function']
-            name = func['name']
-            args = json.loads(func['arguments'])
-            id = tool_call[self._tool_call_id_key]
-            tool = tools[name]
-            tool_result = tool(**args)
-            tool_content = tool_result
-            if isinstance(tool_result, types.GeneratorType):
-                tool_content = ''.join(tool_result)
-            tool_result_messages.append({'role': 'tool', 'content': tool_content, 'tool_call_id': id})
-        return tool_result_messages
+    def _to_message(self, data: dict) -> Message:
+        reasoning = data.get(self._reasoning_content_key) or data.get('reasoning_content')
+        return Message(
+            role=data.get('role', 'assistant'),
+            content=data.get('content', '') or '',
+            tool_calls=[self._to_tool_call(tc) for tc in (data.get('tool_calls') or [])],
+            reasoning_content=reasoning or '',
+        )
 
-    def send_messages_impl(self, url, jmsg, tools=None):
-        r = self.client.post(url, json=jmsg)
-        r = r.json()
-        r = r['choices'][0]['message']
+    def _to_choice(self, data: dict) -> Choice:
+        return Choice(
+            index=data.get('index', 0),
+            message=self._to_message(data.get('message', {})),
+            finish_reason=data.get('finish_reason', ''),
+        )
 
-        message = {}
-        self._parse_role(r, message)
-        text = self._parse_reasoning_content(r, message, streaming=False)
-        text += self._parse_content(r, message, streaming=False)
-        text += self._parse_tool_calls(r, message, streaming=False)
+    def _to_chat_completion(self, data: dict) -> ChatCompletion:
+        usage_data = data.get('usage') or {}
+        usage = Usage(**{
+            k: v for k, v in usage_data.items()
+            if k in Usage.__dataclass_fields__
+        })
+        return ChatCompletion(
+            id=data.get('id', ''),
+            object=data.get('object', 'chat.completion'),
+            created=data.get('created', 0),
+            model=data.get('model', ''),
+            choices=[self._to_choice(c) for c in (data.get('choices') or [])],
+            usage=usage,
+        )
 
-        if self.has_tool_calls(message):
-            jmsg['messages'].append(message)
-            tool_result_messages = self.handle_tool_calls(r, tools)
-            jmsg['messages'] += tool_result_messages
-            text += self.send_messages_impl(url, jmsg)
-            return text
+    def _to_delta(self, data: dict) -> Delta:
+        reasoning = data.get(self._reasoning_content_key) or data.get('reasoning_content')
+        return Delta(
+            role=data.get('role', ''),
+            content=data.get('content', '') or '',
+            tool_calls=[self._to_tool_call(tc) for tc in (data.get('tool_calls') or [])],
+            reasoning_content=reasoning or '',
+        )
 
-        jmsg['messages'].append(message)
-        return text
+    def _to_chunk_choice(self, data: dict) -> ChunkChoice:
+        return ChunkChoice(
+            index=data.get('index', 0),
+            delta=self._to_delta(data.get('delta', {})),
+            finish_reason=data.get('finish_reason'),
+        )
 
-    def _parse_role(self, r: dict, message: dict):
-        role = message.get(self._role_key, None)
-        r_role = r.get(self._role_key)
-        if not role and r_role:
-            message[self._role_key] = r_role
+    def _to_chat_completion_chunk(self, data: dict) -> ChatCompletionChunk:
+        return ChatCompletionChunk(
+            id=data.get('id', ''),
+            object=data.get('object', 'chat.completion.chunk'),
+            created=data.get('created', 0),
+            model=data.get('model', ''),
+            choices=[self._to_chunk_choice(c) for c in (data.get('choices') or [])],
+        )
 
-    def _parse_reasoning_content(self, r: dict, message: dict, streaming=False):
-        reasoning_content = r.get(self._reasoning_content_key)
-        if not reasoning_content:
-            return ''
-        if streaming:
-            if message.get(self._reasoning_content_key):
-                message[self._reasoning_content_key] += reasoning_content
-                return reasoning_content
-            else:
-                message[self._reasoning_content_key] = reasoning_content
-                return f'\n<think>\n{reasoning_content}'
-        else:
-            message[self._reasoning_content_key] = reasoning_content
-            return f'\n<think>\n{reasoning_content}\n</think>\n'
+    def _get_provider_message(self, data: dict) -> dict:
+        return data['choices'][0]['message']
 
-    def _parse_content(self, r: dict, message: dict, streaming=False):
-        content = r.get(self._content_key)
-        if not content:
-            return ''
-        if streaming:
-            if message.get(self._content_key):
-                message[self._content_key] += content
-                return content
-            else:
-                message[self._content_key] = content
-                return f'\n</think>\n{content}' if message.get(self._reasoning_content_key) else content
-        else:
-            message[self._content_key] = content
-            return content
+    def _send_nonstreaming(self, url, payload):
+        try:
+            response = self.client.post(url, json=payload)
+            response.raise_for_status()
+            data = response.json()
+        except httpx.HTTPStatusError as e:
+            raise APIError(
+                f'API request failed: {e.response.status_code} '
+                f'{e.response.text}'
+            )
+        except httpx.RequestError as e:
+            raise APIError(f'Network error: {e}')
 
-    def _parse_tool_calls(self, r: dict, message: dict, streaming=True):
-        tool_calls: list[dict] = r.get(self._tool_calls_key)
-        if not tool_calls:
-            return ''
+        if 'error' in data:
+            raise APIError(f'API error: {data["error"]}')
 
-        msg_tool_calls: list[dict] = message.get(self._tool_calls_key, [])
-        text = ''
+        return data
 
-        if not msg_tool_calls and not message.get(self._content_key) and message.get(self._reasoning_content_key):
-            text = '\n</think>\n'
-
-        if streaming:
-            for tool_call in tool_calls:
-                target_tool_call = None
-                for msg_tool_call in msg_tool_calls:
-                    if msg_tool_call.get('id') == tool_call.get('id'):
-                        target_tool_call = msg_tool_call
+    def _send_streaming(self, url, payload):
+        try:
+            with self.client.stream('POST', url, json=payload) as response:
+                response.raise_for_status()
+                for line in response.iter_lines():
+                    if not line:
+                        continue
+                    if not line.startswith('data: '):
+                        continue
+                    chunk = line[6:]
+                    if chunk == '[DONE]':
                         break
+                    try:
+                        data = json.loads(chunk)
+                    except Exception as e:
+                        raise APIError(
+                            f'Failed to parse SSE chunk: {e}\nData: {chunk}'
+                        )
+                    yield data
+        except httpx.HTTPStatusError as e:
+            raise APIError(
+                f'Stream request failed: {e.response.status_code} '
+            )
+        except httpx.RequestError as e:
+            raise APIError(f'Network error during streaming: {e}')
 
-                if target_tool_call is None:
-                    if self._tool_call_index_key in tool_call and tool_call[self._tool_call_index_key] < len(msg_tool_calls):
-                        target_tool_call = msg_tool_calls[tool_call[self._tool_call_index_key]]
-                    elif self._tool_call_id_key not in tool_call and msg_tool_calls:
-                        target_tool_call = msg_tool_calls[-1]
+    @overload
+    def chat(self, messages, *, model=None,
+                      stream: Literal[False] = False,
+                      thinking=False, tools=None, **kwargs) -> ChatCompletion: ...
+    @overload
+    def chat(self, messages, *, model=None,
+                      stream: Literal[True] = True,
+                      thinking=False, tools=None, **kwargs) -> Generator[ChatCompletionChunk, None, None]: ...
 
-                if target_tool_call:
-                    tool_call_func = tool_call['function']
-                    target_tool_call_func = target_tool_call['function']
-                    for name, value in tool_call_func.items():
-                        if name in target_tool_call_func:
-                            target_tool_call_func[name] += value
-                        else:
-                            target_tool_call_func[name] = value
-                else:
-                    msg_tool_calls.append(tool_call)
-                    message[self._tool_calls_key] = msg_tool_calls
-        else:
-            message[self._tool_calls_key] = tool_calls
-
-        return text
-
-    def send_messages_stream_impl(self, url, jmsg, tools=None):
-        message = {}
-        with self.client.stream('POST', url, json=jmsg) as r:
-            for chunk in r.iter_lines():
-                if not chunk:
-                    continue
-
-                # remove chunk prefix: 'data: '
-                chunk = chunk[6:]
-                if chunk == '[DONE]':
-                    break
-
-                # openrouter
-                if chunk == 'ROUTER PROCESSING':
-                    continue
-
-                try:
-                    chunk = json.loads(chunk)
-                except Exception as e:
-                    print(f'{e}\njson.loads failed, chunk data:\n{chunk}')
-                    exit(1)
-
-                chunk_response = chunk['choices'][0]['delta']
-
-                self._parse_role(chunk_response, message)
-                text = self._parse_reasoning_content(chunk_response, message, streaming=True)
-                text += self._parse_content(chunk_response, message, streaming=True)
-                text += self._parse_tool_calls(chunk_response, message, streaming=True)
-
-                yield text
-
-        jmsg['messages'].append(message)
-        if self.has_tool_calls(message):
-            tool_result_messages = self.handle_tool_calls(message, tools)
-            jmsg['messages'] += tool_result_messages
-            yield from self.send_messages_stream_impl(url, jmsg, tools=tools)
-
-    def send_messages(self, messages, *, generation_options={}, model=None, tools=None):
-        jmsg = self.build_client_messages(
-            model=model, messages=messages, generation_options=generation_options, tools=tools,
+    def chat(self, messages, *, model=None, stream=False, thinking=False, tools=None, **kwargs):
+        converted = self._to_provider_format(messages)
+        full = self.messages + converted
+        payload = self._build_request_body(
+            model=model, messages=full, stream=stream, thinking=thinking, tools=tools, **kwargs,
         )
         url = '/chat/completions'
+        if not stream:
+            raw = self._send_nonstreaming(url, payload)
+            reply = self._get_provider_message(raw)
+            self.messages = full + [reply]
+            return self._to_chat_completion(raw)
+        return self._chat_stream(url, payload, full)
 
-        if not generation_options.get('stream', False):
-            return self.send_messages_impl(url, jmsg, tools=tools)
-        else:
-            return self.send_messages_stream_impl(url, jmsg, tools=tools)
-
-    def complete(self, prompt, *, model=None, generation_options={}):
-        message = {'role': 'user', 'content': prompt}
-        messages = [message] if self.instruction is None else [self.system_message(), message]
-        return self.send_messages(messages, model=model, generation_options=generation_options)
+    def _chat_stream(self, url, payload, full):
+        acc = Message()
+        for raw in self._send_streaming(url, payload):
+            chunk = self._to_chat_completion_chunk(raw)
+            acc.accumulate(chunk.choices[0].delta)
+            yield chunk
+        reply = self._to_openai_format(acc)
+        self.messages = full + self._to_provider_format([reply])
 
     def clear(self):
-        self.history = [self.system_message()] if self.instruction else []
+        self.messages = [self._system_message()] if self._instruction else []
 
-    def chat(self, text, *, model=None, history=None, generation_options={}, tools=None):
-        message = {'role': 'user', 'content': text}
-        messages = history if history else self.history
-        messages.append(message)
-        return self.send_messages(messages, model=model, generation_options=generation_options, tools=tools)
 
 def dynamic_import_client(provider):
     if provider not in __providers__:
-            print(f'provider `{provider}` is currently not supported!')
-            print(f'supported providers: {__providers__}')
-            exit(-1)
+        raise ProviderError(
+            f'Provider `{provider}` is not supported. '
+            f'Supported providers: {__providers__}'
+        )
     client_module = import_module(f'chatchat.providers.{provider}')
     client_class = getattr(client_module, f'{provider.capitalize()}Client')
     return client_class
 
-class Client:
-    def __init__(self, provider, model, instruction=None, http_options={}):
-        client_class = dynamic_import_client(provider)
-        self.client: BaseClient = client_class(model=model, instruction=instruction, http_options=http_options)
 
-        self.chat = self.client.chat
-        self.complete = self.client.complete
-        self.clear = self.client.clear
+class Client:
+    def __init__(self, provider, model, instruction=None, http_options=None):
+        client_class = dynamic_import_client(provider)
+        self.client: BaseClient = client_class(
+            model=model, instruction=instruction, http_options=http_options,
+        )
+
+    @overload
+    def chat(self, messages, *, model=None, stream: Literal[False] = False,
+        thinking=False, tools=None, **kwargs) -> ChatCompletion: ...
+    @overload
+    def chat(self, messages, *, model=None, stream: Literal[True] = True,
+        thinking=False, tools=None, **kwargs) -> Generator[ChatCompletionChunk, None, None]: ...
+
+    def chat(self, messages, *, model=None, stream=False, thinking=False, tools=None, **kwargs):
+        return self.client.chat(
+            messages, model=model, stream=stream, thinking=thinking, tools=tools, **kwargs,
+        )
+
+    def clear(self):
+        self.client.clear()
 
     @property
-    def history(self):
-        return self.client.history
+    def messages(self):
+        return self.client.messages
 
     @property
     def instruction(self):
-         return self.client.instruction
-
-    @instruction.setter
-    def instruction(self, value):
-         self.client.instruction = value
+        return self.client._instruction

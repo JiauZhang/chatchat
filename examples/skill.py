@@ -76,7 +76,7 @@ agent = Agent(
     },
     skills=['.'],
     tools=[execute_shell_command, write_file],
-    generation_options={'stream': not args.non_streaming},
+    stream=not args.non_streaming,
 )
 
 while True:
