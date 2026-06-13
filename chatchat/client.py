@@ -224,6 +224,8 @@ class BaseClient:
         acc = Message()
         for raw in self._send_streaming(url, payload):
             chunk = self._to_chat_completion_chunk(raw)
+            if not chunk.choices:
+                continue
             acc.accumulate(chunk.choices[0].delta)
             yield chunk
         reply = self._to_openai_format(acc)

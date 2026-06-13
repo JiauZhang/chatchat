@@ -38,7 +38,10 @@ class Message:
                     target = existing
                     break
             if target is None:
-                self.tool_calls.append(tc)
+                self.tool_calls.append(ToolCall(
+                    index=tc.index, id=tc.id, name=tc.name,
+                    arguments=tc.arguments,
+                ))
             else:
                 if tc.id:
                     target.id = tc.id
