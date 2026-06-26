@@ -1,5 +1,5 @@
 import argparse
-from chatchat.agent import SubAgent
+from chatchat.agent import Agent
 from chatchat.tool import tool
 
 parser = argparse.ArgumentParser()
@@ -11,10 +11,6 @@ parser.add_argument('--thinking', action='store_true')
 args = parser.parse_args()
 
 http_options = {} if args.timeout is None else {'timeout': args.timeout}
-
-
-def on_start(self, **kwargs):
-    print(f'\n<tool>{self.name} {kwargs}</tool>\n')
 
 
 @tool(
@@ -29,25 +25,19 @@ def on_start(self, **kwargs):
         },
         'required': ['city'],
     },
-    on_start=on_start,
 )
 def get_weather(city):
     return f'{city} is Sunny.'
 
 
-def on_error(self, exception):
-    print(f'\n<tool>{self.name} {exception}</tool>\n')
-
-
 @tool(
     name='get_datetime', description='getting current datetime',
-    on_error=on_error,
 )
 def get_datetime():
     raise RuntimeError('get datetime failed.')
 
 
-agent = SubAgent(
+agent = Agent(
     provider=args.provider, model=args.model,
     instruction='You are a helpful assistant.',
     stream=not args.non_streaming,

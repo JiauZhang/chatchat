@@ -1,25 +1,33 @@
+import inspect
+
+from chatchat.types import Progress
+
+
 class Tool:
-    def __init__(self, *, tool, name, description, parameters=None, on_start=None, on_end=None, on_error=None):
+    def __init__(self, *, tool, name, description, parameters=None):
         self.name = name
         self.description = description
         self.parameters = parameters
         self.tool = tool
-        self.on_start = on_start
-        self.on_end = on_end
-        self.on_error = on_error
 
     def __call__(self, **kwargs):
-        if self.on_start:
-            self.on_start(self, **kwargs)
+        on_progress = kwargs.pop('on_progress', None)
         try:
-            tool_result = self.tool(**kwargs)
+            if on_progress and self._accepts_on_progress():
+                result = self.tool(on_progress=on_progress, **kwargs)
+            else:
+                result = self.tool(**kwargs)
         except Exception as e:
-            if self.on_error:
-                self.on_error(self, e)
+            if on_progress:
+                on_progress(Progress(
+                    type='tool_error', tool_name=self.name,
+                    content=str(e),
+                ))
             return f'call tool {self.name} failed.'
-        if self.on_end:
-            self.on_end(self, tool_result)
-        return tool_result
+        return result
+
+    def _accepts_on_progress(self):
+        return 'on_progress' in inspect.signature(self.tool).parameters
 
     def to_dict(self):
         return {
@@ -31,13 +39,14 @@ class Tool:
             }
         }
 
-def tool(*, name, description, parameters=None, on_start=None, on_end=None, on_error=None):
+
+def tool(*, name, description, parameters=None):
     def decorator(func):
         return Tool(
             tool=func, name=name, description=description, parameters=parameters,
-            on_start=on_start, on_end=on_end, on_error=on_error,
         )
     return decorator
+
 
 class Tools:
     def __init__(self, *tools: Tool):

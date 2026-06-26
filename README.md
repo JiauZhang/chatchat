@@ -31,14 +31,11 @@ from chatchat.client import Client
 
 llm = Client('tencent', model='hunyuan-lite')
 
-# completion
-response = llm.complete('Hi')
-
 # chat
-response = llm.chat('Hello')
+response = llm.chat([{'role': 'user', 'content': 'Hello'}])
 
 # stream
-for chunk in llm.complete('Hello', generation_options={'stream': True}):
+for chunk in llm.chat([{'role': 'user', 'content': 'Hello'}], stream=True):
     print(chunk, end='')
 ```
 
@@ -64,14 +61,14 @@ from chatchat.agent import Agent
 def get_weather(city):
     return f'{city} is Sunny.'
 
-agent = Agent('zhipu', model='glm-4.7-flash', tools=[get_weather])
+agent = Agent(provider='zhipu', model='glm-4.7-flash', tools=[get_weather])
 response = agent('How is the weather in Shanghai?')
 ```
 
-### SubAgent
+### Agent to Agent
 
 ```python
-from chatchat.agent import SubAgent, Agent
+from chatchat.agent import Agent
 from chatchat.tool import tool
 
 @tool(
@@ -94,14 +91,14 @@ from chatchat.tool import tool
 def query_ticket(from_city, to_city):
     ...
 
-travel_agent = SubAgent(
+travel_agent = Agent(
     name='travel_agent',
     description='query tickets between cities',
     provider='zhipu', model='glm-4.7-flash',
     tools=[query_ticket],
 )
 
-agent = Agent('zhipu', model='glm-4.7-flash', tools=[travel_agent])
+agent = Agent(provider='zhipu', model='glm-4.7-flash', tools=[travel_agent])
 ```
 
 ## Configuration

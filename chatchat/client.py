@@ -6,7 +6,7 @@ from typing import Generator, Literal, overload
 from chatchat.config import load_config
 from chatchat.providers import __providers__, __custom_providers__
 from chatchat import ProviderError, APIError
-from chatchat.response import (
+from chatchat.types import (
     ChatCompletion,
     ChatCompletionChunk,
     Choice,

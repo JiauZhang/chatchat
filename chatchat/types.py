@@ -2,6 +2,8 @@ from dataclasses import dataclass, field
 from typing import Generator
 
 
+# --- LLM response types (from response.py) ---
+
 @dataclass
 class ToolCall:
     index: int = 0
@@ -92,3 +94,13 @@ class ChatCompletionChunk:
     choices: list[ChunkChoice] = field(default_factory=list)
 
 
+# --- Event types (from event.py) ---
+
+@dataclass
+class Progress:
+    type: str
+    content: str = ''
+    agent: str = ''
+    tool_name: str = ''
+    step: int = 0
+    total: int = 0
