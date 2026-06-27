@@ -43,8 +43,6 @@ agent = Agent(
     stream=not args.non_streaming,
     thinking=args.thinking,
     tools=[get_weather, get_datetime],
-    name='assistant',
-    description='A helpful assistant',
     http_options=http_options,
 )
 
@@ -53,7 +51,7 @@ while True:
     if prompt == '/exit':
         break
     print('assistant> ', end='')
-    result = agent(prompt)
+    result = agent.chat(prompt)
     if args.non_streaming:
         print(result)
     else:

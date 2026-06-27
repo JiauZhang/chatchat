@@ -9,9 +9,9 @@ from chatchat.skill import Skill
 from chatchat.types import Message, ToolCall, Progress
 
 
-class BaseAgent:
+class Agent:
     def __init__(
-        self, *, provider, model, name=None, description=None, instruction=None,
+        self, *, provider, model, name=None, instruction=None,
         stream=True, thinking=False, tools=None, skills=None, http_options=None,
     ):
         self.provider = provider
@@ -19,43 +19,10 @@ class BaseAgent:
         self.instruction = instruction
         self.http_options = http_options or {}
         self.name = name
-        self.description = description
         self.stream = stream
         self.thinking = thinking
         self.tools = tools
         self.skills = skills
-
-    def to_dict(self):
-        assert self.name and self.description
-        return {
-            'type': 'function',
-            'function': {
-                'name': self.name,
-                'description': self.description,
-                'parameters': {
-                    'type': 'object',
-                    'properties': {
-                        'message': {
-                            'type': 'string',
-                            'description': 'Accurately and concisely state what you want it to do.',
-                        }
-                    },
-                    'required': ['message'],
-                }
-            }
-        }
-
-
-class Agent(BaseAgent):
-    def __init__(
-        self, *, provider, model, name=None, description=None, instruction=None,
-        stream=True, thinking=False, tools=None, skills=None, http_options=None,
-    ):
-        super().__init__(
-            provider=provider, model=model, name=name, description=description,
-            instruction=instruction, stream=stream, thinking=thinking,
-            tools=tools, skills=skills, http_options=http_options,
-        )
 
         if self.skills:
             skill_agents = []
@@ -73,8 +40,8 @@ class Agent(BaseAgent):
         )
 
     @staticmethod
-    def from_skill(agent: 'BaseAgent', skill: Skill):
-        return Agent(
+    def from_skill(agent: 'Agent', skill: Skill):
+        return AgentTool(
             provider=agent.provider, model=agent.model,
             stream=agent.stream, thinking=agent.thinking,
             tools=agent.tools, http_options=agent.http_options,
@@ -82,42 +49,11 @@ class Agent(BaseAgent):
             description=skill.description,
         )
 
-    def chat(self, message, reset=False, on_progress=None):
-        """发送消息给 Agent。
-
-        reset=True 时清空对话历史（stateless，适用于工具式调用）。
-        on_progress 回调接收 Progress，用于实时追踪执行进度。
-        """
-        if reset:
-            self.client.clear()
+    def chat(self, message: str, on_progress=None):
         return self._chat_with_tools(self.client, message, on_progress=on_progress)
 
-    def to_tool(self):
-        """把自己包装成 Tool，其他 Agent 可通过 tool 机制调用。"""
-        from chatchat.tool import Tool
-
-        agent = self
-
-        def _call(**kwargs):
-            on_progress = kwargs.pop('on_progress', None)
-            message = kwargs.get('message', '')
-            return agent.chat(message, on_progress=on_progress)
-
-        return Tool(
-            tool=_call,
-            name=self.name or self.__class__.__name__,
-            description=self.description or '',
-            parameters={
-                'type': 'object',
-                'properties': {
-                    'message': {
-                        'type': 'string',
-                        'description': 'Accurately and concisely state what you want it to do.',
-                    }
-                },
-                'required': ['message'],
-            }
-        )
+    def clear(self):
+        self.client.clear()
 
     def _execute_tool_calls(self, tool_calls: list[ToolCall], on_progress=None) -> list[dict]:
         tool_results = []
@@ -211,7 +147,40 @@ class Agent(BaseAgent):
             tool_results = self._execute_tool_calls(acc.tool_calls, on_progress=on_progress)
             new_messages = tool_results
 
-    def __call__(self, message, **kwargs):
-        """保留向后兼容。等价于 chat(message)。"""
-        on_progress = kwargs.get('on_progress')
-        return self.chat(message, on_progress=on_progress)
+
+class AgentTool():
+    def __init__(
+        self, *, provider, model, name, description, instruction=None,
+        stream=True, thinking=False, tools=None, skills=None, http_options=None,
+    ):
+        self.name = name
+        self.description = description
+        self._agent = Agent(
+            provider=provider, model=model, name=name,
+            instruction=instruction, stream=stream, thinking=thinking,
+            tools=tools, skills=skills, http_options=http_options,
+        )
+
+    def to_dict(self):
+        return {
+            'type': 'function',
+            'function': {
+                'name': self.name,
+                'description': self.description,
+                'parameters': {
+                    'type': 'object',
+                    'properties': {
+                        'message': {
+                            'type': 'string',
+                            'description': 'Accurately and concisely state what you want it to do.',
+                        }
+                    },
+                    'required': ['message'],
+                }
+            }
+        }
+
+    def __call__(self, message: str, on_progress=None):
+        self._agent.clear()
+        return self._agent.chat(message, on_progress=on_progress)
+  

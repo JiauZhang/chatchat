@@ -83,7 +83,7 @@ while True:
     prompt = input("user> ")
     if prompt == '/exit':
         break
-    response = agent(prompt)
+    response = agent.chat(prompt)
     print('assistant> ', end='')
     for chunk in response:
         print(chunk, end="", flush=True)

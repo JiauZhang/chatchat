@@ -1,6 +1,6 @@
 import argparse
 import random
-from chatchat.agent import Agent
+from chatchat.agent import Agent, AgentTool
 from chatchat.tool import tool
 from chatchat.types import Progress
 
@@ -82,7 +82,7 @@ def on_progress(evt: Progress):
     print(f'  [{emoji} {agent:>10}] {msg}')
 
 
-researcher = Agent(
+researcher = AgentTool(
     name='researcher', description='search and summarize information',
     provider=args.provider, model=args.model,
     http_options=http_options, stream=False,

@@ -1,5 +1,5 @@
 import argparse, random
-from chatchat.agent import Agent
+from chatchat.agent import Agent, AgentTool
 from chatchat.tool import tool
 
 parser = argparse.ArgumentParser()
@@ -50,7 +50,7 @@ def query_train_ticket(from_city, to_city):
 def query_ticket_price(from_city, to_city):
     return f'the ticket from {from_city} to {to_city} is {random.randint(100, 200)} RMB.'
 
-travel_agent = Agent(
+travel_agent = AgentTool(
     name='travel_agent',
     description='query tickets and fares between cities',
     provider=args.provider, model=args.model, http_options={
@@ -73,7 +73,7 @@ while True:
     prompt = input("user> ")
     if prompt == '/exit':
         break
-    response = agent(prompt)
+    response = agent.chat(prompt)
     print('assistant> ', end='')
     for chunk in response:
         print(chunk, end="", flush=True)
