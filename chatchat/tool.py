@@ -20,7 +20,7 @@ class Tool:
         except Exception as e:
             if on_progress:
                 on_progress(Progress(
-                    type='tool_error', tool_name=self.name,
+                    type=ProgressType.TOOL_ERROR, tool_name=self.name,
                     content=str(e),
                 ))
             return f'call tool {self.name} failed.'

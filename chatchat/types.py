@@ -1,5 +1,23 @@
+from enum import Enum
 from dataclasses import dataclass, field
 from typing import Generator
+
+
+class ProgressType(Enum):
+    AGENT_START = 'agent:start'
+    AGENT_STEP = 'agent:step'
+    AGENT_END = 'agent:end'
+    AGENT_ERROR = 'agent:error'
+
+    CLIENT_START = 'client:start'
+    CLIENT_STEP = 'client:step'
+    CLIENT_END = 'client:end'
+    CLIENT_ERROR = 'client:error'
+
+    TOOL_START = 'tool:start'
+    TOOL_STEP = 'tool:step'
+    TOOL_END = 'tool:end'
+    TOOL_ERROR = 'tool:error'
 
 
 @dataclass
@@ -94,9 +112,8 @@ class ChatCompletionChunk:
 
 @dataclass
 class Progress:
-    type: str
+    type: ProgressType
     content: str = ''
     agent: str = ''
     tool_name: str = ''
     step: int = 0
-    total: int = 0

@@ -2,7 +2,7 @@ import argparse
 import random
 from chatchat.agent import Agent, SubAgent
 from chatchat.tool import tool
-from chatchat.types import Progress
+from chatchat.types import Progress, ProgressType
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--provider', type=str, default='agnes')
@@ -23,10 +23,10 @@ http_options = {'timeout': args.timeout or 30}
 )
 def search_web(query, on_progress=None):
     if on_progress:
-        on_progress(Progress(type='progress', content=f'searching "{query}"...'))
+        on_progress(Progress(type=ProgressType.TOOL_STEP, content=f'searching "{query}"...'))
     results = [f'result {i} about {query}' for i in range(random.randint(1, 3))]
     if on_progress:
-        on_progress(Progress(type='progress', content=f'found {len(results)} results'))
+        on_progress(Progress(type=ProgressType.TOOL_STEP, content=f'found {len(results)} results'))
     return '\n'.join(results)
 
 
@@ -40,10 +40,10 @@ def search_web(query, on_progress=None):
 )
 def summarize(text, on_progress=None):
     if on_progress:
-        on_progress(Progress(type='progress', content='summarizing...'))
+        on_progress(Progress(type=ProgressType.TOOL_STEP, content='summarizing...'))
     summary = f'Summary: {text[:50]}...'
     if on_progress:
-        on_progress(Progress(type='progress', content='summary ready'))
+        on_progress(Progress(type=ProgressType.TOOL_STEP, content='summary ready'))
     return summary
 
 
@@ -60,24 +60,33 @@ def summarize(text, on_progress=None):
 )
 def save_file(path, content, on_progress=None):
     if on_progress:
-        on_progress(Progress(type='progress', content=f'writing to {path}...'))
+        on_progress(Progress(type=ProgressType.TOOL_STEP, content=f'writing to {path}...'))
     raise PermissionError(f'no write permission for {path}')
 
 
 def on_progress(evt: Progress):
-    emoji = {'thinking': '\U0001f9e0', 'step': '\U0001f463', 'tool_start': '\U0001f527',
-             'tool_end': '\u2705', 'tool_error': '\u274c', 'progress': '\u2139\ufe0f',
-             'complete': '\u2705'}.get(evt.type, '  ')
-    if evt.type == 'tool_start':
+    emoji = {
+        ProgressType.AGENT_START: '\U0001f9e0',
+        ProgressType.AGENT_STEP: '\U0001f463',
+        ProgressType.AGENT_END: '\u2705',
+        ProgressType.AGENT_ERROR: '\u274c',
+        ProgressType.TOOL_START: '\U0001f527',
+        ProgressType.TOOL_END: '\u2705',
+        ProgressType.TOOL_ERROR: '\u274c',
+        ProgressType.TOOL_STEP: '\u2139\ufe0f',
+    }.get(evt.type, '  ')
+    if evt.type == ProgressType.TOOL_START:
         msg = f'calling "{evt.tool_name}"'
-    elif evt.type == 'tool_end':
+    elif evt.type == ProgressType.TOOL_END:
         msg = f'"{evt.tool_name}" done'
-    elif evt.type == 'step':
+    elif evt.type == ProgressType.AGENT_STEP:
         msg = f'tool round {evt.step} complete, processing results'
-    elif evt.type == 'tool_error':
+    elif evt.type == ProgressType.TOOL_ERROR:
         msg = f'"{evt.tool_name}" failed: {evt.content}'
+    elif evt.type == ProgressType.AGENT_ERROR:
+        msg = f'agents error: {evt.content}'
     else:
-        msg = evt.content or evt.type
+        msg = evt.content or evt.type.value
     agent = evt.agent or 'agent'
     print(f'  [{emoji} {agent:>10}] {msg}')
 

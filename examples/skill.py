@@ -1,6 +1,7 @@
 import os, argparse, subprocess
 from chatchat.agent import Agent, SubAgent
 from chatchat.tool import tool
+from chatchat.types import Progress, ProgressType
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--provider', type=str, default='agnes')
@@ -86,16 +87,16 @@ agent = Agent(
 )
 
 def on_progress(progress):
-    if progress.type == 'thinking':
-        print(f'\n[agent {progress.agent or ""} thinking round {progress.step}]')
-    elif progress.type == 'step':
+    if progress.type == ProgressType.AGENT_START:
+        print(f'\n[agent {progress.agent or ""} start]')
+    elif progress.type == ProgressType.AGENT_STEP:
         print(f'\n[agent {progress.agent or ""} step {progress.step}]')
-    elif progress.type == 'tool_start':
+    elif progress.type == ProgressType.AGENT_END:
+        print(f'\n[agent {progress.agent or ""} end]')
+    elif progress.type == ProgressType.TOOL_START:
         print(f'\n[agent {progress.agent or ""} using tool {progress.tool_name}]')
-    elif progress.type == 'tool_end':
+    elif progress.type == ProgressType.TOOL_END:
         print(f'\n[agent {progress.agent or ""} tool {progress.tool_name} done]')
-    elif progress.type == 'complete':
-        print(f'\n[agent {progress.agent or ""} complete]')
 
 while True:
     prompt = input("user> ")

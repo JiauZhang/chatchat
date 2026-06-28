@@ -3,7 +3,7 @@ import types
 
 from chatchat.client import Client
 from chatchat.tool import Tools
-from chatchat.types import Message, ToolCall, Progress
+from chatchat.types import Message, ToolCall, Progress, ProgressType
 
 
 class Agent:
@@ -25,7 +25,15 @@ class Agent:
         )
 
     def chat(self, message: str, on_progress=None):
-        return self._chat_with_tools(self.client, message, on_progress=on_progress)
+        try:
+            return self._chat_with_tools(self.client, message, on_progress=on_progress)
+        except Exception as e:
+            if on_progress:
+                on_progress(Progress(
+                    type=ProgressType.AGENT_ERROR, agent=self.name or '',
+                    content=str(e),
+                ))
+            raise
 
     def clear(self):
         self.client.clear()
@@ -37,15 +45,23 @@ class Agent:
             args = json.loads(tc.arguments)
             if on_progress:
                 on_progress(Progress(
-                    type='tool_start', tool_name=tc.name,
+                    type=ProgressType.TOOL_START, tool_name=tc.name,
                     agent=self.name or '',
                 ))
-            result = tool(**args, on_progress=on_progress)
+            try:
+                result = tool(**args, on_progress=on_progress)
+            except Exception as e:
+                if on_progress:
+                    on_progress(Progress(
+                        type=ProgressType.TOOL_ERROR, tool_name=tc.name,
+                        agent=self.name or '', content=str(e),
+                    ))
+                result = f'call tool {tc.name} failed: {e}'
             if isinstance(result, types.GeneratorType):
                 result = ''.join(result)
             if on_progress:
                 on_progress(Progress(
-                    type='tool_end', tool_name=tc.name,
+                    type=ProgressType.TOOL_END, tool_name=tc.name,
                     agent=self.name or '',
                 ))
             tool_results.append({
@@ -56,6 +72,10 @@ class Agent:
         return tool_results
 
     def _chat_with_tools(self, client, text, on_progress=None):
+        if on_progress:
+            on_progress(Progress(
+                type=ProgressType.AGENT_START, agent=self.name or '',
+            ))
         if self.stream:
             return self._stream_chat(client, text, on_progress=on_progress)
         return self._nonstream_chat(client, text, on_progress=on_progress)
@@ -65,27 +85,23 @@ class Agent:
         round = 0
         while True:
             round += 1
-            if on_progress:
-                on_progress(Progress(
-                    type='thinking', agent=self.name or '',
-                    step=round,
-                ))
             response = client.chat(
-                new_messages, stream=self.stream, thinking=self.thinking, tools=self.tools,
+                new_messages, stream=self.stream, thinking=self.thinking,
+                tools=self.tools, on_progress=on_progress, step=round,
             )
             msg = response.choices[0].message
             if not msg.tool_calls:
                 if on_progress:
                     on_progress(Progress(
-                        type='complete', agent=self.name or '',
+                        type=ProgressType.AGENT_END, agent=self.name or '',
                     ))
                 return msg.content
+            tool_results = self._execute_tool_calls(msg.tool_calls, on_progress=on_progress)
             if on_progress:
                 on_progress(Progress(
-                    type='step', agent=self.name or '',
+                    type=ProgressType.AGENT_STEP, agent=self.name or '',
                     step=round,
                 ))
-            tool_results = self._execute_tool_calls(msg.tool_calls, on_progress=on_progress)
             new_messages = tool_results
 
     def _stream_chat(self, client, text, on_progress=None):
@@ -93,13 +109,9 @@ class Agent:
         round = 0
         while True:
             round += 1
-            if on_progress:
-                on_progress(Progress(
-                    type='thinking', agent=self.name or '',
-                    step=round,
-                ))
             stream = client.chat(
-                new_messages, stream=self.stream, thinking=self.thinking, tools=self.tools,
+                new_messages, stream=self.stream, thinking=self.thinking,
+                tools=self.tools, on_progress=on_progress, step=round,
             )
             acc = Message()
             has_tool_calls = False
@@ -111,15 +123,15 @@ class Agent:
             if not has_tool_calls:
                 if on_progress:
                     on_progress(Progress(
-                        type='complete', agent=self.name or '',
+                        type=ProgressType.AGENT_END, agent=self.name or '',
                     ))
                 break
+            tool_results = self._execute_tool_calls(acc.tool_calls, on_progress=on_progress)
             if on_progress:
                 on_progress(Progress(
-                    type='step', agent=self.name or '',
+                    type=ProgressType.AGENT_STEP, agent=self.name or '',
                     step=round,
                 ))
-            tool_results = self._execute_tool_calls(acc.tool_calls, on_progress=on_progress)
             new_messages = tool_results
 
 

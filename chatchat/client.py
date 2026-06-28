@@ -13,6 +13,8 @@ from chatchat.types import (
     ChunkChoice,
     Delta,
     Message,
+    Progress,
+    ProgressType,
     ToolCall,
     Usage,
 )
@@ -200,36 +202,59 @@ class BaseClient:
     @overload
     def chat(self, messages, *, model=None,
                       stream: Literal[False] = False,
-                      thinking=False, tools=None, **kwargs) -> ChatCompletion: ...
+                      thinking=False, tools=None, on_progress=None, step=0,
+                      **kwargs) -> ChatCompletion: ...
     @overload
     def chat(self, messages, *, model=None,
                       stream: Literal[True] = True,
-                      thinking=False, tools=None, **kwargs) -> Generator[ChatCompletionChunk, None, None]: ...
+                      thinking=False, tools=None, on_progress=None, step=0,
+                      **kwargs) -> Generator[ChatCompletionChunk, None, None]: ...
 
-    def chat(self, messages, *, model=None, stream=False, thinking=False, tools=None, **kwargs):
+    def chat(self, messages, *, model=None, stream=False,
+             thinking=False, tools=None, on_progress=None, step=0, **kwargs):
         converted = self._to_provider_format(messages)
         full = self.messages + converted
         payload = self._build_request_body(
             model=model, messages=full, stream=stream, thinking=thinking, tools=tools, **kwargs,
         )
         url = '/chat/completions'
+        if on_progress:
+            on_progress(Progress(type=ProgressType.CLIENT_START, step=step))
+            on_progress(Progress(type=ProgressType.CLIENT_STEP, step=step))
         if not stream:
-            raw = self._send_nonstreaming(url, payload)
-            reply = self._get_provider_message(raw)
-            self.messages = full + [reply]
-            return self._to_chat_completion(raw)
-        return self._chat_stream(url, payload, full)
+            return self._nonstream_chat(url, payload, full, on_progress=on_progress)
+        return self._chat_stream(url, payload, full, on_progress=on_progress)
 
-    def _chat_stream(self, url, payload, full):
+    def _nonstream_chat(self, url, payload, full, on_progress=None):
+        try:
+            raw = self._send_nonstreaming(url, payload)
+        except Exception as e:
+            if on_progress:
+                on_progress(Progress(type=ProgressType.CLIENT_ERROR, content=str(e)))
+            raise
+        reply = self._get_provider_message(raw)
+        self.messages = full + [reply]
+        if on_progress:
+            on_progress(Progress(type=ProgressType.CLIENT_END))
+        return self._to_chat_completion(raw)
+
+    def _chat_stream(self, url, payload, full, on_progress=None):
         acc = Message()
-        for raw in self._send_streaming(url, payload):
-            chunk = self._to_chat_completion_chunk(raw)
-            if not chunk.choices:
-                continue
-            acc.accumulate(chunk.choices[0].delta)
-            yield chunk
+        try:
+            for raw in self._send_streaming(url, payload):
+                chunk = self._to_chat_completion_chunk(raw)
+                if not chunk.choices:
+                    continue
+                acc.accumulate(chunk.choices[0].delta)
+                yield chunk
+        except Exception as e:
+            if on_progress:
+                on_progress(Progress(type=ProgressType.CLIENT_ERROR, content=str(e)))
+            raise
         reply = self._to_openai_format(acc)
         self.messages = full + self._to_provider_format([reply])
+        if on_progress:
+            on_progress(Progress(type=ProgressType.CLIENT_END))
 
     def clear(self):
         self.messages = [self._system_message()] if self._instruction else []
@@ -258,14 +283,18 @@ class Client:
 
     @overload
     def chat(self, messages, *, model=None, stream: Literal[False] = False,
-        thinking=False, tools=None, **kwargs) -> ChatCompletion: ...
+        thinking=False, tools=None, on_progress=None, step=0,
+        **kwargs) -> ChatCompletion: ...
     @overload
     def chat(self, messages, *, model=None, stream: Literal[True] = True,
-        thinking=False, tools=None, **kwargs) -> Generator[ChatCompletionChunk, None, None]: ...
+        thinking=False, tools=None, on_progress=None, step=0,
+        **kwargs) -> Generator[ChatCompletionChunk, None, None]: ...
 
-    def chat(self, messages, *, model=None, stream=False, thinking=False, tools=None, **kwargs):
+    def chat(self, messages, *, model=None, stream=False,
+             thinking=False, tools=None, on_progress=None, step=0, **kwargs):
         return self.client.chat(
-            messages, model=model, stream=stream, thinking=thinking, tools=tools, **kwargs,
+            messages, model=model, stream=stream, thinking=thinking,
+            tools=tools, on_progress=on_progress, step=step, **kwargs,
         )
 
     def clear(self):
