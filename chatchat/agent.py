@@ -1,18 +1,15 @@
 import json
-import os
 import types
-from glob import glob
 
 from chatchat.client import Client
 from chatchat.tool import Tools
-from chatchat.skill import Skill
 from chatchat.types import Message, ToolCall, Progress
 
 
 class Agent:
     def __init__(
         self, *, provider, model, name=None, instruction=None,
-        stream=True, thinking=False, tools=None, skills=None, http_options=None,
+        stream=True, thinking=False, tools=None, http_options=None,
     ):
         self.provider = provider
         self.model = model
@@ -21,32 +18,10 @@ class Agent:
         self.name = name
         self.stream = stream
         self.thinking = thinking
-        self.tools = tools
-        self.skills = skills
-
-        if self.skills:
-            skill_agents = []
-            for skill in self.skills:
-                skill_agents += glob(os.path.join(skill, '**/SKILL.md'), recursive=True)
-            skill_agents = [Agent.from_skill(self, Skill(os.path.dirname(md))) for md in skill_agents]
-            all_tools = skill_agents if self.tools is None else list(self.tools) + skill_agents
-        else:
-            all_tools = self.tools
-
-        self.tools = Tools(*all_tools) if all_tools else None
+        self.tools = Tools(*tools) if tools else None
         self.client = Client(
             provider=self.provider, model=self.model, instruction=self.instruction,
             http_options=self.http_options,
-        )
-
-    @staticmethod
-    def from_skill(agent: 'Agent', skill: Skill):
-        return AgentTool(
-            provider=agent.provider, model=agent.model,
-            stream=agent.stream, thinking=agent.thinking,
-            tools=agent.tools, http_options=agent.http_options,
-            name=skill.name, instruction=skill.instruction,
-            description=skill.description,
         )
 
     def chat(self, message: str, on_progress=None):
@@ -148,17 +123,47 @@ class Agent:
             new_messages = tool_results
 
 
-class AgentTool():
+class SubAgent:
     def __init__(
         self, *, provider, model, name, description, instruction=None,
-        stream=True, thinking=False, tools=None, skills=None, http_options=None,
+        stream=True, thinking=False, tools=None, http_options=None,
     ):
         self.name = name
         self.description = description
         self._agent = Agent(
             provider=provider, model=model, name=name,
             instruction=instruction, stream=stream, thinking=thinking,
-            tools=tools, skills=skills, http_options=http_options,
+            tools=tools, http_options=http_options,
+        )
+
+    @staticmethod
+    def from_skill(skill_path, *, provider, model, stream=True, thinking=False,
+                   http_options=None, available_tools=None):
+        from chatchat.skill import Skill
+        skill = Skill(skill_path)
+        skill_tools = []
+        if skill.allowed_tools:
+            if not available_tools:
+                raise ValueError(
+                    f"Skill '{skill.name}' requires tools {skill.allowed_tools}, "
+                    f"but available_tools is not provided"
+                )
+            for name in skill.allowed_tools:
+                match = next((t for t in available_tools if t.name == name), None)
+                if not match:
+                    raise ValueError(
+                        f"Skill '{skill.name}' requires tool '{name}', "
+                        f"not found in available_tools"
+                    )
+                skill_tools.append(match)
+
+        return SubAgent(
+            name=skill.name, description=skill.description,
+            instruction=skill.instruction,
+            tools=skill_tools,
+            provider=provider, model=model,
+            stream=stream, thinking=thinking,
+            http_options=http_options,
         )
 
     def to_dict(self):
@@ -183,4 +188,3 @@ class AgentTool():
     def __call__(self, message: str, on_progress=None):
         self._agent.clear()
         return self._agent.chat(message, on_progress=on_progress)
-  

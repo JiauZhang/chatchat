@@ -1,10 +1,10 @@
 import os, argparse, subprocess
-from chatchat.agent import Agent
+from chatchat.agent import Agent, SubAgent
 from chatchat.tool import tool
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--provider', type=str, default='zhipu')
-parser.add_argument('--model', type=str, default='glm-4.7-flash')
+parser.add_argument('--provider', type=str, default='agnes')
+parser.add_argument('--model', type=str, default='agnes-2.0-flash')
 parser.add_argument('--timeout', type=int, default=None)
 parser.add_argument('--proxy', type=str, default=None)
 parser.add_argument('--non-streaming', action='store_true')
@@ -74,16 +74,34 @@ agent = Agent(
         'timeout': args.timeout,
         'proxy': args.proxy,
     },
-    skills=['.'],
-    tools=[execute_shell_command, write_file],
+    tools=[
+        SubAgent.from_skill(
+            os.path.dirname(__file__), provider=args.provider, model=args.model,
+            available_tools=[execute_shell_command, write_file],
+        ),
+        execute_shell_command,
+        write_file,
+    ],
     stream=not args.non_streaming,
 )
+
+def on_progress(progress):
+    if progress.type == 'thinking':
+        print(f'\n[agent {progress.agent or ""} thinking round {progress.step}]')
+    elif progress.type == 'step':
+        print(f'\n[agent {progress.agent or ""} step {progress.step}]')
+    elif progress.type == 'tool_start':
+        print(f'\n[agent {progress.agent or ""} using tool {progress.tool_name}]')
+    elif progress.type == 'tool_end':
+        print(f'\n[agent {progress.agent or ""} tool {progress.tool_name} done]')
+    elif progress.type == 'complete':
+        print(f'\n[agent {progress.agent or ""} complete]')
 
 while True:
     prompt = input("user> ")
     if prompt == '/exit':
         break
-    response = agent.chat(prompt)
+    response = agent.chat(prompt, on_progress=on_progress)
     print('assistant> ', end='')
     for chunk in response:
         print(chunk, end="", flush=True)

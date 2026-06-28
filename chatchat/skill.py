@@ -6,7 +6,7 @@ class Skill:
         self.load_skill()
 
     def load_skill(self):
-        with open(os.path.join(self.source, 'SKILL.md'), 'r') as f:
+        with open(os.path.join(self.source, 'SKILL.md'), 'r', encoding='utf-8') as f:
             for line in f:
                 if line.strip() == '---':
                     break
@@ -24,4 +24,5 @@ class Skill:
         self.metadata = yaml.safe_load(metadata)
         self.name = self.metadata['name']
         self.description = self.metadata['description']
+        self.allowed_tools = self.metadata.get('allowed-tools', [])
         self.instruction = f'You must strictly follow the following skill rules to perform the task:\n\n{instruction}'
