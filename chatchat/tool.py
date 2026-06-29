@@ -1,33 +1,37 @@
 import inspect
 
-from chatchat.types import Progress
+from chatchat.hook import _HookEmitter
+from chatchat.types import ProgressType
 
 
-class Tool:
+class Tool(_HookEmitter):
     def __init__(self, *, tool, name, description, parameters=None):
+        super().__init__()
         self.name = name
         self.description = description
         self.parameters = parameters
         self.tool = tool
 
     def __call__(self, **kwargs):
-        on_progress = kwargs.pop('on_progress', None)
+        self._emit(ProgressType.TOOL_START, name=self.name)
         try:
-            if on_progress and self._accepts_on_progress():
-                result = self.tool(on_progress=on_progress, **kwargs)
-            else:
-                result = self.tool(**kwargs)
+            if self._accepts('on_step'):
+                kwargs['on_step'] = lambda content='', step=0: self._emit(
+                    ProgressType.TOOL_STEP, name=self.name,
+                    content=content, step=step,
+                )
+            result = self.tool(**kwargs)
         except Exception as e:
-            if on_progress:
-                on_progress(Progress(
-                    type=ProgressType.TOOL_ERROR, tool_name=self.name,
-                    content=str(e),
-                ))
+            self._emit(
+                ProgressType.TOOL_ERROR, name=self.name,
+                content=str(e),
+            )
             return f'call tool {self.name} failed.'
+        self._emit(ProgressType.TOOL_END, name=self.name)
         return result
 
-    def _accepts_on_progress(self):
-        return 'on_progress' in inspect.signature(self.tool).parameters
+    def _accepts(self, param):
+        return param in inspect.signature(self.tool).parameters
 
     def to_dict(self):
         return {

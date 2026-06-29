@@ -114,6 +114,5 @@ class ChatCompletionChunk:
 class Progress:
     type: ProgressType
     content: str = ''
-    agent: str = ''
-    tool_name: str = ''
+    name: str = ''
     step: int = 0

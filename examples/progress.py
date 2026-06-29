@@ -21,12 +21,12 @@ http_options = {'timeout': args.timeout or 30}
         'required': ['query'],
     },
 )
-def search_web(query, on_progress=None):
-    if on_progress:
-        on_progress(Progress(type=ProgressType.TOOL_STEP, content=f'searching "{query}"...'))
+def search_web(query, on_step=None):
+    if on_step:
+        on_step(content=f'searching "{query}"...')
     results = [f'result {i} about {query}' for i in range(random.randint(1, 3))]
-    if on_progress:
-        on_progress(Progress(type=ProgressType.TOOL_STEP, content=f'found {len(results)} results'))
+    if on_step:
+        on_step(content=f'found {len(results)} results')
     return '\n'.join(results)
 
 
@@ -38,12 +38,12 @@ def search_web(query, on_progress=None):
         'required': ['text'],
     },
 )
-def summarize(text, on_progress=None):
-    if on_progress:
-        on_progress(Progress(type=ProgressType.TOOL_STEP, content='summarizing...'))
+def summarize(text, on_step=None):
+    if on_step:
+        on_step(content='summarizing...')
     summary = f'Summary: {text[:50]}...'
-    if on_progress:
-        on_progress(Progress(type=ProgressType.TOOL_STEP, content='summary ready'))
+    if on_step:
+        on_step(content='summary ready')
     return summary
 
 
@@ -58,37 +58,52 @@ def summarize(text, on_progress=None):
         'required': ['path', 'content'],
     },
 )
-def save_file(path, content, on_progress=None):
-    if on_progress:
-        on_progress(Progress(type=ProgressType.TOOL_STEP, content=f'writing to {path}...'))
+def save_file(path, content, on_step=None):
+    if on_step:
+        on_step(content=f'writing to {path}...')
     raise PermissionError(f'no write permission for {path}')
 
 
-def on_progress(evt: Progress):
-    emoji = {
-        ProgressType.AGENT_START: '\U0001f9e0',
-        ProgressType.AGENT_STEP: '\U0001f463',
-        ProgressType.AGENT_END: '\u2705',
-        ProgressType.AGENT_ERROR: '\u274c',
-        ProgressType.TOOL_START: '\U0001f527',
-        ProgressType.TOOL_END: '\u2705',
-        ProgressType.TOOL_ERROR: '\u274c',
-        ProgressType.TOOL_STEP: '\u2139\ufe0f',
-    }.get(evt.type, '  ')
+def handle_start(evt: Progress):
+    tag = evt.type.value
+    evt_agent = evt.name or 'agent'
     if evt.type == ProgressType.TOOL_START:
-        msg = f'calling "{evt.tool_name}"'
-    elif evt.type == ProgressType.TOOL_END:
-        msg = f'"{evt.tool_name}" done'
-    elif evt.type == ProgressType.AGENT_STEP:
-        msg = f'tool round {evt.step} complete, processing results'
-    elif evt.type == ProgressType.TOOL_ERROR:
-        msg = f'"{evt.tool_name}" failed: {evt.content}'
-    elif evt.type == ProgressType.AGENT_ERROR:
-        msg = f'agents error: {evt.content}'
+        msg = f'calling "{evt_agent}"'
     else:
-        msg = evt.content or evt.type.value
-    agent = evt.agent or 'agent'
-    print(f'  [{emoji} {agent:>10}] {msg}')
+        msg = tag
+    print(f'  [{tag:>12} {evt_agent:>10}] {msg}')
+
+
+def handle_step(evt: Progress):
+    tag = evt.type.value
+    evt_agent = evt.name or 'agent'
+    if evt.type == ProgressType.TOOL_STEP:
+        msg = evt.content
+    elif evt.step:
+        msg = f'tool round {evt.step} complete, processing results'
+    else:
+        msg = tag
+    print(f'  [{tag:>12} {evt_agent:>10}] {msg}')
+
+
+def handle_end(evt: Progress):
+    tag = evt.type.value
+    evt_agent = evt.name or 'agent'
+    if evt.type == ProgressType.TOOL_END:
+        msg = f'"{evt_agent}" done'
+    else:
+        msg = tag
+    print(f'  [{tag:>12} {evt_agent:>10}] {msg}')
+
+
+def handle_error(evt: Progress):
+    tag = evt.type.value
+    evt_agent = evt.name or 'agent'
+    if evt.type == ProgressType.TOOL_ERROR:
+        msg = f'"{evt_agent}" failed: {evt.content}'
+    else:
+        msg = f'agent error: {evt.content}'
+    print(f'  [{tag:>12} {evt_agent:>10}] {msg}')
 
 
 researcher = SubAgent(
@@ -97,6 +112,7 @@ researcher = SubAgent(
     http_options=http_options, stream=False,
     tools=[search_web, summarize],
 )
+researcher.on_start(handle_start).on_step(handle_step).on_end(handle_end).on_error(handle_error)
 
 supervisor = Agent(
     provider=args.provider, model=args.model,
@@ -109,7 +125,8 @@ supervisor = Agent(
     ),
     tools=[save_file, researcher],
 )
-result = supervisor.chat('search AI news and summarize', on_progress=on_progress)
+supervisor.on_start(handle_start).on_step(handle_step).on_end(handle_end).on_error(handle_error)
+result = supervisor.chat('search AI news and summarize')
 print(f'  result: {result[:100]}')
 
 print('Done.')

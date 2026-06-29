@@ -86,23 +86,39 @@ agent = Agent(
     stream=not args.non_streaming,
 )
 
-def on_progress(progress):
-    if progress.type == ProgressType.AGENT_START:
-        print(f'\n[agent {progress.agent or ""} start]')
-    elif progress.type == ProgressType.AGENT_STEP:
-        print(f'\n[agent {progress.agent or ""} step {progress.step}]')
-    elif progress.type == ProgressType.AGENT_END:
-        print(f'\n[agent {progress.agent or ""} end]')
-    elif progress.type == ProgressType.TOOL_START:
-        print(f'\n[agent {progress.agent or ""} using tool {progress.tool_name}]')
-    elif progress.type == ProgressType.TOOL_END:
-        print(f'\n[agent {progress.agent or ""} tool {progress.tool_name} done]')
+def handle_start(progress):
+    agent = progress.name or ''
+    if progress.type == ProgressType.TOOL_START:
+        print(f'\n[agent {agent} using tool {agent}]')
+    else:
+        print(f'\n[agent {agent} start]')
+
+
+def handle_step(progress):
+    agent = progress.name or ''
+    print(f'\n[agent {agent} step {progress.step}]')
+
+
+def handle_end(progress):
+    agent = progress.name or ''
+    if progress.type == ProgressType.TOOL_END:
+        print(f'\n[agent {agent} tool {agent} done]')
+    else:
+        print(f'\n[agent {agent} end]')
+
+
+def handle_error(progress):
+    agent = progress.name or ''
+    print(f'\n[agent {agent} error: {progress.content}]')
+
+
+agent.on_start(handle_start).on_step(handle_step).on_end(handle_end).on_error(handle_error)
 
 while True:
     prompt = input("user> ")
     if prompt == '/exit':
         break
-    response = agent.chat(prompt, on_progress=on_progress)
+    response = agent.chat(prompt)
     print('assistant> ', end='')
     for chunk in response:
         print(chunk, end="", flush=True)

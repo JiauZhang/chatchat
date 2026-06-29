@@ -6,6 +6,7 @@ from typing import Generator, Literal, overload
 from chatchat.config import load_config
 from chatchat.providers import __providers__, __custom_providers__
 from chatchat import ProviderError, APIError
+from chatchat.hook import _HookEmitter
 from chatchat.types import (
     ChatCompletion,
     ChatCompletionChunk,
@@ -13,15 +14,15 @@ from chatchat.types import (
     ChunkChoice,
     Delta,
     Message,
-    Progress,
     ProgressType,
     ToolCall,
     Usage,
 )
 
 
-class BaseClient:
+class BaseClient(_HookEmitter):
     def __init__(self, provider, base_url, model=None, instruction=None, http_options=None):
+        super().__init__()
         http_options = http_options or {}
         http_options.setdefault('timeout', 60.0)
         self.provider = provider
@@ -202,59 +203,60 @@ class BaseClient:
     @overload
     def chat(self, messages, *, model=None,
                       stream: Literal[False] = False,
-                      thinking=False, tools=None, on_progress=None, step=0,
+                      thinking=False, tools=None,
                       **kwargs) -> ChatCompletion: ...
     @overload
     def chat(self, messages, *, model=None,
                       stream: Literal[True] = True,
-                      thinking=False, tools=None, on_progress=None, step=0,
+                      thinking=False, tools=None,
                       **kwargs) -> Generator[ChatCompletionChunk, None, None]: ...
 
     def chat(self, messages, *, model=None, stream=False,
-             thinking=False, tools=None, on_progress=None, step=0, **kwargs):
+             thinking=False, tools=None, **kwargs):
         converted = self._to_provider_format(messages)
         full = self.messages + converted
         payload = self._build_request_body(
             model=model, messages=full, stream=stream, thinking=thinking, tools=tools, **kwargs,
         )
         url = '/chat/completions'
-        if on_progress:
-            on_progress(Progress(type=ProgressType.CLIENT_START, step=step))
-            on_progress(Progress(type=ProgressType.CLIENT_STEP, step=step))
+        self._emit(ProgressType.CLIENT_START)
         if not stream:
-            return self._nonstream_chat(url, payload, full, on_progress=on_progress)
-        return self._chat_stream(url, payload, full, on_progress=on_progress)
+            return self._nonstream_chat(url, payload, full)
+        return self._chat_stream(url, payload, full)
 
-    def _nonstream_chat(self, url, payload, full, on_progress=None):
+    def _nonstream_chat(self, url, payload, full):
+        self._emit(ProgressType.CLIENT_STEP)
         try:
             raw = self._send_nonstreaming(url, payload)
         except Exception as e:
-            if on_progress:
-                on_progress(Progress(type=ProgressType.CLIENT_ERROR, content=str(e)))
+            self._emit(ProgressType.CLIENT_ERROR, content=str(e))
             raise
         reply = self._get_provider_message(raw)
         self.messages = full + [reply]
-        if on_progress:
-            on_progress(Progress(type=ProgressType.CLIENT_END))
+        self._emit(ProgressType.CLIENT_END)
         return self._to_chat_completion(raw)
 
-    def _chat_stream(self, url, payload, full, on_progress=None):
+    def _chat_stream(self, url, payload, full):
         acc = Message()
+        step = 0
         try:
             for raw in self._send_streaming(url, payload):
                 chunk = self._to_chat_completion_chunk(raw)
                 if not chunk.choices:
                     continue
                 acc.accumulate(chunk.choices[0].delta)
+                step += 1
+                self._emit(
+                    ProgressType.CLIENT_STEP, step=step,
+                    content=chunk.choices[0].delta.content or '',
+                )
                 yield chunk
         except Exception as e:
-            if on_progress:
-                on_progress(Progress(type=ProgressType.CLIENT_ERROR, content=str(e)))
+            self._emit(ProgressType.CLIENT_ERROR, content=str(e))
             raise
         reply = self._to_openai_format(acc)
         self.messages = full + self._to_provider_format([reply])
-        if on_progress:
-            on_progress(Progress(type=ProgressType.CLIENT_END))
+        self._emit(ProgressType.CLIENT_END)
 
     def clear(self):
         self.messages = [self._system_message()] if self._instruction else []
@@ -283,19 +285,33 @@ class Client:
 
     @overload
     def chat(self, messages, *, model=None, stream: Literal[False] = False,
-        thinking=False, tools=None, on_progress=None, step=0,
-        **kwargs) -> ChatCompletion: ...
+        thinking=False, tools=None, **kwargs) -> ChatCompletion: ...
     @overload
     def chat(self, messages, *, model=None, stream: Literal[True] = True,
-        thinking=False, tools=None, on_progress=None, step=0,
-        **kwargs) -> Generator[ChatCompletionChunk, None, None]: ...
+        thinking=False, tools=None, **kwargs) -> Generator[ChatCompletionChunk, None, None]: ...
 
     def chat(self, messages, *, model=None, stream=False,
-             thinking=False, tools=None, on_progress=None, step=0, **kwargs):
+             thinking=False, tools=None, **kwargs):
         return self.client.chat(
             messages, model=model, stream=stream, thinking=thinking,
-            tools=tools, on_progress=on_progress, step=step, **kwargs,
+            tools=tools, **kwargs,
         )
+
+    def on_start(self, handler):
+        self.client.on_start(handler)
+        return self
+
+    def on_step(self, handler):
+        self.client.on_step(handler)
+        return self
+
+    def on_end(self, handler):
+        self.client.on_end(handler)
+        return self
+
+    def on_error(self, handler):
+        self.client.on_error(handler)
+        return self
 
     def clear(self):
         self.client.clear()
