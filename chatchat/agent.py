@@ -1,6 +1,7 @@
 import json
 
 from chatchat.client import Client
+from chatchat.skill import Skill
 from chatchat.tool import Tools
 from chatchat.types import Message, ToolCall, ProgressType
 from chatchat.hook import _HookEmitter

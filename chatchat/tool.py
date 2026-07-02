@@ -1,5 +1,3 @@
-import inspect
-
 from chatchat.hook import _HookEmitter
 from chatchat.types import ProgressType
 
@@ -15,11 +13,6 @@ class Tool(_HookEmitter):
     def __call__(self, **kwargs):
         self._emit(ProgressType.TOOL_START, name=self.name)
         try:
-            if self._accepts('on_step'):
-                kwargs['on_step'] = lambda content='', step=0: self._emit(
-                    ProgressType.TOOL_STEP, name=self.name,
-                    content=content, step=step,
-                )
             result = self.tool(**kwargs)
         except Exception as e:
             self._emit(
@@ -29,9 +22,6 @@ class Tool(_HookEmitter):
             return f'call tool {self.name} failed.'
         self._emit(ProgressType.TOOL_END, name=self.name)
         return result
-
-    def _accepts(self, param):
-        return param in inspect.signature(self.tool).parameters
 
     def to_dict(self):
         return {

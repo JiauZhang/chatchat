@@ -7,10 +7,10 @@ from chatchat.types import Progress, ProgressType
 parser = argparse.ArgumentParser()
 parser.add_argument('--provider', type=str, default='agnes')
 parser.add_argument('--model', type=str, default='agnes-2.0-flash')
-parser.add_argument('--timeout', type=int, default=None)
+parser.add_argument('--timeout', type=int, default=30)
 args = parser.parse_args()
 
-http_options = {'timeout': args.timeout or 30}
+http_options = {'timeout': args.timeout}
 
 
 @tool(
@@ -21,12 +21,10 @@ http_options = {'timeout': args.timeout or 30}
         'required': ['query'],
     },
 )
-def search_web(query, on_step=None):
-    if on_step:
-        on_step(content=f'searching "{query}"...')
+def search_web(query):
+    search_web._emit(ProgressType.TOOL_STEP, content=f'searching "{query}"...', name='search_web')
     results = [f'result {i} about {query}' for i in range(random.randint(1, 3))]
-    if on_step:
-        on_step(content=f'found {len(results)} results')
+    search_web._emit(ProgressType.TOOL_STEP, content=f'found {len(results)} results', name='search_web')
     return '\n'.join(results)
 
 
@@ -38,12 +36,10 @@ def search_web(query, on_step=None):
         'required': ['text'],
     },
 )
-def summarize(text, on_step=None):
-    if on_step:
-        on_step(content='summarizing...')
+def summarize(text):
+    summarize._emit(ProgressType.TOOL_STEP, content='summarizing...', name='summarize')
     summary = f'Summary: {text[:50]}...'
-    if on_step:
-        on_step(content='summary ready')
+    summarize._emit(ProgressType.TOOL_STEP, content='summary ready', name='summarize')
     return summary
 
 
@@ -58,52 +54,50 @@ def summarize(text, on_step=None):
         'required': ['path', 'content'],
     },
 )
-def save_file(path, content, on_step=None):
-    if on_step:
-        on_step(content=f'writing to {path}...')
+def save_file(path, content):
+    save_file._emit(ProgressType.TOOL_STEP, content=f'writing to {path}...', name='save_file')
     raise PermissionError(f'no write permission for {path}')
 
-
-def handle_start(evt: Progress):
-    tag = evt.type.value
-    evt_agent = evt.name or 'agent'
-    if evt.type == ProgressType.TOOL_START:
-        msg = f'calling "{evt_agent}"'
+def handle_start(progress: Progress):
+    tag = progress.type.value
+    name = progress.name or 'agent'
+    if progress.type == ProgressType.TOOL_START:
+        msg = f'calling "{name}"'
     else:
         msg = tag
-    print(f'  [{tag:>12} {evt_agent:>10}] {msg}')
+    print(f'[{tag:<12} {name:>10}] {msg}')
 
 
-def handle_step(evt: Progress):
-    tag = evt.type.value
-    evt_agent = evt.name or 'agent'
-    if evt.type == ProgressType.TOOL_STEP:
-        msg = evt.content
-    elif evt.step:
-        msg = f'tool round {evt.step} complete, processing results'
+def handle_step(progress: Progress):
+    tag = progress.type.value
+    name = progress.name or 'agent'
+    if progress.type == ProgressType.TOOL_STEP:
+        msg = progress.content
+    elif progress.step:
+        msg = f'tool round {progress.step} complete, processing results'
     else:
         msg = tag
-    print(f'  [{tag:>12} {evt_agent:>10}] {msg}')
+    print(f'[{tag:<12} {name:>10}] {msg}')
 
 
-def handle_end(evt: Progress):
-    tag = evt.type.value
-    evt_agent = evt.name or 'agent'
-    if evt.type == ProgressType.TOOL_END:
-        msg = f'"{evt_agent}" done'
+def handle_end(progress: Progress):
+    tag = progress.type.value
+    name = progress.name or 'agent'
+    if progress.type == ProgressType.TOOL_END:
+        msg = f'"{name}" done'
     else:
         msg = tag
-    print(f'  [{tag:>12} {evt_agent:>10}] {msg}')
+    print(f'[{tag:<12} {name:>10}] {msg}')
 
 
-def handle_error(evt: Progress):
-    tag = evt.type.value
-    evt_agent = evt.name or 'agent'
-    if evt.type == ProgressType.TOOL_ERROR:
-        msg = f'"{evt_agent}" failed: {evt.content}'
+def handle_error(progress: Progress):
+    tag = progress.type.value
+    name = progress.name or 'agent'
+    if progress.type == ProgressType.TOOL_ERROR:
+        msg = f'"{name}" failed: {progress.content}'
     else:
-        msg = f'agent error: {evt.content}'
-    print(f'  [{tag:>12} {evt_agent:>10}] {msg}')
+        msg = f'agent error: {progress.content}'
+    print(f'[{tag:<12} {name:>10}] {msg}')
 
 
 researcher = SubAgent(
@@ -127,6 +121,6 @@ supervisor = Agent(
 )
 supervisor.on_start(handle_start).on_step(handle_step).on_end(handle_end).on_error(handle_error)
 result = supervisor.chat('search AI news and summarize')
-print(f'  result: {result[:100]}')
+print(f'supervisor result: {result[:100]}')
 
 print('Done.')
