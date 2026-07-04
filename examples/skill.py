@@ -1,5 +1,5 @@
 import os, argparse, subprocess
-from chatchat.agent import Agent, SubAgent
+from chatchat.agent import Agent
 from chatchat.tool import tool
 from chatchat.types import Progress, ProgressType
 
@@ -71,56 +71,64 @@ def write_file(file_path, content):
         return f"写入文件失败：{str(e)}"
 
 agent = Agent(
+    name='helper',
     provider=args.provider, model=args.model, http_options={
         'timeout': args.timeout,
         'proxy': args.proxy,
     },
-    tools=[
-        SubAgent.from_skill(
-            os.path.dirname(__file__), provider=args.provider, model=args.model,
-            available_tools=[execute_shell_command, write_file],
-        ),
-        execute_shell_command,
-        write_file,
-    ],
+    skills=[os.path.dirname(__file__)],
+    tools=[execute_shell_command, write_file],
     stream=not args.non_streaming,
+    instruction=(
+        'You are a helpful assistant with shell command execution and file writing tools. '
+        'Available skills: "weather" — use delegate(skill="weather") for weather queries. '
+        'For complex tasks, delegate to sub-agents with the delegate tool.'
+    ),
 )
 
 def handle_start(progress: Progress):
-    agent = progress.name or ''
-    if progress.type == ProgressType.TOOL_START:
-        msg = progress.data.get('message', '')
-        print(f'\n[agent {agent} using tool "{agent}" message="{msg[:40]}..."]')
+    tag = progress.type.value
+    name = progress.name or 'agent'
+    if progress.type == ProgressType.AGENT_START:
+        msg = f'message: {progress.data.get("message", "")}'
+    elif progress.type == ProgressType.TOOL_START:
+        args = progress.data.get('arguments', {})
+        msg = f'calling "{name}" with {args}'
     else:
-        print(f'\n[agent {agent} start]')
-
+        msg = tag
+    print(f'[{tag:<12} {name:>10}] {msg}')
 
 def handle_step(progress: Progress):
-    agent = progress.name or ''
+    tag = progress.type.value
+    name = progress.name or 'agent'
     if progress.type == ProgressType.AGENT_STEP:
         tcs = progress.data.get('tool_calls', [])
         names = [tc['name'] for tc in tcs]
-        print(f'\n[agent {agent} step {progress.step} tool_calls={names}]')
+        msg = f'tool round {progress.step} -> {names}'
     elif progress.type == ProgressType.CLIENT_STEP:
         delta = progress.data.get('delta', {}).get('content', '')
-        print(f'\n[agent {agent} client delta: {delta[:30]}...]')
+        msg = delta[:30] if delta else tag
     else:
-        print(f'\n[agent {agent} step {progress.step}]')
-
+        msg = progress.content or tag
+    print(f'[{tag:<12} {name:>10}] {msg}')
 
 def handle_end(progress: Progress):
-    agent = progress.name or ''
-    if progress.type == ProgressType.TOOL_END:
+    tag = progress.type.value
+    name = progress.name or 'agent'
+    if progress.type == ProgressType.AGENT_END:
+        response = progress.data.get('response', '')
+        msg = f'response: {response[:60]}...'
+    elif progress.type == ProgressType.TOOL_END:
         result = progress.data.get('result', '')
-        print(f'\n[agent {agent} tool "{agent}" done result="{str(result)[:40]}..."]')
+        msg = f'"{name}" done: {str(result)[:50]}...'
     else:
-        print(f'\n[agent {agent} end]')
-
+        msg = tag
+    print(f'[{tag:<12} {name:>10}] {msg}')
 
 def handle_error(progress: Progress):
-    agent = progress.name or ''
-    print(f'\n[agent {agent} error: {progress.content}]')
-
+    tag = progress.type.value
+    name = progress.name or 'agent'
+    print(f'[{tag:<12} {name:>10}] error: {progress.content}')
 
 agent.on_start(handle_start).on_step(handle_step).on_end(handle_end).on_error(handle_error)
 

@@ -1,60 +1,47 @@
-import argparse
-from chatchat.agent import Agent
-from chatchat.tool import tool
+import argparse, random
+from chatchat.tool import Tool, Tools
+from chatchat.types import Progress, ProgressType
+from chatchat.client import Client
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--provider', type=str, default='zhipu')
-parser.add_argument('--model', type=str, default='glm-4.7-flash')
-parser.add_argument('--timeout', type=int, default=None)
-parser.add_argument('--non-streaming', action='store_true')
-parser.add_argument('--thinking', action='store_true')
+parser.add_argument('--provider', type=str, default='agnes')
+parser.add_argument('--model', type=str, default='agnes-2.0-flash')
+parser.add_argument('--timeout', type=int, default=30)
 args = parser.parse_args()
 
-http_options = {} if args.timeout is None else {'timeout': args.timeout}
+def search_impl(query):
+    return '\n'.join([f'result {i} about {query}' for i in range(random.randint(1, 3))])
 
-
-@tool(
-    name='get_weather', description='getting weather information for a specified city',
+search = Tool(
+    name='search', description='search the web',
+    tool=search_impl,
     parameters={
-        'type': 'object',
-        'properties': {
-            'city': {
-                'type': 'string',
-                'description': 'the city name, e.g., Shanghai',
-            }
-        },
-        'required': ['city'],
+        'type': 'object', 'properties': {
+            'query': {'type': 'string', 'description': 'search keywords'},
+        }, 'required': ['query'],
     },
 )
-def get_weather(city):
-    return f'{city} is Sunny.'
 
+tools = Tools(search)
 
-@tool(
-    name='get_datetime', description='getting current datetime',
+def on_start(p):
+    if p.type == ProgressType.TOOL_START:
+        print(f'tool start: {p.name} {p.data.get("arguments", {})}')
+
+def on_end(p):
+    if p.type == ProgressType.TOOL_END:
+        result = p.data.get('result', '')
+        print(f'tool end: {p.name} -> {str(result)[:50]}...')
+
+search.on_start(on_start).on_end(on_end)
+
+print(search(query='AI news'))
+
+print()
+
+client = Client(args.provider, args.model, http_options={'timeout': args.timeout})
+result = client.chat(
+    [{'role': 'user', 'content': 'search AI news'}],
+    tools=tools, stream=False,
 )
-def get_datetime():
-    raise RuntimeError('get datetime failed.')
-
-
-agent = Agent(
-    provider=args.provider, model=args.model,
-    instruction='You are a helpful assistant.',
-    stream=not args.non_streaming,
-    thinking=args.thinking,
-    tools=[get_weather, get_datetime],
-    http_options=http_options,
-)
-
-while True:
-    prompt = input('user> ')
-    if prompt == '/exit':
-        break
-    print('assistant> ', end='')
-    result = agent.chat(prompt)
-    if args.non_streaming:
-        print(result)
-    else:
-        for chunk in result:
-            print(chunk, end='', flush=True)
-    print()
+print(f'agent with manual tool: {result.choices[0].message.content[:80]}...')

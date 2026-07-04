@@ -1,5 +1,5 @@
 import argparse, random
-from chatchat.agent import Agent, SubAgent
+from chatchat.agent import Agent
 from chatchat.tool import tool
 
 parser = argparse.ArgumentParser()
@@ -50,22 +50,12 @@ def query_train_ticket(from_city, to_city):
 def query_ticket_price(from_city, to_city):
     return f'the ticket from {from_city} to {to_city} is {random.randint(100, 200)} RMB.'
 
-travel_agent = SubAgent(
-    name='travel_agent',
-    description='query tickets and fares between cities',
-    provider=args.provider, model=args.model, http_options={
-        'timeout': args.timeout,
-        'proxy': args.proxy,
-    },
-    tools=[query_train_ticket, query_ticket_price],
-    stream=not args.non_streaming,
-)
 agent = Agent(
     provider=args.provider, model=args.model, http_options={
         'timeout': args.timeout,
         'proxy': args.proxy,
     },
-    tools=[travel_agent],
+    tools=[query_train_ticket, query_ticket_price],
     stream=not args.non_streaming,
 )
 

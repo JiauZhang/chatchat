@@ -1,6 +1,6 @@
 import argparse
 import random
-from chatchat.agent import Agent, SubAgent
+from chatchat.agent import Agent
 from chatchat.tool import tool
 from chatchat.types import Progress, ProgressType
 
@@ -57,6 +57,7 @@ def summarize(text):
 def save_file(path, content):
     save_file._emit(ProgressType.TOOL_STEP, content=f'writing to {path}...', name='save_file')
     raise PermissionError(f'no write permission for {path}')
+
 
 def handle_start(progress: Progress):
     tag = progress.type.value
@@ -119,27 +120,18 @@ def handle_error(progress: Progress):
     print(f'[{tag:<12} {name:>10}] {msg}')
 
 
-researcher = SubAgent(
-    name='researcher', description='search and summarize information',
-    provider=args.provider, model=args.model,
-    http_options=http_options, stream=False,
-    tools=[search_web, summarize],
-)
-researcher.on_start(handle_start).on_step(handle_step).on_end(handle_end).on_error(handle_error)
-
-supervisor = Agent(
+agent = Agent(
+    name='supervisor',
     provider=args.provider, model=args.model,
     http_options=http_options, stream=False,
     instruction=(
-        'You are a supervisor. You have a "researcher" assistant who can search and summarize.'
-        ' You also have "save_file" and "search_web" tools.\n'
-        'When given a task: delegate to "researcher" first, then try to save the result with "save_file",'
-        ' and finally report what happened.'
+        'You are a supervisor. You have web search and summarization tools.'
+        ' When given a task: search, summarize the results, then save to a file.'
     ),
-    tools=[save_file, researcher],
+    tools=[search_web, summarize, save_file],
 )
-supervisor.on_start(handle_start).on_step(handle_step).on_end(handle_end).on_error(handle_error)
-result = supervisor.chat('search AI news and summarize')
+agent.on_start(handle_start).on_step(handle_step).on_end(handle_end).on_error(handle_error)
+result = agent.chat('search AI news and summarize')
 print(f'supervisor result: {result[:100]}')
 
 print('Done.')

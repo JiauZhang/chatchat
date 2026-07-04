@@ -325,6 +325,10 @@ class Client:
     def messages(self):
         return self.client.messages
 
+    @messages.setter
+    def messages(self, value):
+        self.client.messages = value
+
     @property
     def instruction(self):
         return self.client._instruction
