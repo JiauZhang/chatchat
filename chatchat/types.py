@@ -19,6 +19,22 @@ class ProgressType(Enum):
     TOOL_END = 'tool:end'
     TOOL_ERROR = 'tool:error'
 
+    @property
+    def category(self) -> str:
+        return self.value.split(':', 1)[-1]
+
+    def is_start(self):
+        return self.category == 'start'
+
+    def is_step(self):
+        return self.category == 'step'
+
+    def is_end(self):
+        return self.category == 'end'
+
+    def is_error(self):
+        return self.category == 'error'
+
 
 @dataclass
 class ToolCall:

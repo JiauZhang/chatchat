@@ -22,7 +22,7 @@ class Tool(_HookEmitter):
                 ProgressType.TOOL_ERROR, name=self.name,
                 content=str(e), data={'error': str(e), 'arguments': kwargs},
             )
-            return f'call tool {self.name} failed.'
+            return f'Error calling tool {self.name}: {e}'
         self._emit(
             ProgressType.TOOL_END, name=self.name,
             data={'result': result},
@@ -57,6 +57,12 @@ class Tools:
 
     def __getitem__(self, name):
         return self.name_to_tool[name]
+
+    def __contains__(self, name):
+        return name in self.name_to_tool
+
+    def __iter__(self):
+        return iter(self.tools)
 
     def to_dict(self):
         tool_dicts = []

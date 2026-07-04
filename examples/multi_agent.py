@@ -105,7 +105,7 @@ def handle_error(progress: Progress):
     print(f'[{tag:<12} {name:>10}] error: {progress.content}')
 
 
-examples_dir = os.path.dirname(__file__)
+skills = [os.path.dirname(__file__)]
 
 agent = Agent(
     name='supervisor',
@@ -122,7 +122,7 @@ agent = Agent(
         '(its conversation history is preserved).'
     ),
     tools=[search_web, save_file, current_time],
-    skills=[examples_dir],
+    skills=skills,
 )
 agent.on_start(handle_start).on_step(handle_step).on_end(handle_end).on_error(handle_error)
 

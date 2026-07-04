@@ -318,6 +318,10 @@ class Client:
         self.client.on_error(handler)
         return self
 
+    def on_interact(self, handler):
+        self.client.on_interact(handler)
+        return self
+
     def clear(self):
         self.client.clear()
 
