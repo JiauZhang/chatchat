@@ -48,22 +48,46 @@ agent = Agent(
 
 def handle_start(progress: Progress):
     tag = progress.type.value
-    print(f'[{tag:<12} {progress.name or "agent":>10}] start')
+    name = progress.name or 'agent'
+    if progress.type == ProgressType.AGENT_START:
+        msg = f'message: {progress.data.get("message", "")}'
+    elif progress.type == ProgressType.TOOL_START:
+        args = progress.data.get('arguments', {})
+        msg = f'tool args: {args}'
+    else:
+        msg = tag
+    print(f'[{tag:<12} {name:>10}] {msg}')
 
 
 def handle_step(progress: Progress):
     tag = progress.type.value
-    print(f'[{tag:<12} {progress.name or "agent":>10}] {progress.content}')
+    name = progress.name or 'agent'
+    if progress.type == ProgressType.CLIENT_STEP:
+        delta = progress.data.get('delta', {}).get('content', '')
+        msg = delta if delta else tag
+    else:
+        msg = progress.content or tag
+    print(f'[{tag:<12} {name:>10}] {msg}')
 
 
 def handle_end(progress: Progress):
     tag = progress.type.value
-    print(f'[{tag:<12} {progress.name or "agent":>10}] end')
+    name = progress.name or 'agent'
+    if progress.type == ProgressType.TOOL_END:
+        result = progress.data.get('result', '')
+        msg = f'done: {result[:60]}...'
+    elif progress.type == ProgressType.AGENT_END:
+        response = progress.data.get('response', '')
+        msg = f'response: {response[:60]}...'
+    else:
+        msg = tag
+    print(f'[{tag:<12} {name:>10}] {msg}')
 
 
 def handle_error(progress: Progress):
     tag = progress.type.value
-    print(f'[{tag:<12} {progress.name or "agent":>10}] error: {progress.content}')
+    name = progress.name or 'agent'
+    print(f'[{tag:<12} {name:>10}] error: {progress.content}')
 
 
 def handle_interact(question, metadata):

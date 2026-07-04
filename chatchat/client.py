@@ -219,7 +219,7 @@ class BaseClient(_HookEmitter):
             model=model, messages=full, stream=stream, thinking=thinking, tools=tools, **kwargs,
         )
         url = '/chat/completions'
-        self._emit(ProgressType.CLIENT_START)
+        self._emit(ProgressType.CLIENT_START, data={'payload': payload})
         if not stream:
             return self._nonstream_chat(url, payload, full)
         return self._chat_stream(url, payload, full)
@@ -229,11 +229,11 @@ class BaseClient(_HookEmitter):
         try:
             raw = self._send_nonstreaming(url, payload)
         except Exception as e:
-            self._emit(ProgressType.CLIENT_ERROR, content=str(e))
+            self._emit(ProgressType.CLIENT_ERROR, content=str(e), data={'error': str(e)})
             raise
         reply = self._get_provider_message(raw)
         self.messages = full + [reply]
-        self._emit(ProgressType.CLIENT_END)
+        self._emit(ProgressType.CLIENT_END, data={'response': raw})
         return self._to_chat_completion(raw)
 
     def _chat_stream(self, url, payload, full):
@@ -246,13 +246,18 @@ class BaseClient(_HookEmitter):
                     continue
                 acc.accumulate(chunk.choices[0].delta)
                 step += 1
+                delta = chunk.choices[0].delta
                 self._emit(
                     ProgressType.CLIENT_STEP, step=step,
-                    content=chunk.choices[0].delta.content or '',
+                    content=delta.content or '',
+                    data={'delta': {
+                        'content': delta.content or '',
+                        'tool_calls': [{'index': tc.index, 'id': tc.id, 'name': tc.name, 'arguments': tc.arguments} for tc in delta.tool_calls],
+                    }},
                 )
                 yield chunk
         except Exception as e:
-            self._emit(ProgressType.CLIENT_ERROR, content=str(e))
+            self._emit(ProgressType.CLIENT_ERROR, content=str(e), data={'error': str(e)})
             raise
         reply = self._to_openai_format(acc)
         self.messages = full + self._to_provider_format([reply])

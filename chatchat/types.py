@@ -116,3 +116,4 @@ class Progress:
     content: str = ''
     name: str = ''
     step: int = 0
+    data: dict = field(default_factory=dict)

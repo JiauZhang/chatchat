@@ -32,7 +32,7 @@ class Agent(_HookEmitter):
         except Exception as e:
             self._emit(
                 ProgressType.AGENT_ERROR, name=self.name or '',
-                content=str(e),
+                content=str(e), data={'error': str(e)},
             )
             raise
 
@@ -53,7 +53,7 @@ class Agent(_HookEmitter):
         return tool_results
 
     def _chat_with_tools(self, client, text):
-        self._emit(ProgressType.AGENT_START, name=self.name or '')
+        self._emit(ProgressType.AGENT_START, name=self.name or '', data={'message': text})
         if self.stream:
             return self._stream_chat(client, text)
         return self._nonstream_chat(client, text)
@@ -69,10 +69,11 @@ class Agent(_HookEmitter):
             )
             msg = response.choices[0].message
             if not msg.tool_calls:
-                self._emit(ProgressType.AGENT_END, name=self.name or '')
+                self._emit(ProgressType.AGENT_END, name=self.name or '', data={'response': msg.content})
                 return msg.content
             tool_results = self._execute_tool_calls(msg.tool_calls)
-            self._emit(ProgressType.AGENT_STEP, name=self.name or '', step=round)
+            self._emit(ProgressType.AGENT_STEP, name=self.name or '', step=round,
+                data={'round': round, 'tool_calls': [{'name': tc.name, 'arguments': tc.arguments} for tc in msg.tool_calls]})
             new_messages = tool_results
 
     def _stream_chat(self, client, text):
@@ -92,10 +93,11 @@ class Agent(_HookEmitter):
                     has_tool_calls = True
                 yield chunk.choices[0].delta.content or ''
             if not has_tool_calls:
-                self._emit(ProgressType.AGENT_END, name=self.name or '')
+                self._emit(ProgressType.AGENT_END, name=self.name or '', data={'response': acc.content})
                 break
             tool_results = self._execute_tool_calls(acc.tool_calls)
-            self._emit(ProgressType.AGENT_STEP, name=self.name or '', step=round)
+            self._emit(ProgressType.AGENT_STEP, name=self.name or '', step=round,
+                data={'round': round, 'tool_calls': [{'name': tc.name, 'arguments': tc.arguments} for tc in acc.tool_calls]})
             new_messages = tool_results
 
 
@@ -162,15 +164,15 @@ class SubAgent(_HookEmitter):
         }
 
     def __call__(self, message: str):
-        self._emit(ProgressType.TOOL_START, name=self.name)
+        self._emit(ProgressType.TOOL_START, name=self.name, data={'arguments': {'message': message}})
         self._agent.clear()
         try:
             result = self._agent.chat(message)
         except Exception as e:
             self._emit(
                 ProgressType.TOOL_ERROR, name=self.name,
-                content=str(e),
+                content=str(e), data={'error': str(e), 'arguments': {'message': message}},
             )
             return f'call tool {self.name} failed: {e}'
-        self._emit(ProgressType.TOOL_END, name=self.name)
+        self._emit(ProgressType.TOOL_END, name=self.name, data={'result': result})
         return result

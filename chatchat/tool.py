@@ -11,16 +11,22 @@ class Tool(_HookEmitter):
         self.tool = tool
 
     def __call__(self, **kwargs):
-        self._emit(ProgressType.TOOL_START, name=self.name)
+        self._emit(
+            ProgressType.TOOL_START, name=self.name,
+            data={'arguments': kwargs},
+        )
         try:
             result = self.tool(**kwargs)
         except Exception as e:
             self._emit(
                 ProgressType.TOOL_ERROR, name=self.name,
-                content=str(e),
+                content=str(e), data={'error': str(e), 'arguments': kwargs},
             )
             return f'call tool {self.name} failed.'
-        self._emit(ProgressType.TOOL_END, name=self.name)
+        self._emit(
+            ProgressType.TOOL_END, name=self.name,
+            data={'result': result},
+        )
         return result
 
     def to_dict(self):

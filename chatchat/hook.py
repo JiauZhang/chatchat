@@ -38,8 +38,8 @@ class _HookEmitter:
                 return reply
         return None
 
-    def _emit(self, type: ProgressType, content='', name='', step=0):
-        progress = Progress(type=type, content=content, name=name, step=step)
+    def _emit(self, type: ProgressType, content='', name='', step=0, data=None):
+        progress = Progress(type=type, content=content, name=name, step=step, data=data or {})
         suffix = type.name.rsplit('_', 1)[-1]
         if suffix == 'START':
             for h in self._start_handlers:

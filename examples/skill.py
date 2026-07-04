@@ -86,28 +86,38 @@ agent = Agent(
     stream=not args.non_streaming,
 )
 
-def handle_start(progress):
+def handle_start(progress: Progress):
     agent = progress.name or ''
     if progress.type == ProgressType.TOOL_START:
-        print(f'\n[agent {agent} using tool {agent}]')
+        msg = progress.data.get('message', '')
+        print(f'\n[agent {agent} using tool "{agent}" message="{msg[:40]}..."]')
     else:
         print(f'\n[agent {agent} start]')
 
 
-def handle_step(progress):
+def handle_step(progress: Progress):
     agent = progress.name or ''
-    print(f'\n[agent {agent} step {progress.step}]')
+    if progress.type == ProgressType.AGENT_STEP:
+        tcs = progress.data.get('tool_calls', [])
+        names = [tc['name'] for tc in tcs]
+        print(f'\n[agent {agent} step {progress.step} tool_calls={names}]')
+    elif progress.type == ProgressType.CLIENT_STEP:
+        delta = progress.data.get('delta', {}).get('content', '')
+        print(f'\n[agent {agent} client delta: {delta[:30]}...]')
+    else:
+        print(f'\n[agent {agent} step {progress.step}]')
 
 
-def handle_end(progress):
+def handle_end(progress: Progress):
     agent = progress.name or ''
     if progress.type == ProgressType.TOOL_END:
-        print(f'\n[agent {agent} tool {agent} done]')
+        result = progress.data.get('result', '')
+        print(f'\n[agent {agent} tool "{agent}" done result="{str(result)[:40]}..."]')
     else:
         print(f'\n[agent {agent} end]')
 
 
-def handle_error(progress):
+def handle_error(progress: Progress):
     agent = progress.name or ''
     print(f'\n[agent {agent} error: {progress.content}]')
 
