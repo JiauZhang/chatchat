@@ -15,7 +15,7 @@ class TestAgentCreation:
         assert agent.provider == 'deepseek'
         assert agent.model == 'deepseek-chat'
         assert agent.max_depth == 3
-        assert agent._depth == 0
+        assert agent.depth == 0
         assert agent.subagents == {}
         assert agent.stream is True
         assert agent.instruction is None
@@ -46,23 +46,26 @@ class TestAgentCreation:
 
 
 class TestAgentTools:
-    def test_get_tools_includes_delegate(self):
+    def test_get_tools_includes_delegate_tools(self):
         agent = Agent(
             provider='deepseek', model='deepseek-chat',
-            http_options={'timeout': 10},
+            http_options={'timeout': 10}, can_delegate=True,
         )
         tools = agent._get_tools()
-        assert 'delegate' in tools
-        assert tools['delegate'].name == 'delegate'
+        assert 'create_subagent' in tools
+        assert 'assign_task' in tools
+        assert tools['create_subagent'].name == 'create_subagent'
+        assert tools['assign_task'].name == 'assign_task'
 
     def test_get_tools_with_user_tools(self):
         t = Tool(name='search', description='search', tool=lambda q: q)
         agent = Agent(
             provider='deepseek', model='deepseek-chat',
-            tools=[t], http_options={'timeout': 10},
+            tools=[t], http_options={'timeout': 10}, can_delegate=True,
         )
         tools = agent._get_tools()
-        assert 'delegate' in tools
+        assert 'create_subagent' in tools
+        assert 'assign_task' in tools
         assert 'search' in tools
 
 
@@ -91,24 +94,25 @@ class TestAgentClear:
 
 
 class TestAgentFindSkill:
-    def test_find_skill_by_name(self):
-        """Test with a real skill directory."""
+    def test_find_skill_no_skills(self):
+        agent = Agent(
+            provider='deepseek', model='deepseek-chat',
+            http_options={'timeout': 10},
+        )
+        skill = agent._find_skill('anything')
+        assert skill is None
+
+    def test_find_skill_llm_failure_graceful(self):
+        """When LLM call fails, _find_skill returns None gracefully."""
         import os
         examples_dir = os.path.join(os.path.dirname(__file__), '..', 'examples')
         agent = Agent(
             provider='deepseek', model='deepseek-chat',
             skills=[examples_dir], http_options={'timeout': 10},
         )
-        skill = agent._find_skill('weather')
-        assert skill is not None
-        assert skill.name == 'weather'
-
-    def test_find_skill_not_found(self):
-        agent = Agent(
-            provider='deepseek', model='deepseek-chat',
-            http_options={'timeout': 10},
-        )
-        skill = agent._find_skill('nonexistent')
+        # LLM call will fail (no real API key), returns None
+        skill = agent._find_skill('weather info')
+        # Should not crash, just return None
         assert skill is None
 
 
@@ -150,92 +154,64 @@ class TestAgentStateDict:
         assert len(restored.client.messages) == 2
 
 
-class TestAgentDelegate:
-    def test_delegate_creates_subagent(self):
+class TestAgentCreateSubagent:
+    def test_create_subagent(self):
         agent = Agent(
             name='parent', provider='deepseek', model='deepseek-chat',
-            http_options={'timeout': 10}, max_depth=3,
+            http_options={'timeout': 10}, can_delegate=True,
         )
-        from chatchat import APIError
-        try:
-            agent._handle_delegate(
-                name='child',
-                message='test task',
-                instruction='You are a test assistant.',
-            )
-        except APIError:
-            pass
-        # Subagent should be created even if the API call fails
+        result = agent._handle_create_subagent(
+            name='child',
+            description='You are a helpful test assistant.',
+        )
         assert 'child' in agent.subagents
         assert agent.subagents['child'].name == 'child'
-        assert agent.subagents['child'].instruction == 'You are a test assistant.'
+        assert agent.subagents['child'].instruction == 'You are a helpful test assistant.'
+        assert 'created' in result
 
-    def test_delegate_reuses_subagent(self):
+    def test_create_subagent_already_exists(self):
         agent = Agent(
             name='parent', provider='deepseek', model='deepseek-chat',
-            http_options={'timeout': 10}, max_depth=3,
+            http_options={'timeout': 10}, can_delegate=True,
         )
-        from chatchat import APIError
-        # Manually create the subagent to avoid API call
-        child = Agent(
-            name='child', provider='deepseek', model='deepseek-chat',
-            instruction='helper', http_options={'timeout': 10},
-        )
-        child.client.messages = [{'role': 'user', 'content': 'existing'}]
-        agent.subagents['child'] = child
-        agent._bridge_events(child)
+        agent._handle_create_subagent(name='child', description='helper')
+        result = agent._handle_create_subagent(name='child', description='another')
+        assert 'already exists' in result
+        assert agent.subagents['child'].instruction == 'helper'
 
-        original_msgs = list(child.client.messages)
-        try:
-            agent._handle_delegate(name='child', message='second', instruction='helper')
-        except APIError:
-            pass
-        assert agent.subagents['child'].client.messages == original_msgs
-
-    def test_delegate_reuses_subagent_ignores_different_instruction(self):
-        """When reusing a subagent, a different instruction is ignored."""
+    def test_create_subagent_uses_description_when_no_skill_matches(self):
         agent = Agent(
             name='parent', provider='deepseek', model='deepseek-chat',
-            http_options={'timeout': 10}, max_depth=3,
+            http_options={'timeout': 10}, can_delegate=True,
         )
-        from chatchat import APIError
-        child = Agent(
-            name='child', provider='deepseek', model='deepseek-chat',
-            instruction='helper', http_options={'timeout': 10},
+        result = agent._handle_create_subagent(
+            name='child',
+            description='You are a custom assistant with no matching skill.',
         )
-        agent.subagents['child'] = child
-        agent._bridge_events(child)
+        assert 'created' in result
+        assert agent.subagents['child'].instruction == 'You are a custom assistant with no matching skill.'
 
-        # Instruction is not updated on reuse — the original stays
-        assert child.instruction == 'helper'
-        # The delegate call proceeds (will fail with APIError since no real API key)
-        try:
-            agent._handle_delegate(name='child', message='second', instruction='different')
-        except APIError:
-            pass
-        # The original instruction remains unchanged
-        assert child.instruction == 'helper'
 
-    def test_delegate_depth_limit(self):
+class TestAgentAssignTask:
+    def test_assign_task_not_found(self):
+        agent = Agent(
+            name='parent', provider='deepseek', model='deepseek-chat',
+            http_options={'timeout': 10}, can_delegate=True,
+        )
+        result = agent._handle_assign_task(name='child', message='task')
+        assert 'Error' in result
+        assert 'not found' in result
+
+    def test_assign_task_depth_limit(self):
         agent = Agent(
             name='root', provider='deepseek', model='deepseek-chat',
-            http_options={'timeout': 10}, max_depth=1,
+            http_options={'timeout': 10}, max_depth=1, can_delegate=True,
         )
-        agent._depth = 1
-        result = agent._handle_delegate(name='child', message='task')
+        agent.depth = 1
+        agent._handle_create_subagent(name='child', description='helper')
+        result = agent._handle_assign_task(name='child', message='task')
         assert 'Error' in result
         assert 'maximum delegation depth' in result
-
-    def test_delegate_with_skill_not_found(self):
-        agent = Agent(
-            name='parent', provider='deepseek', model='deepseek-chat',
-            http_options={'timeout': 10}, max_depth=3,
-        )
-        result = agent._handle_delegate(
-            name='child', message='task', skill='nonexistent',
-        )
-        assert 'Error' in result
-        assert 'skill' in result.lower()
 
 
 class TestAgentExecuteToolCalls:
