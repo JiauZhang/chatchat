@@ -6,7 +6,7 @@ from typing import Generator, Literal, overload
 from chatchat.config import load_config
 from chatchat.providers import __providers__, __custom_providers__
 from chatchat import ProviderError, APIError
-from chatchat.hook import _HookEmitter
+from chatchat.event import EventBus
 from chatchat.types import (
     ChatCompletion,
     ChatCompletionChunk,
@@ -14,21 +14,21 @@ from chatchat.types import (
     ChunkChoice,
     Delta,
     Message,
-    ProgressType,
     ToolCall,
     Usage,
 )
 
 
-class BaseClient(_HookEmitter):
-    def __init__(self, provider, base_url, model=None, instruction=None, http_options=None):
-        super().__init__()
+class BaseClient:
+    def __init__(self, provider, base_url, model=None, instruction=None,
+                 http_options=None, event_bus=None):
         http_options = http_options or {}
         http_options.setdefault('timeout', 60.0)
         self.provider = provider
         self._instruction = instruction
         self.api_key = load_config(provider)
         self.model = model
+        self._bus = event_bus
         self.client = httpx.Client(
             base_url=base_url,
             **http_options,
@@ -153,6 +153,10 @@ class BaseClient(_HookEmitter):
             choices=[self._to_chunk_choice(c) for c in (data.get('choices') or [])],
         )
 
+    def _emit(self, topic: str, data: dict = None):
+        if self._bus:
+            self._bus.emit(topic, data or {})
+
     def _get_provider_message(self, data: dict) -> dict:
         return data['choices'][0]['message']
 
@@ -219,21 +223,21 @@ class BaseClient(_HookEmitter):
             model=model, messages=full, stream=stream, thinking=thinking, tools=tools, **kwargs,
         )
         url = '/chat/completions'
-        self._emit(ProgressType.CLIENT_START, data={'payload': payload})
+        self._emit('client:start', {'payload': payload})
         if not stream:
             return self._nonstream_chat(url, payload, full)
         return self._chat_stream(url, payload, full)
 
     def _nonstream_chat(self, url, payload, full):
-        self._emit(ProgressType.CLIENT_STEP)
+        self._emit('client:step')
         try:
             raw = self._send_nonstreaming(url, payload)
         except Exception as e:
-            self._emit(ProgressType.CLIENT_ERROR, content=str(e), data={'error': str(e)})
+            self._emit('client:error', {'error': str(e)})
             raise
         reply = self._get_provider_message(raw)
         self.messages = full + [reply]
-        self._emit(ProgressType.CLIENT_END, data={'response': raw})
+        self._emit('client:end', {'response': raw})
         return self._to_chat_completion(raw)
 
     def _chat_stream(self, url, payload, full):
@@ -247,21 +251,19 @@ class BaseClient(_HookEmitter):
                 acc.accumulate(chunk.choices[0].delta)
                 step += 1
                 delta = chunk.choices[0].delta
-                self._emit(
-                    ProgressType.CLIENT_STEP, step=step,
-                    content=delta.content or '',
-                    data={'delta': {
+                self._emit('client:step', {
+                    'delta': {
                         'content': delta.content or '',
                         'tool_calls': [{'index': tc.index, 'id': tc.id, 'name': tc.name, 'arguments': tc.arguments} for tc in delta.tool_calls],
-                    }},
-                )
+                    },
+                })
                 yield chunk
         except Exception as e:
-            self._emit(ProgressType.CLIENT_ERROR, content=str(e), data={'error': str(e)})
+            self._emit('client:error', {'error': str(e)})
             raise
         reply = self._to_openai_format(acc)
         self.messages = full + self._to_provider_format([reply])
-        self._emit(ProgressType.CLIENT_END)
+        self._emit('client:end')
 
     def clear(self):
         self.messages = [self._system_message()] if self._instruction else []
@@ -282,10 +284,11 @@ def dynamic_import_client(provider):
 
 
 class Client:
-    def __init__(self, provider, model, instruction=None, http_options=None):
+    def __init__(self, provider, model, instruction=None, http_options=None, event_bus=None):
         client_class = dynamic_import_client(provider)
         self.client: BaseClient = client_class(
             model=model, instruction=instruction, http_options=http_options,
+            event_bus=event_bus,
         )
 
     @overload
@@ -301,26 +304,6 @@ class Client:
             messages, model=model, stream=stream, thinking=thinking,
             tools=tools, **kwargs,
         )
-
-    def on_start(self, handler):
-        self.client.on_start(handler)
-        return self
-
-    def on_step(self, handler):
-        self.client.on_step(handler)
-        return self
-
-    def on_end(self, handler):
-        self.client.on_end(handler)
-        return self
-
-    def on_error(self, handler):
-        self.client.on_error(handler)
-        return self
-
-    def on_interact(self, handler):
-        self.client.on_interact(handler)
-        return self
 
     def clear(self):
         self.client.clear()

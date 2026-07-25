@@ -1,11 +1,11 @@
-import os, argparse, random, subprocess
+import os, sys, argparse, random, subprocess
 from chatchat.agent import Agent
 from chatchat.tool import tool
-from chatchat.types import Progress, ProgressType
+from chatchat.event import EventBus, Event
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--provider', type=str, default='zhipu')
-parser.add_argument('--model', type=str, default='glm-4.7-flash')
+parser.add_argument('--provider', type=str, default='agnes')
+parser.add_argument('--model', type=str, default='agnes-2.0-flash')
 parser.add_argument('--timeout', type=int, default=None)
 parser.add_argument('--proxy', type=str, default=None)
 parser.add_argument('--non-streaming', action='store_true')
@@ -62,13 +62,18 @@ def query_ticket_price(from_city, to_city):
 )
 def read_file(file_path, offset=0, num_lines=500):
     try:
+        read_file._emit('tool:step', {'content': f'正在打开文件 {file_path}...'})
         with open(file_path, 'r', encoding='utf-8') as f:
             lines = f.readlines()
         total_lines = len(lines)
+
+        read_file._emit('tool:step', {'content': f'文件共 {total_lines} 行，准备读取偏移 {offset} 行起，共 {num_lines} 行'})
         result = '\n'.join(f'{i} | {line}' for i, line in enumerate(lines[offset:offset + num_lines], start=offset))
         read_count = min(num_lines, total_lines - offset)
         if not result:
             result = '(文件为空或读取范围无内容)'
+
+        read_file._emit('tool:step', {'content': f'读取完成，共 {read_count} 行'})
         return f'读取成功，共 {read_count} 行，总行数 {total_lines}：\n{result}'
     except FileNotFoundError:
         return f'错误：文件不存在 - {file_path}'
@@ -122,84 +127,95 @@ def execute_shell_command(command):
         return f'执行命令时发生异常：{str(e)}'
 
 
-agent = Agent(
-    name='assistant',
-    provider=args.provider, model=args.model, http_options=http_options,
-    stream=not args.non_streaming,
-    instruction='你是一个全能助手，可以查询火车票、读写文件、执行shell命令。遇到专业任务时，请检查可用技能。',
-    tools=[query_train_ticket, query_ticket_price, read_file, write_file, execute_shell_command],
-    skills=[os.path.join(os.path.dirname(__file__), 'skills')],
-)
+def handle_agent_start(event: Event):
+    msg = event.data.get('message', '')
+    print(f'[agent:start  {event.source:>10}] {msg}')
 
 
-def handle_start(progress: Progress):
-    tag = progress.type.value
-    name = progress.name or 'agent'
-    if progress.type == ProgressType.AGENT_START:
-        msg = f'message: {progress.data.get("message", "")}'
-    elif progress.type == ProgressType.TOOL_START:
-        args = progress.data.get('arguments', {})
-        msg = f'calling "{name}" with {args}'
-    else:
-        msg = tag
-    print(f'[{tag:<12} {name:>10}] {msg}')
+def handle_agent_step(event: Event):
+    tcs = event.data.get('tool_calls', [])
+    names = [tc['name'] for tc in tcs]
+    step = event.data.get('step', '')
+    print(f'[agent:step   {event.source:>10}] round {step} -> {names}')
 
 
-def handle_step(progress: Progress):
-    tag = progress.type.value
-    name = progress.name or 'agent'
-    if progress.type == ProgressType.AGENT_STEP:
-        tcs = progress.data.get('tool_calls', [])
-        names = [tc['name'] for tc in tcs]
-        msg = f'tool round {progress.step} -> {names}'
-    elif progress.type == ProgressType.CLIENT_STEP:
-        delta = progress.data.get('delta', {}).get('content', '')
-        msg = delta[:30] if delta else tag
-    else:
-        msg = progress.content or tag
-    print(f'[{tag:<12} {name:>10}] {msg}')
+def handle_agent_end(event: Event):
+    content = event.data.get('content', '')
+    print(f'[agent:end    {event.source:>10}] {content[:60]}...')
 
 
-def handle_end(progress: Progress):
-    tag = progress.type.value
-    name = progress.name or 'agent'
-    if progress.type == ProgressType.AGENT_END:
-        response = progress.data.get('response', '')
-        msg = f'response: {response[:60]}...'
-    elif progress.type == ProgressType.TOOL_END:
-        result = progress.data.get('result', '')
-        msg = f'"{name}" done: {str(result)[:50]}...'
-    else:
-        msg = tag
-    print(f'[{tag:<12} {name:>10}] {msg}')
+def handle_agent_error(event: Event):
+    print(f'[agent:error  {event.source:>10}] error: {event.data.get("error", "")}')
 
 
-def handle_error(progress: Progress):
-    tag = progress.type.value
-    name = progress.name or 'agent'
-    print(f'[{tag:<12} {name:>10}] error: {progress.content}')
+def handle_tool_start(event: Event):
+    name = event.data.get('name', '')
+    args = event.data.get('arguments', {})
+    print(f'[tool:start   {event.source:>10}] calling "{name}" with {args}')
 
 
-agent.on_start(handle_start).on_step(handle_step).on_end(handle_end).on_error(handle_error)
+def handle_tool_step(event: Event):
+    content = event.data.get('content', '')
+    if content:
+        print(f'[tool:step    {event.source:>10}] {content}')
 
-print('Enter /exit to quit, /clear to reset conversation.')
 
-while True:
-    prompt = input('user> ')
-    if prompt == '/exit':
-        break
-    if prompt == '/clear':
-        agent.clear()
-        print('Conversation cleared.\n')
-        continue
+def handle_tool_end(event: Event):
+    name = event.data.get('name', '')
+    result = event.data.get('result', '')
+    print(f'[tool:end     {event.source:>10}] "{name}" done: {str(result)[:50]}...')
 
-    response = agent.chat(prompt)
 
-    if agent.stream:
-        print('assistant> ', end='')
-        for chunk in response:
-            print(chunk, end='', flush=True)
+def handle_tool_error(event: Event):
+    print(f'[tool:error   {event.source:>10}] error: {event.data.get("error", "")}')
+
+
+def handle_client_step(event: Event):
+    delta = event.data.get('delta', {}).get('content', '')
+    if delta:
+        print(f'[client:step  {event.source:>10}] {delta[:30]}')
+
+
+with EventBus() as bus:
+    bus.subscribe('agent:start', handle_agent_start)
+    bus.subscribe('agent:step', handle_agent_step)
+    bus.subscribe('agent:end', handle_agent_end)
+    bus.subscribe('agent:error', handle_agent_error)
+    bus.subscribe('tool:start', handle_tool_start)
+    bus.subscribe('tool:step', handle_tool_step)
+    bus.subscribe('tool:end', handle_tool_end)
+    bus.subscribe('tool:error', handle_tool_error)
+    bus.subscribe('client:step', handle_client_step)
+
+    agent = Agent(
+        name='assistant',
+        event_bus=bus,
+        provider=args.provider, model=args.model, http_options=http_options,
+        stream=not args.non_streaming,
+        instruction='你是一个全能助手，可以查询火车票、读写文件、执行shell命令。遇到专业任务时，请检查可用技能。',
+        tools=[query_train_ticket, query_ticket_price, read_file, write_file, execute_shell_command],
+        skills=[os.path.join(os.path.dirname(__file__), 'skills')],
+    )
+
+    print('Enter /exit to quit, /clear to reset conversation.')
+
+    while True:
+        prompt = input('user> ')
+        if prompt == '/exit':
+            break
+        if prompt == '/clear':
+            agent.clear()
+            print('Conversation cleared.\n')
+            continue
+
+        response = agent.chat(prompt)
+
+        if agent.stream:
+            chunks = []
+            for chunk in response:
+                chunks.append(chunk)
+            bus.flush()
+            print(f'assistant> {"".join(chunks)}')
+        else:
+            print(f'assistant> {response}')
         print()
-    else:
-        print(f'assistant> {response}')
-    print()

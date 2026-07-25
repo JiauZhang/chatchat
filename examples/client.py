@@ -1,6 +1,5 @@
 import argparse
 from chatchat.client import Client
-from chatchat.types import ProgressType
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--provider', type=str, default='agnes')

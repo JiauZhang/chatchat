@@ -2,7 +2,7 @@ import argparse
 import random
 from chatchat.agent import Agent
 from chatchat.tool import tool
-from chatchat.types import Progress, ProgressType
+from chatchat.event import EventBus, Event
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--provider', type=str, default='agnes')
@@ -22,9 +22,9 @@ http_options = {'timeout': args.timeout}
     },
 )
 def search_web(query):
-    search_web._emit(ProgressType.TOOL_STEP, content=f'searching "{query}"...', name='search_web')
+    search_web._emit('tool:step', {'content': f'searching "{query}"...', 'name': 'search_web'})
     results = [f'result {i} about {query}' for i in range(random.randint(1, 3))]
-    search_web._emit(ProgressType.TOOL_STEP, content=f'found {len(results)} results', name='search_web')
+    search_web._emit('tool:step', {'content': f'found {len(results)} results', 'name': 'search_web'})
     return '\n'.join(results)
 
 
@@ -37,9 +37,9 @@ def search_web(query):
     },
 )
 def summarize(text):
-    summarize._emit(ProgressType.TOOL_STEP, content='summarizing...', name='summarize')
+    summarize._emit('tool:step', {'content': 'summarizing...', 'name': 'summarize'})
     summary = f'Summary: {text[:50]}...'
-    summarize._emit(ProgressType.TOOL_STEP, content='summary ready', name='summarize')
+    summarize._emit('tool:step', {'content': 'summary ready', 'name': 'summarize'})
     return summary
 
 
@@ -55,30 +55,30 @@ def summarize(text):
     },
 )
 def save_file(path, content):
-    save_file._emit(ProgressType.TOOL_STEP, content=f'writing to {path}...', name='save_file')
+    save_file._emit('tool:step', {'content': f'writing to {path}...', 'name': 'save_file'})
     raise PermissionError(f'no write permission for {path}')
 
 
-def handle_start(progress: Progress):
-    tag = progress.type.value
-    name = progress.name or 'agent'
-    if progress.type == ProgressType.TOOL_START:
-        args = progress.data.get('arguments', {})
+def handle_start(event: Event):
+    tag = event.topic
+    name = event.source or 'agent'
+    if event.topic == 'tool:start':
+        args = event.data.get('arguments', {})
         msg = f'calling "{name}" with {args}'
-    elif progress.type == ProgressType.AGENT_START:
-        msg = f'message: {progress.data.get("message", "")}'
+    elif event.topic == 'agent:start':
+        msg = f'message: {event.data.get("message", "")}'
     else:
         msg = tag
     print(f'[{tag:<12} {name:>10}] {msg}')
 
 
-def handle_step(progress: Progress):
-    tag = progress.type.value
-    name = progress.name or 'agent'
-    if progress.type == ProgressType.TOOL_STEP:
-        msg = progress.content
-    elif progress.type == ProgressType.CLIENT_STEP:
-        delta = progress.data.get('delta', {})
+def handle_step(event: Event):
+    tag = event.topic
+    name = event.source or 'agent'
+    if event.topic == 'tool:step':
+        msg = event.data.get('content', '')
+    elif event.topic == 'client:step':
+        delta = event.data.get('delta', {})
         tcs = delta.get('tool_calls', [])
         if tcs:
             msg = f'tool call delta: {[tc["name"] for tc in tcs]}'
@@ -86,52 +86,63 @@ def handle_step(progress: Progress):
             msg = f'content chunk: {delta["content"][:30]}...'
         else:
             msg = tag
-    elif progress.type == ProgressType.AGENT_STEP:
-        tcs = progress.data.get('tool_calls', [])
+    elif event.topic == 'agent:step':
+        tcs = event.data.get('tool_calls', [])
         names = [tc['name'] for tc in tcs]
-        msg = f'tool round {progress.step} -> {names}'
+        msg = f'tool round {event.data.get("step", "")} -> {names}'
     else:
         msg = tag
     print(f'[{tag:<12} {name:>10}] {msg}')
 
 
-def handle_end(progress: Progress):
-    tag = progress.type.value
-    name = progress.name or 'agent'
-    if progress.type == ProgressType.TOOL_END:
-        result = progress.data.get('result', '')
+def handle_end(event: Event):
+    tag = event.topic
+    name = event.source or 'agent'
+    if event.topic == 'tool:end':
+        result = event.data.get('result', '')
         msg = f'"{name}" done: {str(result)[:50]}...'
-    elif progress.type == ProgressType.AGENT_END:
-        response = progress.data.get('response', '')
+    elif event.topic == 'agent:end':
+        response = event.data.get('response', '')
         msg = f'response: {response[:60]}...'
     else:
         msg = tag
     print(f'[{tag:<12} {name:>10}] {msg}')
 
 
-def handle_error(progress: Progress):
-    tag = progress.type.value
-    name = progress.name or 'agent'
-    if progress.type == ProgressType.TOOL_ERROR:
-        args = progress.data.get('arguments', {})
-        msg = f'"{name}" failed: {progress.content} args={args}'
+def handle_error(event: Event):
+    tag = event.topic
+    name = event.source or 'agent'
+    if event.topic == 'tool:error':
+        args = event.data.get('arguments', {})
+        msg = f'"{name}" failed: {event.data.get("error", "")} args={args}'
     else:
-        msg = f'{name} error: {progress.content}'
+        msg = f'{name} error: {event.data.get("error", "")}'
     print(f'[{tag:<12} {name:>10}] {msg}')
 
 
-agent = Agent(
-    name='supervisor',
-    provider=args.provider, model=args.model,
-    http_options=http_options, stream=False,
-    instruction=(
-        'You are a supervisor. You have web search and summarization tools.'
-        ' When given a task: search, summarize the results, then save to a file.'
-    ),
-    tools=[search_web, summarize, save_file],
-)
-agent.on_start(handle_start).on_step(handle_step).on_end(handle_end).on_error(handle_error)
-result = agent.chat('search AI news and summarize')
-print(f'supervisor result: {result[:100]}')
+with EventBus() as bus:
+    bus.subscribe('agent:start', handle_start)
+    bus.subscribe('agent:step', handle_step)
+    bus.subscribe('agent:end', handle_end)
+    bus.subscribe('agent:error', handle_error)
+    bus.subscribe('tool:start', handle_start)
+    bus.subscribe('tool:step', handle_step)
+    bus.subscribe('tool:end', handle_end)
+    bus.subscribe('tool:error', handle_error)
+    bus.subscribe('client:step', handle_step)
 
-print('Done.')
+    agent = Agent(
+        name='supervisor',
+        event_bus=bus,
+        provider=args.provider, model=args.model,
+        http_options=http_options, stream=False,
+        instruction=(
+            'You are a supervisor. You have web search and summarization tools.'
+            ' When given a task: search, summarize the results, then save to a file.'
+        ),
+        tools=[search_web, summarize, save_file],
+    )
+    result = agent.chat('search AI news and summarize')
+    print(f'supervisor result: {result[:100]}')
+
+    print('Done.')

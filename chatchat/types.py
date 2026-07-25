@@ -1,39 +1,4 @@
-from enum import Enum
 from dataclasses import dataclass, field
-from typing import Generator
-
-
-class ProgressType(Enum):
-    AGENT_START = 'agent:start'
-    AGENT_STEP = 'agent:step'
-    AGENT_END = 'agent:end'
-    AGENT_ERROR = 'agent:error'
-
-    CLIENT_START = 'client:start'
-    CLIENT_STEP = 'client:step'
-    CLIENT_END = 'client:end'
-    CLIENT_ERROR = 'client:error'
-
-    TOOL_START = 'tool:start'
-    TOOL_STEP = 'tool:step'
-    TOOL_END = 'tool:end'
-    TOOL_ERROR = 'tool:error'
-
-    @property
-    def category(self) -> str:
-        return self.value.split(':', 1)[-1]
-
-    def is_start(self):
-        return self.category == 'start'
-
-    def is_step(self):
-        return self.category == 'step'
-
-    def is_end(self):
-        return self.category == 'end'
-
-    def is_error(self):
-        return self.category == 'error'
 
 
 @dataclass
@@ -126,10 +91,3 @@ class ChatCompletionChunk:
     choices: list[ChunkChoice] = field(default_factory=list)
 
 
-@dataclass
-class Progress:
-    type: ProgressType
-    content: str = ''
-    name: str = ''
-    step: int = 0
-    data: dict = field(default_factory=dict)

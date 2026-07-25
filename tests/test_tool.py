@@ -1,5 +1,5 @@
 from chatchat.tool import Tool, Tools, tool
-from chatchat.types import ProgressType, Progress
+from chatchat.event import EventBus, Event
 
 
 def test_tool_decorator():
@@ -32,44 +32,54 @@ def test_tool_to_dict():
 def test_tool_emits_events():
     events = []
 
-    def collector(p: Progress):
-        events.append((p.type, p.name, p.data))
+    def collector(event: Event):
+        events.append((event.topic, event.source, event.data))
 
-    t = Tool(name='add', description='add two numbers', tool=lambda a, b: a + b)
-    t.on_start(collector).on_end(collector).on_error(collector)
+    bus = EventBus(source='add')
+    bus.start()
+    bus.subscribe('tool:*', collector)
+
+    t = Tool(name='add', description='add two numbers', tool=lambda a, b: a + b,
+             event_bus=bus)
 
     result = t(a=3, b=4)
 
+    bus.stop()
     assert result == 7
     assert len(events) == 2
-    assert events[0][0] == ProgressType.TOOL_START
+    assert events[0][0] == 'tool:start'
     assert events[0][1] == 'add'
-    assert events[0][2] == {'arguments': {'a': 3, 'b': 4}}
-    assert events[1][0] == ProgressType.TOOL_END
+    assert events[0][2] == {'name': 'add', 'arguments': {'a': 3, 'b': 4}}
+    assert events[1][0] == 'tool:end'
     assert events[1][1] == 'add'
-    assert 'result' in events[1][2]
+    assert events[1][2] == {'name': 'add', 'result': 7}
 
 
 def test_tool_error():
     events = []
 
-    def collector(p: Progress):
-        events.append((p.type, p.name, p.content, p.data))
+    def collector(event: Event):
+        events.append((event.topic, event.source, event.data))
+
+    bus = EventBus(source='fail')
+    bus.start()
+    bus.subscribe('tool:*', collector)
 
     def failing(a):
         raise ValueError('something broke')
 
-    t = Tool(name='fail', description='a failing tool', tool=failing)
-    t.on_start(collector).on_end(collector).on_error(collector)
+    t = Tool(name='fail', description='a failing tool', tool=failing,
+             event_bus=bus)
 
     result = t(a=1)
 
+    bus.stop()
     assert 'Error calling tool' in result
     assert 'something broke' in result
     assert len(events) == 2
-    assert events[0][0] == ProgressType.TOOL_START
-    assert events[1][0] == ProgressType.TOOL_ERROR
-    assert 'something broke' in events[1][3].get('error', '')
+    assert events[0][0] == 'tool:start'
+    assert events[1][0] == 'tool:error'
+    assert 'something broke' in events[1][2].get('error', '')
 
 
 def test_tool_no_parameters():
@@ -78,7 +88,7 @@ def test_tool_no_parameters():
     assert result == 'pong'
 
 
-def test_tools_creation():
+def test_tools_basic():
     a = Tool(name='a', description='tool a', tool=lambda: 'a')
     b = Tool(name='b', description='tool b', tool=lambda: 'b')
     tools = Tools(a, b)
@@ -87,12 +97,6 @@ def test_tools_creation():
     assert tools['b'] is b
     assert 'a' in tools
     assert 'c' not in tools
-
-
-def test_tools_iteration():
-    a = Tool(name='a', description='tool a', tool=lambda: 'a')
-    b = Tool(name='b', description='tool b', tool=lambda: 'b')
-    tools = Tools(a, b)
 
     names = [t.name for t in tools]
     assert names == ['a', 'b']

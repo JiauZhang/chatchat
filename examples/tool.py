@@ -1,7 +1,7 @@
 import argparse, random
 from chatchat.tool import Tool, Tools
-from chatchat.types import Progress, ProgressType
 from chatchat.client import Client
+from chatchat.event import EventBus, Event
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--provider', type=str, default='agnes')
@@ -24,24 +24,27 @@ search = Tool(
 
 tools = Tools(search)
 
-def on_start(p):
-    if p.type == ProgressType.TOOL_START:
-        print(f'tool start: {p.name} {p.data.get("arguments", {})}')
+def on_start(event: Event):
+    if event.topic == 'tool:start':
+        print(f'tool start: {event.source} {event.data.get("arguments", {})}')
 
-def on_end(p):
-    if p.type == ProgressType.TOOL_END:
-        result = p.data.get('result', '')
-        print(f'tool end: {p.name} -> {str(result)[:50]}...')
+def on_end(event: Event):
+    if event.topic == 'tool:end':
+        result = event.data.get('result', '')
+        print(f'tool end: {event.source} -> {str(result)[:50]}...')
 
-search.on_start(on_start).on_end(on_end)
+with EventBus() as bus:
+    bus.subscribe('tool:start', on_start)
+    bus.subscribe('tool:end', on_end)
+    search.set_event_bus(bus, 'search')
 
-print(search(query='AI news'))
+    print(search(query='AI news'))
 
-print()
+    print()
 
-client = Client(args.provider, args.model, http_options={'timeout': args.timeout})
-result = client.chat(
-    [{'role': 'user', 'content': 'search AI news'}],
-    tools=tools, stream=False,
-)
-print(f'agent with manual tool: {result.choices[0].message.content[:80]}...')
+    client = Client(args.provider, args.model, http_options={'timeout': args.timeout})
+    result = client.chat(
+        [{'role': 'user', 'content': 'search AI news'}],
+        tools=tools, stream=False,
+    )
+    print(f'agent with manual tool: {result.choices[0].message.content[:80]}...')

@@ -3,7 +3,7 @@ import argparse
 import random
 from chatchat.agent import Agent
 from chatchat.tool import tool
-from chatchat.types import Progress, ProgressType
+from chatchat.event import EventBus, Event
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--provider', type=str, default='agnes')
@@ -48,80 +48,90 @@ def query_news(topic):
     return '\n'.join(headlines)
 
 
-def handle_start(progress: Progress):
-    tag = progress.type.value
-    name = progress.name or 'agent'
-    if progress.type == ProgressType.AGENT_START:
-        msg = f'message: {progress.data.get("message", "")}'
-    elif progress.type == ProgressType.TOOL_START:
-        args = progress.data.get('arguments', {})
+def handle_start(event: Event):
+    tag = event.topic
+    name = event.source or 'agent'
+    if event.topic == 'agent:start':
+        msg = f'message: {event.data.get("message", "")}'
+    elif event.topic == 'tool:start':
+        args = event.data.get('arguments', {})
         msg = f'calling "{name}" with {args}'
     else:
         msg = tag
     print(f'[{tag:<12} {name:>10}] {msg}')
 
 
-def handle_step(progress: Progress):
-    tag = progress.type.value
-    name = progress.name or 'agent'
-    if progress.type == ProgressType.AGENT_STEP:
-        tcs = progress.data.get('tool_calls', [])
+def handle_step(event: Event):
+    tag = event.topic
+    name = event.source or 'agent'
+    if event.topic == 'agent:step':
+        tcs = event.data.get('tool_calls', [])
         names = [tc['name'] for tc in tcs]
-        msg = f'tool round {progress.step} -> {names}'
-    elif progress.type == ProgressType.CLIENT_STEP:
-        msg = progress.data.get('delta', {}).get('content', '')[:30] or tag
+        msg = f'tool round {event.data.get("step", "")} -> {names}'
+    elif event.topic == 'client:step':
+        msg = event.data.get('delta', {}).get('content', '')[:30] or tag
     else:
-        msg = progress.content or tag
+        msg = event.data.get('content', '') or tag
     print(f'[{tag:<12} {name:>10}] {msg}')
 
 
-def handle_end(progress: Progress):
-    tag = progress.type.value
-    name = progress.name or 'agent'
-    if progress.type == ProgressType.AGENT_END:
-        response = progress.data.get('response', '')
+def handle_end(event: Event):
+    tag = event.topic
+    name = event.source or 'agent'
+    if event.topic == 'agent:end':
+        response = event.data.get('response', '')
         msg = f'response: {response[:60]}...'
-    elif progress.type == ProgressType.TOOL_END:
-        result = progress.data.get('result', '')
+    elif event.topic == 'tool:end':
+        result = event.data.get('result', '')
         msg = f'"{name}" done: {str(result)[:50]}...'
     else:
         msg = tag
     print(f'[{tag:<12} {name:>10}] {msg}')
 
 
-def handle_error(progress: Progress):
-    tag = progress.type.value
-    name = progress.name or 'agent'
-    print(f'[{tag:<12} {name:>10}] error: {progress.content}')
+def handle_error(event: Event):
+    tag = event.topic
+    name = event.source or 'agent'
+    print(f'[{tag:<12} {name:>10}] error: {event.data.get("error", "")}')
 
 
-agent = Agent(
-    name='analyst',
-    provider=args.provider, model=args.model,
-    http_options=http_options, stream=False,
-    instruction=(
-        'You are a financial analyst. You have stock query and news query tools. '
-        'For complex research tasks, delegate to sub-agents.'
-    ),
-    tools=[query_stock, query_news],
-)
-agent.on_start(handle_start).on_step(handle_step).on_end(handle_end).on_error(handle_error)
+with EventBus() as bus:
+    bus.subscribe('agent:start', handle_start)
+    bus.subscribe('agent:step', handle_step)
+    bus.subscribe('agent:end', handle_end)
+    bus.subscribe('agent:error', handle_error)
+    bus.subscribe('tool:start', handle_start)
+    bus.subscribe('tool:step', handle_step)
+    bus.subscribe('tool:end', handle_end)
+    bus.subscribe('tool:error', handle_error)
+    bus.subscribe('client:step', handle_step)
 
-result = agent.chat('What is the current price of AAPL and TSLA?')
-print(f'\nanalyst result: {result}\n')
+    agent = Agent(
+        name='analyst',
+        event_bus=bus,
+        provider=args.provider, model=args.model,
+        http_options=http_options, stream=False,
+        instruction=(
+            'You are a financial analyst. You have stock query and news query tools. '
+            'For complex research tasks, delegate to sub-agents.'
+        ),
+        tools=[query_stock, query_news],
+    )
 
-state = agent.state_dict()
-with open('_agent_state.json', 'w', encoding='utf-8') as f:
-    json.dump(state, f, ensure_ascii=False, indent=2)
+    result = agent.chat('What is the current price of AAPL and TSLA?')
+    print(f'\nanalyst result: {result}\n')
 
-with open('_agent_state.json', 'r', encoding='utf-8') as f:
-    restored_state = json.load(f)
+    state = agent.state_dict()
+    with open('_agent_state.json', 'w', encoding='utf-8') as f:
+        json.dump(state, f, ensure_ascii=False, indent=2)
 
-new_agent = Agent.from_state_dict(restored_state, tools=[query_stock, query_news])
-new_agent.on_start(handle_start).on_step(handle_step).on_end(handle_end).on_error(handle_error)
+    with open('_agent_state.json', 'r', encoding='utf-8') as f:
+        restored_state = json.load(f)
 
-result = new_agent.chat('What about GOOG?')
-print(f'\nrestored agent result: {result}\n')
+    new_agent = Agent.from_state_dict(restored_state, event_bus=bus, tools=[query_stock, query_news])
 
-import os
-os.remove('_agent_state.json')
+    result = new_agent.chat('What about GOOG?')
+    print(f'\nrestored agent result: {result}\n')
+
+    import os
+    os.remove('_agent_state.json')
