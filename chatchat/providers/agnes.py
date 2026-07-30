@@ -6,6 +6,6 @@ class AgnesClient(BaseClient):
         http_options = http_options or {}
         super().__init__(
             'agnes',
-            'https://apihub.agnes-ai.com/v1',
+            'https://apihub.agnes-ai.cn/v1',
             http_options=http_options, model=model, instruction=instruction, event_bus=event_bus,
         )

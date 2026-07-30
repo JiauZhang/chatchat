@@ -12,6 +12,22 @@ class Team:
         self.max_depth = max_depth
         self._current_depth = 0
         self._members: list[Agent | 'Team'] = []
+        self._assign_tool = Tool(
+            name='assign_task',
+            description='将子任务分配给 Team 中的其他成员执行。参数: task (任务描述), member_name (目标成员名称)',
+            parameters={
+                'type': 'object',
+                'properties': {
+                    'task': {'type': 'string', 'description': '任务描述'},
+                    'member_name': {'type': 'string', 'description': '目标成员名称'},
+                },
+                'required': ['task', 'member_name'],
+            },
+            tool=self._assign_task,
+        )
+
+    def _emit(self, topic: str, data: dict = None):
+        self._bus.emit(topic, data or {}, source=self.name)
 
     @property
     def members(self) -> list[Agent]:
@@ -51,58 +67,38 @@ class Team:
             return ''.join(result)
         return result
 
-    def _create_assign_task_tool(self):
-        _step = 0
+    def _assign_task(self, task: str, member_name: str) -> str:
+        self._current_depth += 1
+        self._emit('team:step', {'name': self.name, 'content': f'assign_task {task} to {member_name}'})
+        if self._current_depth > self.max_depth:
+            self._current_depth -= 1
+            return f"错误：委托深度超过限制 ({self.max_depth})"
 
-        def assign_task(task: str, member_name: str):
-            nonlocal _step
-            _step += 1
-            self._current_depth += 1
-            self._bus.emit('team:step', {'name': self.name, 'step': _step, 'member': member_name, 'task': task, 'mode': 'supervisor'})
-            if self._current_depth > self.max_depth:
-                self._current_depth -= 1
-                return f"错误：委托深度超过限制 ({self.max_depth})"
+        target = self.find_member(member_name)
+        if not target:
+            self._current_depth -= 1
+            return f"错误：未找到成员 '{member_name}'"
 
-            target = self.find_member(member_name)
-            if not target:
-                self._current_depth -= 1
-                return f"错误：未找到成员 '{member_name}'"
-
-            try:
-                return self._consume_chat(target, task)
-            finally:
-                self._current_depth -= 1
-
-        return Tool(
-            name='assign_task',
-            description='将子任务分配给 Team 中的其他成员执行。参数: task (任务描述), member_name (目标成员名称)',
-            parameters={
-                'type': 'object',
-                'properties': {
-                    'task': {'type': 'string', 'description': '任务描述'},
-                    'member_name': {'type': 'string', 'description': '目标成员名称'},
-                },
-                'required': ['task', 'member_name'],
-            },
-            tool=assign_task,
-        )
+        try:
+            return self._consume_chat(target, task)
+        finally:
+            self._current_depth -= 1
 
     def chat(self, message: str) -> str:
-        self._bus.emit('team:start', {'name': self.name, 'message': message, 'mode': 'supervisor'})
-        assign_tool = self._create_assign_task_tool()
-        assign_tool.set_event_bus(self._bus)
+        self._emit('team:start', {'name': self.name, 'message': message, 'mode': 'supervisor'})
+        self._assign_tool.set_event_bus(self._bus)
         original_tools = self.leader.tools
         if original_tools:
-            self.leader.tools = Tools(*original_tools, assign_tool)
+            self.leader.tools = Tools(*original_tools, self._assign_tool)
         else:
-            self.leader.tools = Tools(assign_tool)
+            self.leader.tools = Tools(self._assign_tool)
         try:
             result = self.leader.chat(message)
             if hasattr(result, '__iter__') and not isinstance(result, str):
                 content = ''.join(result)
             else:
                 content = result
-            self._bus.emit('team:end', {'name': self.name, 'content': content, 'mode': 'supervisor'})
+            self._emit('team:end', {'name': self.name, 'content': content, 'mode': 'supervisor'})
             return content
         finally:
             self.leader.tools = original_tools
@@ -114,16 +110,16 @@ class Team:
         pass
 
     def pipeline(self, message: str):
-        self._bus.emit('team:start', {'name': self.name, 'message': message, 'mode': 'pipeline'})
+        self._emit('team:start', {'name': self.name, 'message': message, 'mode': 'pipeline'})
         result = message
         for i, agent in enumerate(self.members):
-            self._bus.emit('team:step', {'name': self.name, 'step': i + 1, 'member': agent.name, 'mode': 'pipeline'})
+            self._emit('team:step', {'name': self.name, 'content': f'pipeline step {i+1}: {agent.name}'})
             result = self._consume_chat(agent, f"处理以下任务，输出结果给下一个环节:\n{result}")
-        self._bus.emit('team:end', {'name': self.name, 'content': result, 'mode': 'pipeline'})
+        self._emit('team:end', {'name': self.name, 'content': result, 'mode': 'pipeline'})
         return result
 
     def parallel(self, tasks: dict[str, str]):
-        self._bus.emit('team:start', {'name': self.name, 'tasks': tasks, 'mode': 'parallel'})
+        self._emit('team:start', {'name': self.name, 'tasks': tasks, 'mode': 'parallel'})
         from concurrent.futures import ThreadPoolExecutor, as_completed
         with ThreadPoolExecutor() as executor:
             futures = {
@@ -134,6 +130,6 @@ class Team:
             for future in as_completed(futures):
                 name = futures[future]
                 results[name] = future.result()
-                self._bus.emit('team:step', {'name': self.name, 'member': name, 'mode': 'parallel'})
-        self._bus.emit('team:end', {'name': self.name, 'results': results, 'mode': 'parallel'})
+                self._emit('team:step', {'name': self.name, 'content': f'parallel done: {name}'})
+        self._emit('team:end', {'name': self.name, 'results': results, 'mode': 'parallel'})
         return results

@@ -217,32 +217,28 @@ class TestAssignTaskTool:
             return f'done: {msg}'
 
         monkeypatch.setattr(worker, 'chat', fake_chat)
-        tool = team._create_assign_task_tool()
-        result = tool(task='do something', member_name='worker')
+        result = team._assign_task(task='do something', member_name='worker')
         assert result == 'done: do something'
         assert calls == ['do something']
 
     def test_assign_task_not_found(self):
         bus = EventBus()
         team = Team(name='t', leader=make_agent('l', bus), event_bus=bus)
-        tool = team._create_assign_task_tool()
-        result = tool(task='x', member_name='nobody')
+        result = team._assign_task(task='x', member_name='nobody')
         assert '未找到成员' in result
 
     def test_assign_task_depth_exceeded(self):
         bus = EventBus()
         team = Team(name='t', leader=make_agent('l', bus), event_bus=bus, max_depth=1)
         team._current_depth = 1
-        tool = team._create_assign_task_tool()
-        result = tool(task='x', member_name='nobody')
+        result = team._assign_task(task='x', member_name='nobody')
         assert '超过限制' in result
 
     def test_assign_task_depth_restored_after_error(self):
         bus = EventBus()
         team = Team(name='t', leader=make_agent('l', bus), event_bus=bus, max_depth=1)
-        tool = team._create_assign_task_tool()
         # First call hits limit, depth should be restored
-        result = tool(task='x', member_name='nobody')
+        result = team._assign_task(task='x', member_name='nobody')
         assert '未找到成员' in result
         assert team._current_depth == 0
 
@@ -328,9 +324,9 @@ class TestPipeline:
         assert events[0][0] == 'team:start'
         assert events[0][1]['mode'] == 'pipeline'
         assert events[1][0] == 'team:step'
-        assert events[1][1]['member'] == 'a1'
+        assert events[1][1]['content'].startswith('pipeline step')
         assert events[2][0] == 'team:step'
-        assert events[2][1]['member'] == 'a2'
+        assert events[2][1]['content'].startswith('pipeline step')
         assert events[3][0] == 'team:end'
         assert events[3][1]['mode'] == 'pipeline'
 
@@ -377,6 +373,6 @@ class TestParallel:
         assert events[0][0] == 'team:start'
         assert events[0][1]['mode'] == 'parallel'
         assert events[1][0] == 'team:step'
-        assert events[1][1]['member'] == 'worker'
+        assert events[1][1]['content'] == 'parallel done: worker'
         assert events[2][0] == 'team:end'
         assert events[2][1]['mode'] == 'parallel'

@@ -15,7 +15,6 @@ class Agent:
     ):
         self._bus = event_bus
         self.name = name or ''
-        self._bus.source = self.name
         self.provider = provider
         self.model = model
         self.stream = stream
@@ -42,7 +41,7 @@ class Agent:
         self._step = 0
 
     def _emit(self, topic: str, data: dict = None):
-        self._bus.emit(topic, data or {})
+        self._bus.emit(topic, data or {}, source=self.name)
 
     def chat(self, message: str):
         self._step = 0

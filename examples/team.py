@@ -13,7 +13,7 @@ from chatchat.event import EventBus, Event
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--provider', type=str, default='agnes')
-parser.add_argument('--model', type=str, default='agnes-2.0-flash')
+parser.add_argument('--model', type=str, default='agnes-2.5-flash')
 parser.add_argument('--timeout', type=int, default=None)
 parser.add_argument('--proxy', type=str, default=None)
 parser.add_argument('--mode', type=str, default='supervisor',
@@ -81,12 +81,7 @@ def handle_team_start(event: Event):
 
 
 def handle_team_step(event: Event):
-    d = event.data
-    mode = d.get('mode', '')
-    if mode == 'supervisor':
-        print(f'[team:step    {event.source:>10}] round {d.get("step")} -> {d.get("member")}: {d.get("task","")[:40]}')
-    else:
-        print(f'[team:step    {event.source:>10}] {d.get("member","")} ({mode})')
+    print(f'[team:step    {event.source:>10}] {event.data.get("content", "")}')
 
 
 def handle_team_end(event: Event):
@@ -139,7 +134,7 @@ def run_supervisor(bus):
     )
     team = Team(name='客服团队', leader=manager, event_bus=bus, max_depth=3)
     team.add_member(ticket_agent)
-    prompt = ' '.join(sys.argv[2:]) or '查一下上海到北京的火车票和票价'
+    prompt = '查一下上海到北京的火车票和票价'
     print(f'user> {prompt}\n')
     result = team.chat(prompt)
     bus.flush()
@@ -255,7 +250,7 @@ def run_nested(bus):
     print(f'研发部 members: {[m.name for m in dev_team.members]}')
     print(f'is_leaf={dev_team.is_leaf}, 前端组 is_leaf={frontend_team.is_leaf}\n')
 
-    prompt = ' '.join(sys.argv[2:]) or '开发用户登录功能，包括前端页面、后端接口和测试用例'
+    prompt = '开发用户登录功能，包括前端页面、后端接口和测试用例'
     print(f'user> {prompt}\n')
     result = dev_team.chat(prompt)
     bus.flush()
