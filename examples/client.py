@@ -2,8 +2,8 @@ import argparse
 from chatchat.client import Client
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--provider', type=str, default='agnes')
-parser.add_argument('--model', type=str, default='agnes-2.0-flash')
+parser.add_argument('--provider', type=str, default='deepseek')
+parser.add_argument('--model', type=str, default='deepseek-v4-flash')
 parser.add_argument('--timeout', type=int, default=30)
 args = parser.parse_args()
 

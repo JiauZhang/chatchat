@@ -21,7 +21,8 @@ from chatchat.types import (
 
 class BaseClient:
     def __init__(self, provider, base_url, model=None, instruction=None,
-                 http_options=None, event_bus=None):
+                 http_options=None, event_bus=None, source='unknown'):
+        self._source = source
         http_options = http_options or {}
         http_options.setdefault('timeout', 60.0)
         self.provider = provider
@@ -155,7 +156,7 @@ class BaseClient:
 
     def _emit(self, topic: str, data: dict = None):
         if self._bus:
-            self._bus.emit(topic, data or {})
+            self._bus.emit(topic, data or {}, source=self._source)
 
     def _get_provider_message(self, data: dict) -> dict:
         return data['choices'][0]['message']
@@ -284,12 +285,13 @@ def dynamic_import_client(provider):
 
 
 class Client:
-    def __init__(self, provider, model, instruction=None, http_options=None, event_bus=None):
+    def __init__(self, provider, model, instruction=None, http_options=None, event_bus=None, source='unknown'):
         client_class = dynamic_import_client(provider)
         self.client: BaseClient = client_class(
             model=model, instruction=instruction, http_options=http_options,
             event_bus=event_bus,
         )
+        self.client._source = source
 
     @overload
     def chat(self, messages, *, model=None, stream: Literal[False] = False,

@@ -30,12 +30,12 @@ class Agent:
 
         self.client = Client(
             provider=self.provider, model=self.model, instruction=self.instruction,
-            http_options=self.http_options, event_bus=self._bus,
+            http_options=self.http_options, event_bus=self._bus, source=self.name,
         )
 
         if self.tools:
             for t in self.tools:
-                t.set_event_bus(self._bus)
+                t.set_event_bus(self._bus, source=self.name)
 
         self._interact_handlers = []
         self._step = 0

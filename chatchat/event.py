@@ -13,7 +13,7 @@ class Event:
 
 
 class EventBus:
-    def __init__(self, source=''):
+    def __init__(self, source='unknown'):
         self._source = source
         self._queue: queue.Queue = queue.Queue()
         self._notify = threading.Event()

@@ -1,6 +1,6 @@
-# Large Language Models Python API
+# chatchat — Agent Framework
 
-Unified python API for multiple LLM providers including `alibaba`, `baidu`, `deepseek`, `google`, `tencent`, `xunfei`, `zhipu`, and `openrouter`.
+Python agent framework with LLM tool calling, multi-agent orchestration, and event-driven architecture.
 
 ## Install
 
@@ -10,40 +10,16 @@ pip install chatchat
 
 ## Quick Start
 
-### Terminal Chat
-
-```shell
-$ chatchat run baidu ernie-lite-8k
-user> Hello
-assistant> Hello! How can I help you today?
-user> /exit
-
-$ chatchat run google gemini-2.5-flash --proxy YOUR_PROXY
-user> Introduce yourself briefly.
-assistant> Hello! I am a large language model...
-user> /exit
-```
-
-### Python Client
+### Single Agent
 
 ```python
-from chatchat.client import Client
-
-llm = Client('tencent', model='hunyuan-lite')
-
-# chat
-response = llm.chat([{'role': 'user', 'content': 'Hello'}])
-
-# stream
-for chunk in llm.chat([{'role': 'user', 'content': 'Hello'}], stream=True):
-    print(chunk, end='')
-```
-
-### Tool Calling & Agent
-
-```python
-from chatchat.tool import tool
 from chatchat.agent import Agent
+from chatchat.event import EventBus
+from chatchat.tool import tool
+
+bus = EventBus()
+bus.start()
+bus.subscribe('agent:*', lambda e: print(f'[{e.topic}] {e.source}: {e.data}'))
 
 @tool(
     name='get_weather', description='get weather for a city',
@@ -61,57 +37,85 @@ from chatchat.agent import Agent
 def get_weather(city):
     return f'{city} is Sunny.'
 
-agent = Agent(provider='zhipu', model='glm-4.7-flash', tools=[get_weather])
-response = agent('How is the weather in Shanghai?')
+agent = Agent(
+    name='assistant',
+    provider='deepseek', model='deepseek-v4-flash',
+    event_bus=bus, tools=[get_weather],
+)
+agent.chat('How is the weather in Shanghai?')
+bus.stop()
 ```
 
-### Agent to Agent
+### Multi-Agent Team
 
 ```python
 from chatchat.agent import Agent
-from chatchat.tool import tool
+from chatchat.event import EventBus
+from chatchat.team import Team
 
-@tool(
-    name='query_ticket', description='query train tickets',
-    parameters={
-        'type': 'object',
-        'properties': {
-            'from_city': {
-                'type': 'string',
-                'description': 'the city name, e.g., Shanghai',
-            },
-            'to_city': {
-                'type': 'string',
-                'description': 'the city name, e.g., Beijing',
-            }
-        },
-        'required': ['from_city', 'to_city'],
-    }
-)
-def query_ticket(from_city, to_city):
-    ...
+bus = EventBus()
+bus.start()
 
-travel_agent = Agent(
-    name='travel_agent',
-    description='query tickets between cities',
-    provider='zhipu', model='glm-4.7-flash',
-    tools=[query_ticket],
-)
+worker = Agent(name='worker', provider='deepseek', model='deepseek-v4-flash' event_bus=bus)
+leader = Agent(name='leader', provider='deepseek', model='deepseek-v4-flash', event_bus=bus)
 
-agent = Agent(provider='zhipu', model='glm-4.7-flash', tools=[travel_agent])
+team = Team(name='my_team', leader=leader, event_bus=bus)
+team.add_member(worker)
+result = team.chat('Complete the task')
 ```
+
+### Pipeline
+
+```python
+team = Team(name='pipeline', leader=agent_a, event_bus=bus)
+team.add_member(agent_b)
+team.add_member(agent_c)
+result = team.pipeline('Process this')
+```
+
+### Parallel
+
+```python
+tasks = {'worker_a': 'Task for A', 'worker_b': 'Task for B'}
+results = team.parallel(tasks)
+```
+
+## EventBus
+
+Event-driven architecture. All agent, tool, and team events are emitted through a shared EventBus:
+
+| Topic | Source | Description |
+|-------|--------|-------------|
+| `agent:start` | agent name | Agent receives a message |
+| `agent:step` | agent name | Agent executes tool calls |
+| `agent:end` | agent name | Agent completes response |
+| `agent:error` | agent name | Agent encountered error |
+| `tool:start` | agent name | Tool begins execution |
+| `tool:end` | agent name | Tool completes execution |
+| `tool:error` | agent name | Tool encountered error |
+| `client:step` | agent name | LLM streaming chunk |
+| `team:start` | team name | Team receives a task |
+| `team:step` | team name | Team delegates to member |
+| `team:end` | team name | Team completes task |
 
 ## Configuration
 
 ```shell
-# set API key
 chatchat config <provider>.api_key=YOUR_API_KEY
-
-# list supported providers
 chatchat config --list
 ```
 
-> Refer to [examples](./examples) for more usage.
+## Examples
+
+See [examples](./examples) for complete usage:
+
+- `agent.py` — Interactive terminal chat with tool calling
+- `team.py` — Supervisor, pipeline, and parallel orchestration modes
+- `tool.py` — Custom tool with progress reporting
+- `client.py` — Raw LLM client usage
+- `state.py` — Agent state serialization and restoration
+- `interact.py` — Interactive tool confirmation
+- `progress.py` — Streaming progress with custom tools
 
 ## Sponsor
 

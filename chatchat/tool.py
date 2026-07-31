@@ -3,20 +3,22 @@ from chatchat.event import EventBus
 
 class Tool:
     def __init__(self, *, tool, name, description, parameters=None,
-                 event_bus=None):
+                 event_bus=None, source='unknown'):
         self.name = name
         self.description = description
         self.parameters = parameters
         self.tool = tool
         self._bus = event_bus
+        self._source = source
         self._interact_handlers = []
 
-    def set_event_bus(self, bus: EventBus):
+    def set_event_bus(self, bus: EventBus, source='unknown'):
         self._bus = bus
+        self._source = source
 
     def _emit(self, topic: str, data: dict = None):
         if self._bus:
-            self._bus.emit(topic, data or {})
+            self._bus.emit(topic, data or {}, source=self._source)
 
     def __call__(self, **kwargs):
         self._emit('tool:start', {'name': self.name, 'arguments': kwargs})

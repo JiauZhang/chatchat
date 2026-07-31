@@ -24,6 +24,7 @@ class Team:
                 'required': ['task', 'member_name'],
             },
             tool=self._assign_task,
+            source=self.leader.name,
         )
 
     def _emit(self, topic: str, data: dict = None):

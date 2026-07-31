@@ -40,7 +40,7 @@ def test_tool_emits_events():
     bus.subscribe('tool:*', collector)
 
     t = Tool(name='add', description='add two numbers', tool=lambda a, b: a + b,
-             event_bus=bus)
+             event_bus=bus, source='add')
 
     result = t(a=3, b=4)
 

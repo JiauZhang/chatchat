@@ -4,8 +4,8 @@ from chatchat.tool import tool
 from chatchat.event import EventBus, Event
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--provider', type=str, default='agnes')
-parser.add_argument('--model', type=str, default='agnes-2.0-flash')
+parser.add_argument('--provider', type=str, default='deepseek')
+parser.add_argument('--model', type=str, default='deepseek-v4-flash')
 parser.add_argument('--timeout', type=int, default=None)
 parser.add_argument('--proxy', type=str, default=None)
 parser.add_argument('--non-streaming', action='store_true')
