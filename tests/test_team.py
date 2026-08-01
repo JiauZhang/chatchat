@@ -1,9 +1,11 @@
-from chatchat.agent import AgentConfig
+from chatchat.agent import AgentConfig, Agent
 from chatchat.team import Team, TeamConfig
 from chatchat.actor import ResourcePool, Action
 from chatchat.task import Task, TaskStatus
 from chatchat.event import EventBus
+from chatchat.tool import Tool
 from queue import Queue
+import time
 import pytest
 
 
@@ -22,6 +24,8 @@ class TestTeamCreation:
         assert team.name == 'test'
         assert team.leader.name == 'leader'
         assert team._members == []
+        assert hasattr(team, '_tasks')
+        assert team._tasks == {}
 
     def test_with_members(self):
         bus = EventBus()
@@ -210,7 +214,8 @@ class TestTaskManagement:
         result = team._update_task('nonexistent', 'completed')
         assert '未找到' in result
 
-    def test_assign_task_success(self, monkeypatch):
+    def test_assign_task_non_blocking(self, monkeypatch):
+        """_assign_task 是非阻塞的，返回后任务状态为 ASSIGNED。"""
         bus = EventBus()
         team = Team(name='t', event_bus=bus,
                     leader=make_agent_config('leader'),
@@ -222,10 +227,30 @@ class TestTaskManagement:
 
         monkeypatch.setattr(worker, '_handle_chat', lambda msg: 'done!')
         result = team._assign_task(task_id=task_id, member_name='worker')
-        assert '已完成' in result
-        assert team._tasks[task_id].status == TaskStatus.COMPLETED
+        assert '已分配' in result
+        assert team._tasks[task_id].status == TaskStatus.ASSIGNED
         assert team._tasks[task_id].owner == 'worker'
-        assert team._tasks[task_id].result == 'done!'
+        team.stop()
+
+    def test_assign_task_propagates_task_entity(self, monkeypatch):
+        """Task 实体通过 mailbox 传递到目标，目标收到后加入自己的 _tasks。"""
+        bus = EventBus()
+        team = Team(name='t', event_bus=bus,
+                    leader=make_agent_config('leader'),
+                    members=[make_agent_config('worker')])
+        team.start()
+        team._create_task('do something')
+        task_id = list(team._tasks.keys())[0]
+        worker = team.find_member('worker')
+        original_task = team._tasks[task_id]
+
+        monkeypatch.setattr(worker, '_handle_chat', lambda msg: 'done!')
+        team._assign_task(task_id=task_id, member_name='worker')
+
+        # 给 mailbox 线程一点时间处理 task_assigned
+        time.sleep(0.1)
+        assert task_id in worker._tasks
+        assert worker._tasks[task_id] is original_task
         team.stop()
 
     def test_assign_task_not_found(self):
@@ -260,12 +285,12 @@ class TestTaskManagement:
         dep_id = list(team._tasks.keys())[0]
         team._create_task('后续任务', depends_on=[dep_id])
         task_b_id = [k for k in team._tasks if k != dep_id][0]
-        worker = team.find_member('worker')
-
-        monkeypatch.setattr(worker, '_handle_chat', lambda msg: 'done')
         team._tasks[dep_id].status = TaskStatus.COMPLETED
+
+        worker = team.find_member('worker')
+        monkeypatch.setattr(worker, '_handle_chat', lambda msg: 'done!')
         result = team._assign_task(task_id=task_b_id, member_name='worker')
-        assert '已完成' in result
+        assert '已分配' in result
         team.stop()
 
     def test_assign_task_member_not_found(self):
@@ -277,18 +302,39 @@ class TestTaskManagement:
         result = team._assign_task(task_id=task_id, member_name='nobody')
         assert '未找到成员' in result
 
+    def test_assign_task_to_sub_team_propagates_task(self, monkeypatch):
+        """分配到子 Team leader 时，Task 实体进入子 Team 的 _tasks。"""
+        bus = EventBus()
+        team = Team(name='t', event_bus=bus,
+                    leader=make_agent_config('leader'),
+                    members=[TeamConfig(name='sub', leader=make_agent_config('sl'))])
+        team.start()
+        team._create_task('sub task')
+        task_id = list(team._tasks.keys())[0]
+        sub_team = team._members[0]
+        original_task = team._tasks[task_id]
+
+        monkeypatch.setattr(sub_team.leader, '_handle_chat', lambda msg: 'done!')
+        team._assign_task(task_id=task_id, member_name='sl')
+
+        time.sleep(0.1)
+        assert task_id in sub_team._tasks
+        assert sub_team._tasks[task_id] is original_task
+        team.stop()
+
 
 class TestSendMessage:
-    def test_send_message_reply_detection(self):
+    def test_send_message_non_blocking(self):
+        """send_message 是非阻塞的，调用后立即返回。"""
         bus = EventBus()
         team = Team(name='t', event_bus=bus,
                     leader=make_agent_config('leader'),
                     members=[make_agent_config('alice'), make_agent_config('bob')])
-        team._pending_replies['alice'] = Queue()
-        team._current_caller = 'bob'
-        result = team._send_message('alice', 'answer')
-        assert '回复已发送给 alice' in result
-        assert 'alice' not in team._pending_replies
+        alice = team.find_member('alice')
+        result = team._send_message('alice', 'hello')
+        assert '消息已发送' in result
+        # 消息被放入目标 mailbox（非阻塞，无需等待回复）
+        assert not alice._mailbox.empty()
 
     def test_send_message_member_not_found(self):
         bus = EventBus()
@@ -309,8 +355,10 @@ class TestAgentToolsInjection:
         assert 'create_task' in leader.tools
         assert 'send_message' in leader.tools
         assert 'update_task' in leader.tools
+        assert 'call_meeting' in leader.tools
+        assert 'list_members' in leader.tools
 
-    def test_member_has_update_task_and_send_message(self):
+    def test_member_has_task_and_communication_tools(self):
         bus = EventBus()
         team = Team(name='t', event_bus=bus,
                     leader=make_agent_config('leader'),
@@ -319,6 +367,8 @@ class TestAgentToolsInjection:
         assert worker.tools is not None
         assert 'update_task' in worker.tools
         assert 'send_message' in worker.tools
+        assert 'get_task' in worker.tools
+        assert 'list_tasks' in worker.tools
 
 
 class TestChatEvents:
@@ -343,6 +393,92 @@ class TestChatEvents:
         assert events[-1][0] == 'team:end'
         assert events[-1][1]['content'] == 'ok'
         assert events[-1][1]['mode'] == 'supervisor'
+
+
+class TestNewTools:
+    def test_list_members_empty(self):
+        bus = EventBus()
+        team = Team(name='t', event_bus=bus,
+                    leader=make_agent_config('leader'))
+        assert team._list_members() == '暂无成员'
+
+    def test_list_members_with_agents(self):
+        bus = EventBus()
+        team = Team(name='t', event_bus=bus,
+                    leader=make_agent_config('leader'),
+                    members=[make_agent_config('alice'), make_agent_config('bob')])
+        result = team._list_members()
+        assert 'alice' in result
+        assert 'bob' in result
+
+    def test_list_members_with_sub_team(self):
+        bus = EventBus()
+        team = Team(name='t', event_bus=bus,
+                    leader=make_agent_config('leader'),
+                    members=[TeamConfig(name='sub', leader=make_agent_config('sl'))])
+        result = team._list_members()
+        assert 'sub' in result
+        assert 'sl' in result
+
+    def test_call_meeting_no_members(self):
+        bus = EventBus()
+        team = Team(name='t', event_bus=bus,
+                    leader=make_agent_config('leader'))
+        result = team._call_meeting('讨论方案')
+        assert '没有下属' in result
+
+    def test_call_meeting_with_members(self, monkeypatch):
+        bus = EventBus()
+        team = Team(name='t', event_bus=bus,
+                    leader=make_agent_config('leader'),
+                    members=[make_agent_config('alice'), make_agent_config('bob')])
+        team.start()
+        alice = team.find_member('alice')
+        bob = team.find_member('bob')
+        monkeypatch.setattr(alice, '_handle_chat', lambda msg: '我同意')
+        monkeypatch.setattr(bob, '_handle_chat', lambda msg: '我没问题')
+        result = team._call_meeting('讨论方案')
+        assert '会议主题' in result
+        assert 'alice' in result
+        assert 'bob' in result
+        team.stop()
+
+    def test_agent_receives_task_assigned(self, monkeypatch):
+        """Agent 收到 task_assigned 后，Task 加入 _tasks 并触发处理。"""
+        bus = EventBus()
+        agent = Agent(
+            event_bus=bus, name='worker',
+            provider='deepseek', model='deepseek-chat',
+            http_options={'timeout': 10},
+        )
+        agent.start()
+        task = Task(description='测试任务')
+        called = []
+        monkeypatch.setattr(agent, '_handle_chat', lambda msg: called.append(msg) or 'done')
+        action = Action(type='task_assigned', payload=task)
+        result = agent._on_message(action)
+        assert task.id in agent._tasks
+        assert agent._tasks[task.id] is task
+        assert len(called) == 1
+        assert '测试任务' in called[0]
+        agent.stop()
+
+    def test_team_receives_task_assigned(self, monkeypatch):
+        """Team 收到 task_assigned 后，Task 加入 _tasks 并委托给 leader。"""
+        bus = EventBus()
+        team = Team(name='sub', event_bus=bus,
+                    leader=make_agent_config('leader'))
+        team.start()
+        task = Task(description='子团队任务')
+        called = []
+        monkeypatch.setattr(team.leader, '_handle_chat', lambda msg: called.append(msg) or 'done')
+        action = Action(type='task_assigned', payload=task)
+        result = team._on_message(action)
+        assert task.id in team._tasks
+        assert team._tasks[task.id] is task
+        assert len(called) == 1
+        assert '子团队任务' in called[0]
+        team.stop()
 
 
 class TestDynamicMembers:

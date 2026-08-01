@@ -1,5 +1,8 @@
 """
-多层级 Team 示例：4 个子团队 + 跨层级协作
+多层级 Team 示例：任务依赖链 + 跨层级协作
+
+展示真实软件开发场景中的任务依赖关系：
+  需求分析 → UI设计 → 开发 → 测试
 
 结构:
 Team(研发部) ── 项目经理
@@ -7,6 +10,16 @@ Team(研发部) ── 项目经理
 ├── Team(设计组) ── 设计主管 -> UI设计师, 交互设计师
 ├── Team(开发组) ── 技术主管 -> 前端开发, 后端开发, 数据库工程师
 └── Team(测试组) ── 测试主管 -> 测试工程师, 自动化测试
+
+功能覆盖:
+  - 多层级 Team 创建与嵌套
+  - 任务依赖链 (depends_on)
+  - 跨层级任务分配（非阻塞，Task 实体传递）
+  - 子团队内 call_meeting 讨论
+  - 子团队内 assign_task 任务分解
+  - Agent 间 send_message 协作
+  - update_task 状态更新
+  - list_tasks 汇总查询
 """
 import os, sys, random, argparse
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -127,9 +140,12 @@ with EventBus() as bus:
             http_options=http_options, stream=False,
             instruction='你是项目经理，负责统筹整个研发团队。\n'
                         '团队包含 4 个子团队：产品组、设计组、开发组、测试组。\n'
+                        '子团队负责人：产品经理、设计主管、技术主管、测试主管。\n'
                         '成员已就绪，无需使用 spawn_agent 创建新成员。\n'
-                        '使用 create_task 创建任务，用 assign_task 分配给各子团队负责人。\n'
-                        '子团队负责人：产品经理、设计主管、技术主管、测试主管。',
+                        '使用 create_task 创建任务时用 depends_on 指定依赖关系。\n'
+                        'assign_task 会自动检查依赖是否已完成，未完成则拒绝分配。\n'
+                        'assign_task 是非阻塞的，分配后任务由子团队异步执行。\n'
+                        '之后用 list_tasks 查看任务状态，或用 send_message 询问进度。',
         ),
         members=[
             # 产品组
@@ -138,8 +154,9 @@ with EventBus() as bus:
                     name='产品经理',
                     http_options=http_options, stream=False,
                     instruction='你是产品经理，负责产品需求工作。\n'
-                                '可用成员：产品助理、需求分析师。\n'
-                                '用 create_task 创建任务，用 assign_task 分配给组员。',
+                                '使用 list_members 查看已有成员，无需 spawn_agent 创建。\n'
+                                '使用 create_task 创建子任务，用 assign_task 分配给组员。\n'
+                                '需要讨论时可用 call_meeting 召集组员开会。',
                 ), members=[
                     AgentConfig(
                         name='产品助理',
@@ -159,8 +176,9 @@ with EventBus() as bus:
                     name='设计主管',
                     http_options=http_options, stream=False,
                     instruction='你是设计主管，负责设计团队管理。\n'
-                                '可用成员：UI设计师、交互设计师。\n'
-                                '用 create_task 创建任务，用 assign_task 分配给组员。',
+                                '使用 list_members 查看已有成员，无需 spawn_agent 创建。\n'
+                                '使用 create_task 创建子任务，用 assign_task 分配给组员。\n'
+                                '需要讨论时可用 call_meeting 召集组员开会。',
                 ), members=[
                     AgentConfig(
                         name='UI设计师',
@@ -180,9 +198,10 @@ with EventBus() as bus:
                     name='技术主管',
                     http_options=http_options, stream=False,
                     instruction='你是技术主管，负责开发团队管理。\n'
-                                '可用成员：前端开发、后端开发、数据库工程师。\n'
-                                '用 create_task 创建任务，用 assign_task 分配给组员。\n'
-                                '组员之间可用 send_message 互相沟通。',
+                                '使用 list_members 查看已有成员，无需 spawn_agent 创建。\n'
+                                '使用 create_task 创建子任务，用 assign_task 分配给组员。\n'
+                                '组员之间可用 send_message 互相沟通。\n'
+                                '需要讨论时可用 call_meeting 召集组员开会。',
                 ), members=[
                     AgentConfig(
                         name='前端开发',
@@ -209,8 +228,9 @@ with EventBus() as bus:
                     name='测试主管',
                     http_options=http_options, stream=False,
                     instruction='你是测试主管，负责测试团队管理。\n'
-                                '可用成员：测试工程师、自动化测试。\n'
-                                '用 create_task 创建任务，用 assign_task 分配给组员。',
+                                '使用 list_members 查看已有成员，无需 spawn_agent 创建。\n'
+                                '使用 create_task 创建子任务，用 assign_task 分配给组员。\n'
+                                '需要讨论时可用 call_meeting 召集组员开会。',
                 ), members=[
                     AgentConfig(
                         name='测试工程师',
@@ -226,58 +246,31 @@ with EventBus() as bus:
             ),
         ],
     ) as team:
+        # ========== 只提供目标和要求，不指定具体操作步骤 ==========
+
         print('=' * 60)
-        print('1. 项目经理创建 4 个任务，分配给各子团队负责人')
+        print('1. 项目经理制定计划并推进执行')
         print('=' * 60)
         r = team.chat(
-            '请创建以下 4 个任务并分配给对应的子团队负责人：\n'
-            '1. 产品组 - 完成用户登录功能的需求分析（分配给产品经理）\n'
-            '2. 设计组 - 完成登录页面的 UI 设计（分配给设计主管）\n'
-            '3. 开发组 - 完成登录功能的开发（分配给技术主管）\n'
-            '4. 测试组 - 完成登录功能的测试（分配给测试主管）'
+            '我们要做一个用户登录功能。\n'
+            '需要经历：需求分析 → UI设计 → 开发 → 测试 四个阶段，'
+            '每个阶段依赖前一个阶段完成。\n'
+            '请创建任务并推进执行，完成后向我汇报。'
         )
         print(f'  {r}')
         bus.flush()
 
         print()
         print('=' * 60)
-        print('2. 各子团队负责人将任务分解给组员')
+        print('2. 继续推进剩余任务，确保全部完成')
         print('=' * 60)
-        r = team.chat(
-            '请各子团队负责人将任务分解给组员：\n'
-            '产品经理将需求分析任务分配给需求分析师；\n'
-            '设计主管将 UI 设计任务分配给 UI设计师；\n'
-            '技术主管将开发任务分配给前端开发和后端开发；\n'
-            '测试主管将测试任务分配给测试工程师。'
-        )
+        r = team.chat('检查进度，继续推进未完成的任务，确保所有任务都完成了。')
         print(f'  {r}')
         bus.flush()
 
         print()
         print('=' * 60)
-        print('3. 跨组协作：前端开发 与 后端开发 确认 API 接口格式')
-        print('=' * 60)
-        r = team.chat(
-            '让前端开发与后端开发通过 send_message 沟通确认登录 API 的接口格式，'
-            '包括请求方法、参数和返回格式。'
-        )
-        print(f'  {r}')
-        bus.flush()
-
-        print()
-        print('=' * 60)
-        print('4. 组员完成任务后更新状态')
-        print('=' * 60)
-        r = team.chat(
-            '让完成任务的组员使用 update_task 更新任务状态为 completed。\n'
-            '需求分析已完成，UI 设计已完成，开发已完成，测试已完成。'
-        )
-        print(f'  {r}')
-        bus.flush()
-
-        print()
-        print('=' * 60)
-        print('5. 项目经理查看所有任务的整体状态')
+        print('3. 汇总所有任务状态')
         print('=' * 60)
         r = team.chat('列出所有任务的状态，汇总报告给我')
         print(f'  {r}')

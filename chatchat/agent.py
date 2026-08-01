@@ -8,6 +8,7 @@ from chatchat.skill import Skills
 from chatchat.tool import Tools
 from chatchat.types import Message, ToolCall
 from chatchat.event import EventBus
+from chatchat.task import Task, TaskStatus
 
 
 @dataclass
@@ -67,7 +68,16 @@ class Agent(Actor):
         Actor.stop(self, timeout=timeout)
 
     def _on_message(self, action: Action) -> str:
-        if action.type in ('chat', 'task_assigned', 'peer_message'):
+        if action.type == 'task_assigned':
+            task = action.payload
+            self._tasks[task.id] = task
+            return self._handle_chat(
+                f"你被分配了一个新任务:\n"
+                f"task_id: {task.id}\n"
+                f"描述: {task.description}\n"
+                f"请使用工具执行此任务。"
+            )
+        if action.type in ('chat', 'peer_message', 'meeting_call'):
             return self._handle_chat(action.payload)
         raise ValueError(f"Unknown action type: {action.type}")
 

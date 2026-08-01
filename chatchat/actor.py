@@ -5,6 +5,8 @@ from threading import Thread, Event
 from typing import Any
 import asyncio
 
+from chatchat.task import Task
+
 
 @dataclass
 class ResourcePool:
@@ -35,6 +37,7 @@ class Actor:
         self._mailbox: Queue[tuple[Action, Queue | None]] = Queue()
         self._thread: Thread | None = None
         self._stop_event = Event()
+        self._tasks: dict[str, Task] = {}
 
     @property
     def name(self) -> str:

@@ -24,9 +24,7 @@ class Team(Actor):
         self._provider = provider
         self._model = model
         self._resource_pool = resource_pool or ResourcePool()
-        self._tasks: dict[str, Task] = {}
         self._current_caller: str = ""
-        self._pending_replies: dict[str, Queue] = {}
 
         # --- Leader tools ---
         _ln = leader.name
@@ -97,6 +95,18 @@ class Team(Actor):
             }, 'required': ['member_name', 'message']},
             tool=self._send_message,
         )
+        self._call_meeting_tool = Tool(name='call_meeting', source=_ln, event_bus=event_bus,
+            description='召集所有直接下属开会讨论某个主题，收集每个人的意见后返回汇总。参数: topic (会议主题)',
+            parameters={'type': 'object', 'properties': {
+                'topic': {'type': 'string', 'description': '会议主题'},
+            }, 'required': ['topic']},
+            tool=self._call_meeting,
+        )
+        self._list_members_tool = Tool(name='list_members', source=_ln, event_bus=event_bus,
+            description='查看当前团队所有可用成员及其角色。',
+            parameters={'type': 'object', 'properties': {}},
+            tool=self._list_members,
+        )
 
         self._leader = Agent(
             event_bus=event_bus,
@@ -136,7 +146,16 @@ class Team(Actor):
         self._bus.emit(topic, data or {}, source=self._name)
 
     def _on_message(self, action: Action) -> str:
-        if action.type in ('chat', 'task_assigned', 'peer_message'):
+        if action.type == 'task_assigned':
+            task = action.payload
+            self._tasks[task.id] = task
+            return self._handle_supervise(
+                f"你被分配了一个新任务:\n"
+                f"task_id: {task.id}\n"
+                f"描述: {task.description}\n"
+                f"请使用工具执行此任务。"
+            )
+        if action.type in ('chat', 'peer_message', 'meeting_call'):
             return self._handle_supervise(action.payload)
         raise ValueError(f"Unknown action type: {action.type}")
 
@@ -254,36 +273,17 @@ class Team(Actor):
         if not target:
             return f"错误：未找到成员 '{member_name}'"
         caller = self._current_caller or self._leader.name
-        if member_name == caller:
-            return f"错误：不能给自己发送消息，请指定其他成员名称"
-
-        # 如果目标正在等待回复，此消息视为回复，直接放入目标回复队列
-        if member_name in self._pending_replies:
-            other_reply = self._pending_replies.pop(member_name)
-            other_reply.put(message)
-            return f"回复已发送给 {member_name}"
 
         self._emit('team:step', {
             'name': self._name,
             'content': f'peer_message {caller} -> {member_name}',
         })
 
-        # 新消息：创建回复队列，将消息放入目标 mailbox 并等待回复
-        reply_queue = Queue()
-        self._pending_replies[caller] = reply_queue
-        prev_caller = self._current_caller
-        self._current_caller = member_name
-        action = Action(
-            type='peer_message',
-            payload=f"[{caller} -> {member_name}] {message}",
-        )
-        target._mailbox.put((action, reply_queue))
-        try:
-            result = reply_queue.get()
-            return self._coerce_str(result)
-        finally:
-            self._pending_replies.pop(caller, None)
-            self._current_caller = prev_caller
+        # 非阻塞：将消息放入目标 mailbox，立即返回
+        # 不会再阻塞调用者的 mailbox 线程，避免死锁
+        action = Action(type='peer_message', payload=message, sender=caller)
+        target._mailbox.put((action, None))
+        return f"消息已发送给 {member_name}"
 
     # ---- Internal methods ----
 
@@ -319,26 +319,59 @@ class Team(Actor):
         task.status = TaskStatus.ASSIGNED
         task.updated_at = time.time()
         self._emit('team:step', {'name': self._name, 'content': f'assign_task {task_id} to {member_name}'})
-        prev_caller = self._current_caller
-        self._current_caller = member_name
-        try:
-            result = target.chat(
-                f"任务ID: {task_id}\n描述: {task.description}\n请执行此任务并报告结果。",
-                action_type='task_assigned',
+
+        # 如果目标是子 Team leader，将 Task 推入子 Team 的 mailbox（而非 leader 个人）
+        # 这样子 Team 的 _on_message 会将 Task 加入 _tasks 并委托给 leader
+        sub_team = None
+        for m in self._members:
+            if isinstance(m, Team) and m.leader.name == member_name:
+                sub_team = m
+                break
+        mailbox_target = sub_team if sub_team else target
+        action = Action(type='task_assigned', payload=task, sender=self._current_caller or self._leader.name)
+        mailbox_target._mailbox.put((action, None))
+        return f"任务 {task_id} 已分配给 {member_name}，等待执行"
+
+    def _call_meeting(self, topic: str) -> str:
+        """召集所有直接下属开会讨论主题。"""
+        if not self._members:
+            return "当前没有下属可以开会"
+        direct_reports = []
+        for m in self._members:
+            if isinstance(m, Team):
+                direct_reports.append(m.leader)
+            else:
+                direct_reports.append(m)
+
+        self._emit('team:step', {'name': self._name, 'content': f'call_meeting 主题: {topic}'})
+        responses = []
+        for target in direct_reports:
+            reply_queue = Queue()
+            action = Action(
+                type='meeting_call',
+                payload=f"[会议] {topic}\n请就以上主题发表你的看法。",
+                sender=self._current_caller or self._leader.name,
             )
-            result_str = self._coerce_str(result)
-            task.status = TaskStatus.COMPLETED
-            task.result = result_str
-            task.updated_at = time.time()
-            self._emit('team:step', {'name': self._name, 'content': f'task {task_id} completed by {member_name}'})
-            return f"任务 {task_id} 已完成。结果: {result_str}"
-        except Exception as e:
-            task.status = TaskStatus.FAILED
-            task.error = str(e)
-            task.updated_at = time.time()
-            return f"错误：成员 '{member_name}' 执行任务时出错: {e}"
-        finally:
-            self._current_caller = prev_caller
+            target._mailbox.put((action, reply_queue))
+            try:
+                response = reply_queue.get(timeout=30)
+                responses.append(f"{target.name}: {response}")
+            except Exception:
+                responses.append(f"{target.name}: (未回复)")
+
+        summary = '\n'.join(responses)
+        return f"会议主题: {topic}\n\n讨论结果:\n{summary}"
+
+    def _list_members(self) -> str:
+        if not self._members:
+            return "暂无成员"
+        lines = [f"当前团队 ({self._name}):"]
+        for m in self._members:
+            if isinstance(m, Team):
+                lines.append(f"  - Team({m.name}): 负责人 {m.leader.name}")
+            else:
+                lines.append(f"  - {m.name}")
+        return '\n'.join(lines)
 
     def _spawn_agent(self, name: str, instruction: str, model: str = None) -> str:
         if not self._resource_pool.can_spawn_agent():
@@ -378,6 +411,8 @@ class Team(Actor):
         return [
             self._update_task_tool,
             self._send_message_tool,
+            self._get_task_tool,
+            self._list_tasks_tool,
         ]
 
     def _inject_agent_tools(self, agent: Agent):
@@ -394,6 +429,7 @@ class Team(Actor):
             self._assign_tool, self._spawn_tool, self._create_team_tool,
             self._create_task_tool, self._get_task_tool, self._list_tasks_tool,
             self._update_task_tool, self._send_message_tool,
+            self._call_meeting_tool, self._list_members_tool,
         ]
         if self._leader.tools:
             self._leader.tools = Tools(*self._leader.tools, *org_tools)
