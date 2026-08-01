@@ -1,275 +1,340 @@
-from chatchat.agent import Agent
-from chatchat.team import Team
+from chatchat.agent import AgentConfig
+from chatchat.team import Team, TeamConfig
+from chatchat.actor import ResourcePool, Action
+from chatchat.task import Task, TaskStatus
 from chatchat.event import EventBus
+from queue import Queue
 import pytest
 
 
-def make_agent(name, bus):
-    return Agent(
-        event_bus=bus, name=name, provider='deepseek',
-        model='deepseek-chat', http_options={'timeout': 10},
+def make_agent_config(name, **kwargs):
+    return AgentConfig(
+        name=name, provider='deepseek', model='deepseek-chat',
+        **kwargs,
     )
 
 
 class TestTeamCreation:
     def test_basic_creation(self):
         bus = EventBus()
-        leader = make_agent('leader', bus)
-        team = Team(name='test', leader=leader, event_bus=bus)
+        team = Team(name='test', event_bus=bus,
+                    leader=make_agent_config('leader'))
         assert team.name == 'test'
-        assert team.leader is leader
-        assert team.max_depth == 5
+        assert team.leader.name == 'leader'
         assert team._members == []
-        assert team.is_leaf is True
 
-    def test_custom_max_depth(self):
+    def test_with_members(self):
         bus = EventBus()
-        leader = make_agent('leader', bus)
-        team = Team(name='test', leader=leader, event_bus=bus, max_depth=3)
-        assert team.max_depth == 3
+        team = Team(name='test', event_bus=bus,
+                    leader=make_agent_config('leader'),
+                    members=[make_agent_config('a1'), make_agent_config('a2')])
+        assert len(team._members) == 2
+        assert team._members[0].name == 'a1'
+        assert team._members[1].name == 'a2'
 
-
-class TestAddMember:
-    def test_add_agent(self):
+    def test_with_sub_team(self):
         bus = EventBus()
-        leader = make_agent('leader', bus)
-        team = Team(name='t', leader=leader, event_bus=bus)
-        a = make_agent('a', bus)
-        team.add_member(a)
-        assert team._members == [a]
-        assert team.is_leaf is True
-
-    def test_add_team(self):
-        bus = EventBus()
-        leader = make_agent('leader', bus)
-        sub_leader = make_agent('sub_leader', bus)
-        sub_team = Team(name='sub', leader=sub_leader, event_bus=bus)
-        team = Team(name='t', leader=leader, event_bus=bus)
-        team.add_member(sub_team)
-        assert team._members == [sub_team]
+        team = Team(name='t', event_bus=bus,
+                    leader=make_agent_config('leader'),
+                    members=[TeamConfig(name='sub', leader=make_agent_config('sl'))])
+        assert len(team._members) == 1
         assert team.is_leaf is False
+
+    def test_add_member(self):
+        bus = EventBus()
+        team = Team(name='t', event_bus=bus,
+                    leader=make_agent_config('leader'))
+        team.add_member(make_agent_config('a'))
+        assert len(team._members) == 1
+        assert team._members[0].name == 'a'
 
     def test_agent_then_team_raises(self):
         bus = EventBus()
-        leader = make_agent('leader', bus)
-        team = Team(name='t', leader=leader, event_bus=bus)
-        team.add_member(make_agent('a', bus))
-        sub = Team(name='sub', leader=make_agent('sl', bus), event_bus=bus)
+        team = Team(name='t', event_bus=bus,
+                    leader=make_agent_config('leader'))
+        team.add_member(make_agent_config('a'))
         with pytest.raises(TypeError, match='不能混合'):
-            team.add_member(sub)
+            team.add_member(TeamConfig(name='sub', leader=make_agent_config('sl')))
 
-    def test_team_then_agent_raises(self):
+    def test_leader_property(self):
         bus = EventBus()
-        leader = make_agent('leader', bus)
-        team = Team(name='t', leader=leader, event_bus=bus)
-        sub = Team(name='sub', leader=make_agent('sl', bus), event_bus=bus)
-        team.add_member(sub)
-        with pytest.raises(TypeError, match='不能混合'):
-            team.add_member(make_agent('a', bus))
+        team = Team(name='test', event_bus=bus,
+                    leader=make_agent_config('leader'))
+        assert team.leader.name == 'leader'
 
-
-class TestMembersProperty:
-    def test_leaf_members(self):
+    def test_members_property(self):
         bus = EventBus()
-        leader = make_agent('leader', bus)
-        team = Team(name='t', leader=leader, event_bus=bus)
-        a1 = make_agent('a1', bus)
-        a2 = make_agent('a2', bus)
-        team.add_member(a1)
-        team.add_member(a2)
-        assert team.members == [a1, a2]
+        team = Team(name='t', event_bus=bus,
+                    leader=make_agent_config('leader'),
+                    members=[make_agent_config('a1'), make_agent_config('a2')])
+        assert [m.name for m in team.members] == ['a1', 'a2']
 
-    def test_intermediate_members(self):
+    def test_sub_team_members_property(self):
         bus = EventBus()
-        leader = make_agent('leader', bus)
-        sl1 = make_agent('sl1', bus)
-        sl2 = make_agent('sl2', bus)
-        sub1 = Team(name='sub1', leader=sl1, event_bus=bus)
-        sub2 = Team(name='sub2', leader=sl2, event_bus=bus)
-        team = Team(name='t', leader=leader, event_bus=bus)
-        team.add_member(sub1)
-        team.add_member(sub2)
-        assert team.members == [sl1, sl2]
+        team = Team(name='t', event_bus=bus,
+                    leader=make_agent_config('leader'),
+                    members=[TeamConfig(name='sub1', leader=make_agent_config('sl1'))])
+        assert [m.name for m in team.members] == ['sl1']
 
-
-class TestIsLeaf:
-    def test_empty_is_leaf(self):
+    def test_is_leaf_empty(self):
         bus = EventBus()
-        team = Team(name='t', leader=make_agent('l', bus), event_bus=bus)
+        team = Team(name='t', event_bus=bus, leader=make_agent_config('l'))
         assert team.is_leaf is True
 
-    def test_agent_members_is_leaf(self):
+    def test_is_leaf_with_agents(self):
         bus = EventBus()
-        team = Team(name='t', leader=make_agent('l', bus), event_bus=bus)
-        team.add_member(make_agent('a', bus))
+        team = Team(name='t', event_bus=bus,
+                    leader=make_agent_config('l'),
+                    members=[make_agent_config('a')])
         assert team.is_leaf is True
 
-    def test_team_members_not_leaf(self):
+    def test_context_manager(self):
         bus = EventBus()
-        sub = Team(name='sub', leader=make_agent('sl', bus), event_bus=bus)
-        team = Team(name='t', leader=make_agent('l', bus), event_bus=bus)
-        team.add_member(sub)
-        assert team.is_leaf is False
+        team = Team(name='t', event_bus=bus,
+                    leader=make_agent_config('leader'))
+        with team as t:
+            assert t is team
+            assert t.is_running
+        assert not t.is_running
+
+    def test_lifecycle_start_stops_members(self):
+        bus = EventBus()
+        team = Team(name='t', event_bus=bus,
+                    leader=make_agent_config('leader'),
+                    members=[make_agent_config('a1')])
+        team.start()
+        assert team.is_running
+        assert team.leader.is_running
+        assert team.find_member('a1').is_running
+        team.stop()
+        assert not team.is_running
 
 
 class TestFindMember:
     def test_find_leader(self):
         bus = EventBus()
-        leader = make_agent('leader', bus)
-        team = Team(name='t', leader=leader, event_bus=bus)
-        assert team.find_member('leader') is leader
+        team = Team(name='t', event_bus=bus,
+                    leader=make_agent_config('leader'))
+        assert team.find_member('leader').name == 'leader'
 
     def test_find_agent_member(self):
         bus = EventBus()
-        leader = make_agent('leader', bus)
-        a = make_agent('alice', bus)
-        team = Team(name='t', leader=leader, event_bus=bus)
-        team.add_member(a)
-        assert team.find_member('alice') is a
+        team = Team(name='t', event_bus=bus,
+                    leader=make_agent_config('leader'),
+                    members=[make_agent_config('alice')])
+        assert team.find_member('alice').name == 'alice'
 
     def test_find_sub_team_leader(self):
         bus = EventBus()
-        sl = make_agent('sub_leader', bus)
-        sub = Team(name='sub', leader=sl, event_bus=bus)
-        team = Team(name='t', leader=make_agent('l', bus), event_bus=bus)
-        team.add_member(sub)
-        result = team.find_member('sub_leader')
-        assert result is sl
-
-    def test_find_deep_nested_agent(self):
-        bus = EventBus()
-        sl = make_agent('sl', bus)
-        worker = make_agent('deep_worker', bus)
-        sub = Team(name='sub', leader=sl, event_bus=bus)
-        sub.add_member(worker)
-        team = Team(name='t', leader=make_agent('l', bus), event_bus=bus)
-        team.add_member(sub)
-        result = team.find_member('deep_worker')
-        assert result is worker
-
-    def test_find_multilevel_nested(self):
-        bus = EventBus()
-        # Team: root -> mid -> leaf
-        leaf_worker = make_agent('leaf_worker', bus)
-        leaf = Team(name='leaf', leader=make_agent('leaf_l', bus), event_bus=bus)
-        leaf.add_member(leaf_worker)
-        mid = Team(name='mid', leader=make_agent('mid_l', bus), event_bus=bus)
-        mid.add_member(leaf)
-        root = Team(name='root', leader=make_agent('root_l', bus), event_bus=bus)
-        root.add_member(mid)
-        assert root.find_member('leaf_worker') is leaf_worker
-        assert root.find_member('leaf_l') is leaf.leader
-        assert root.find_member('mid_l') is mid.leader
+        team = Team(name='t', event_bus=bus,
+                    leader=make_agent_config('l'),
+                    members=[TeamConfig(name='sub', leader=make_agent_config('sub_leader'))])
+        assert team.find_member('sub_leader').name == 'sub_leader'
 
     def test_find_nonexistent(self):
         bus = EventBus()
-        team = Team(name='t', leader=make_agent('l', bus), event_bus=bus)
+        team = Team(name='t', event_bus=bus,
+                    leader=make_agent_config('l'))
         assert team.find_member('nobody') is None
 
 
-class TestContextManager:
-    def test_context_manager(self):
+class TestTaskManagement:
+    def test_create_task(self):
         bus = EventBus()
-        leader = make_agent('leader', bus)
-        team = Team(name='t', leader=leader, event_bus=bus)
-        with team as t:
-            assert t is team
+        team = Team(name='t', event_bus=bus,
+                    leader=make_agent_config('leader'))
+        result = team._create_task('写一个报告')
+        assert '任务已创建' in result
+        assert len(team._tasks) == 1
+        task_id = list(team._tasks.keys())[0]
+        assert team._tasks[task_id].status == TaskStatus.CREATED
 
-
-class TestConsumeChat:
-    def test_consume_string_result(self, monkeypatch):
+    def test_create_task_with_depends(self):
         bus = EventBus()
-        leader = make_agent('leader', bus)
-        team = Team(name='t', leader=leader, event_bus=bus)
-        a = make_agent('a', bus)
-        monkeypatch.setattr(a, 'chat', lambda msg: f'processed: {msg}')
-        result = team._consume_chat(a, 'hello')
-        assert result == 'processed: hello'
+        team = Team(name='t', event_bus=bus,
+                    leader=make_agent_config('leader'))
+        team._create_task('task A')
+        task_a_id = list(team._tasks.keys())[0]
+        team._create_task('task B', depends_on=[task_a_id])
+        task_b_id = [k for k in team._tasks if k != task_a_id][0]
+        assert team._tasks[task_b_id].depends_on == [task_a_id]
 
-    def test_consume_generator_result(self, monkeypatch):
+    def test_get_task(self):
         bus = EventBus()
-        leader = make_agent('leader', bus)
-        team = Team(name='t', leader=leader, event_bus=bus)
-        a = make_agent('a', bus)
+        team = Team(name='t', event_bus=bus,
+                    leader=make_agent_config('leader'))
+        team._create_task('测试任务')
+        task_id = list(team._tasks.keys())[0]
+        result = team._get_task(task_id)
+        assert task_id in result
+        assert '测试任务' in result
 
-        def gen_chat(msg):
-            yield 'chunk1'
-            yield 'chunk2'
-            yield 'chunk3'
-
-        monkeypatch.setattr(a, 'chat', gen_chat)
-        result = team._consume_chat(a, 'hello')
-        assert result == 'chunk1chunk2chunk3'
-
-
-class TestAssignTaskTool:
-    def test_assign_task_finds_and_delegates(self, monkeypatch):
+    def test_get_task_not_found(self):
         bus = EventBus()
-        leader = make_agent('leader', bus)
-        worker = make_agent('worker', bus)
-        team = Team(name='t', leader=leader, event_bus=bus)
-        team.add_member(worker)
+        team = Team(name='t', event_bus=bus,
+                    leader=make_agent_config('leader'))
+        result = team._get_task('nonexistent')
+        assert '未找到' in result
 
-        calls = []
+    def test_list_tasks(self):
+        bus = EventBus()
+        team = Team(name='t', event_bus=bus,
+                    leader=make_agent_config('leader'))
+        team._create_task('任务1')
+        team._create_task('任务2')
+        result = team._list_tasks()
+        assert '2 个任务' in result
 
-        def fake_chat(msg):
-            calls.append(msg)
-            return f'done: {msg}'
+    def test_list_tasks_empty(self):
+        bus = EventBus()
+        team = Team(name='t', event_bus=bus,
+                    leader=make_agent_config('leader'))
+        assert team._list_tasks() == '暂无任务'
 
-        monkeypatch.setattr(worker, 'chat', fake_chat)
-        result = team._assign_task(task='do something', member_name='worker')
-        assert result == 'done: do something'
-        assert calls == ['do something']
+    def test_update_task(self):
+        bus = EventBus()
+        team = Team(name='t', event_bus=bus,
+                    leader=make_agent_config('leader'))
+        team._create_task('测试')
+        task_id = list(team._tasks.keys())[0]
+        team._update_task(task_id, 'in_progress')
+        assert team._tasks[task_id].status == TaskStatus.IN_PROGRESS
+        team._update_task(task_id, 'completed', result='完成')
+        assert team._tasks[task_id].status == TaskStatus.COMPLETED
+        assert team._tasks[task_id].result == '完成'
+
+    def test_update_task_not_found(self):
+        bus = EventBus()
+        team = Team(name='t', event_bus=bus,
+                    leader=make_agent_config('leader'))
+        result = team._update_task('nonexistent', 'completed')
+        assert '未找到' in result
+
+    def test_assign_task_success(self, monkeypatch):
+        bus = EventBus()
+        team = Team(name='t', event_bus=bus,
+                    leader=make_agent_config('leader'),
+                    members=[make_agent_config('worker')])
+        team.start()
+        team._create_task('do something')
+        task_id = list(team._tasks.keys())[0]
+        worker = team.find_member('worker')
+
+        monkeypatch.setattr(worker, '_handle_chat', lambda msg: 'done!')
+        result = team._assign_task(task_id=task_id, member_name='worker')
+        assert '已完成' in result
+        assert team._tasks[task_id].status == TaskStatus.COMPLETED
+        assert team._tasks[task_id].owner == 'worker'
+        assert team._tasks[task_id].result == 'done!'
+        team.stop()
 
     def test_assign_task_not_found(self):
         bus = EventBus()
-        team = Team(name='t', leader=make_agent('l', bus), event_bus=bus)
-        result = team._assign_task(task='x', member_name='nobody')
+        team = Team(name='t', event_bus=bus,
+                    leader=make_agent_config('l'))
+        result = team._assign_task(task_id='nonexistent', member_name='nobody')
+        assert '未找到任务' in result
+
+    def test_assign_task_unmet_dependency(self, monkeypatch):
+        bus = EventBus()
+        team = Team(name='t', event_bus=bus,
+                    leader=make_agent_config('leader'),
+                    members=[make_agent_config('worker')])
+        team.start()
+        team._create_task('前置任务')
+        dep_id = list(team._tasks.keys())[0]
+        team._create_task('后续任务', depends_on=[dep_id])
+        task_b_id = [k for k in team._tasks if k != dep_id][0]
+        result = team._assign_task(task_id=task_b_id, member_name='worker')
+        assert '依赖' in result
+        assert '未完成' in result
+        team.stop()
+
+    def test_assign_task_met_dependency(self, monkeypatch):
+        bus = EventBus()
+        team = Team(name='t', event_bus=bus,
+                    leader=make_agent_config('leader'),
+                    members=[make_agent_config('worker')])
+        team.start()
+        team._create_task('前置任务')
+        dep_id = list(team._tasks.keys())[0]
+        team._create_task('后续任务', depends_on=[dep_id])
+        task_b_id = [k for k in team._tasks if k != dep_id][0]
+        worker = team.find_member('worker')
+
+        monkeypatch.setattr(worker, '_handle_chat', lambda msg: 'done')
+        team._tasks[dep_id].status = TaskStatus.COMPLETED
+        result = team._assign_task(task_id=task_b_id, member_name='worker')
+        assert '已完成' in result
+        team.stop()
+
+    def test_assign_task_member_not_found(self):
+        bus = EventBus()
+        team = Team(name='t', event_bus=bus,
+                    leader=make_agent_config('leader'))
+        team._create_task('test')
+        task_id = list(team._tasks.keys())[0]
+        result = team._assign_task(task_id=task_id, member_name='nobody')
         assert '未找到成员' in result
 
-    def test_assign_task_depth_exceeded(self):
-        bus = EventBus()
-        team = Team(name='t', leader=make_agent('l', bus), event_bus=bus, max_depth=1)
-        team._current_depth = 1
-        result = team._assign_task(task='x', member_name='nobody')
-        assert '超过限制' in result
 
-    def test_assign_task_depth_restored_after_error(self):
+class TestSendMessage:
+    def test_send_message_reply_detection(self):
         bus = EventBus()
-        team = Team(name='t', leader=make_agent('l', bus), event_bus=bus, max_depth=1)
-        # First call hits limit, depth should be restored
-        result = team._assign_task(task='x', member_name='nobody')
+        team = Team(name='t', event_bus=bus,
+                    leader=make_agent_config('leader'),
+                    members=[make_agent_config('alice'), make_agent_config('bob')])
+        team._pending_replies['alice'] = Queue()
+        team._current_caller = 'bob'
+        result = team._send_message('alice', 'answer')
+        assert '回复已发送给 alice' in result
+        assert 'alice' not in team._pending_replies
+
+    def test_send_message_member_not_found(self):
+        bus = EventBus()
+        team = Team(name='t', event_bus=bus,
+                    leader=make_agent_config('leader'))
+        result = team._send_message('nobody', 'hello')
         assert '未找到成员' in result
-        assert team._current_depth == 0
 
 
-class TestChat:
-    def test_chat_injects_and_restores_tools(self, monkeypatch):
+class TestAgentToolsInjection:
+    def test_leader_has_management_tools(self):
         bus = EventBus()
-        leader = make_agent('leader', bus)
-        team = Team(name='t', leader=leader, event_bus=bus)
-        original_tools = leader.tools
+        team = Team(name='t', event_bus=bus,
+                    leader=make_agent_config('leader'))
+        leader = team.leader
+        assert leader.tools is not None
+        assert 'assign_task' in leader.tools
+        assert 'create_task' in leader.tools
+        assert 'send_message' in leader.tools
+        assert 'update_task' in leader.tools
 
-        def fake_chat(msg):
-            assert leader.tools is not None
-            assert 'assign_task' in leader.tools
-            return 'result'
+    def test_member_has_update_task_and_send_message(self):
+        bus = EventBus()
+        team = Team(name='t', event_bus=bus,
+                    leader=make_agent_config('leader'),
+                    members=[make_agent_config('worker')])
+        worker = team.find_member('worker')
+        assert worker.tools is not None
+        assert 'update_task' in worker.tools
+        assert 'send_message' in worker.tools
 
-        monkeypatch.setattr(leader, 'chat', fake_chat)
-        result = team.chat('hello')
-        assert result == 'result'
-        assert leader.tools is original_tools
 
+class TestChatEvents:
     def test_chat_emits_team_events(self, monkeypatch):
         events = []
         bus = EventBus()
         bus.start()
         bus.subscribe('team:*', lambda e: events.append((e.topic, e.data)))
-        leader = make_agent('leader', bus)
-        team = Team(name='my_team', leader=leader, event_bus=bus)
-        monkeypatch.setattr(leader, 'chat', lambda msg: 'ok')
+        team = Team(name='my_team', event_bus=bus,
+                    leader=make_agent_config('leader'))
+        team.start()
+        monkeypatch.setattr(team.leader, '_handle_chat', lambda msg: 'ok')
         team.chat('hello')
+        team.stop()
         bus.stop()
+
         assert len(events) >= 2
         assert events[0][0] == 'team:start'
         assert events[0][1]['name'] == 'my_team'
@@ -280,99 +345,47 @@ class TestChat:
         assert events[-1][1]['mode'] == 'supervisor'
 
 
-class TestPipeline:
-    def test_pipeline_sequential(self, monkeypatch):
+class TestDynamicMembers:
+    def test_spawn_agent_creates_member(self):
         bus = EventBus()
-        leader = make_agent('leader', bus)
-        a1 = make_agent('a1', bus)
-        a2 = make_agent('a2', bus)
-        team = Team(name='t', leader=leader, event_bus=bus)
-        team.add_member(a1)
-        team.add_member(a2)
+        team = Team(name='t', event_bus=bus,
+                    leader=make_agent_config('leader'))
+        team.start()
+        result = team._spawn_agent(name='worker', instruction='you are a worker')
+        assert '成功创建' in result
+        assert team.find_member('worker') is not None
+        team.stop()
 
-        order = []
-
-        def fake_chat_a1(msg):
-            order.append('a1')
-            return 'a1 done'
-
-        def fake_chat_a2(msg):
-            order.append('a2')
-            return 'a2 done'
-
-        monkeypatch.setattr(a1, 'chat', fake_chat_a1)
-        monkeypatch.setattr(a2, 'chat', fake_chat_a2)
-        result = team.pipeline('start')
-        assert result == 'a2 done'
-        assert order == ['a1', 'a2']
-
-    def test_pipeline_emits_team_events(self, monkeypatch):
-        events = []
+    def test_spawn_agent_resource_limit(self):
         bus = EventBus()
-        bus.start()
-        bus.subscribe('team:*', lambda e: events.append((e.topic, e.data)))
-        leader = make_agent('leader', bus)
-        a1 = make_agent('a1', bus)
-        a2 = make_agent('a2', bus)
-        team = Team(name='t', leader=leader, event_bus=bus)
-        team.add_member(a1)
-        team.add_member(a2)
-        monkeypatch.setattr(a1, 'chat', lambda msg: 'a1 done')
-        monkeypatch.setattr(a2, 'chat', lambda msg: 'a2 done')
-        team.pipeline('start')
-        bus.stop()
-        assert events[0][0] == 'team:start'
-        assert events[0][1]['mode'] == 'pipeline'
-        assert events[1][0] == 'team:step'
-        assert events[1][1]['content'].startswith('pipeline step')
-        assert events[2][0] == 'team:step'
-        assert events[2][1]['content'].startswith('pipeline step')
-        assert events[3][0] == 'team:end'
-        assert events[3][1]['mode'] == 'pipeline'
+        team = Team(name='t', event_bus=bus,
+                    leader=make_agent_config('leader'),
+                    resource_pool=ResourcePool(max_agents=1))
+        team.start()
+        team._spawn_agent(name='a1', instruction='w1')
+        result = team._spawn_agent(name='a2', instruction='w2')
+        assert '资源已耗尽' in result
+        assert team.find_member('a2') is None
+        team.stop()
 
-
-class TestParallel:
-    def test_parallel_concurrent(self, monkeypatch):
+    def test_create_team_creates_sub_team(self):
         bus = EventBus()
-        leader = make_agent('leader', bus)
-        a1 = make_agent('a1', bus)
-        a2 = make_agent('a2', bus)
-        team = Team(name='t', leader=leader, event_bus=bus)
-        team.add_member(a1)
-        team.add_member(a2)
+        team = Team(name='t', event_bus=bus,
+                    leader=make_agent_config('leader'))
+        team.start()
+        result = team._create_team(name='sub', leader_name='sl', leader_instruction='you are sl')
+        assert '成功创建' in result
+        assert team.find_member('sl') is not None
+        team.stop()
 
-        monkeypatch.setattr(a1, 'chat', lambda msg: 'a1 result')
-        monkeypatch.setattr(a2, 'chat', lambda msg: 'a2 result')
-        result = team.parallel({'a1': 'task1', 'a2': 'task2'})
-        assert result == {'a1': 'a1 result', 'a2': 'a2 result'}
-
-    def test_parallel_with_find_member(self, monkeypatch):
-        """Verify parallel looks up members by name via find_member"""
+    def test_create_team_resource_limit(self):
         bus = EventBus()
-        leader = make_agent('leader', bus)
-        worker = make_agent('worker', bus)
-        team = Team(name='t', leader=leader, event_bus=bus)
-        team.add_member(worker)
-
-        monkeypatch.setattr(worker, 'chat', lambda msg: 'done')
-        result = team.parallel({'worker': 'task'})
-        assert result == {'worker': 'done'}
-
-    def test_parallel_emits_team_events(self, monkeypatch):
-        events = []
-        bus = EventBus()
-        bus.start()
-        bus.subscribe('team:*', lambda e: events.append((e.topic, e.data)))
-        leader = make_agent('leader', bus)
-        worker = make_agent('worker', bus)
-        team = Team(name='t', leader=leader, event_bus=bus)
-        team.add_member(worker)
-        monkeypatch.setattr(worker, 'chat', lambda msg: 'done')
-        team.parallel({'worker': 'task'})
-        bus.stop()
-        assert events[0][0] == 'team:start'
-        assert events[0][1]['mode'] == 'parallel'
-        assert events[1][0] == 'team:step'
-        assert events[1][1]['content'] == 'parallel done: worker'
-        assert events[2][0] == 'team:end'
-        assert events[2][1]['mode'] == 'parallel'
+        team = Team(name='t', event_bus=bus,
+                    leader=make_agent_config('leader'),
+                    resource_pool=ResourcePool(max_teams=1))
+        team.start()
+        team._create_team(name='sub1', leader_name='sl1', leader_instruction='w1')
+        result = team._create_team(name='sub2', leader_name='sl2', leader_instruction='w2')
+        assert '资源已耗尽' in result
+        assert team.find_member('sl2') is None
+        team.stop()

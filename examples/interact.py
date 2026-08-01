@@ -69,7 +69,7 @@ def handle_end(event: Event):
         result = event.data.get('result', '')
         msg = f'done: {result[:60]}...'
     elif event.topic == 'agent:end':
-        response = event.data.get('response', '')
+        response = event.data.get('content', '')
         msg = f'response: {response[:60]}...'
     else:
         msg = tag

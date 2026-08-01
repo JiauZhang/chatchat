@@ -79,7 +79,7 @@ def handle_end(event: Event):
     tag = event.topic
     name = event.source or 'agent'
     if event.topic == 'agent:end':
-        response = event.data.get('response', '')
+        response = event.data.get('content', '')
         msg = f'response: {response[:60]}...'
     elif event.topic == 'tool:end':
         result = event.data.get('result', '')

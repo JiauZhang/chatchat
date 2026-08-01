@@ -6,7 +6,6 @@ from typing import Generator, Literal, overload
 from chatchat.config import load_config
 from chatchat.providers import __providers__, __custom_providers__
 from chatchat import ProviderError, APIError
-from chatchat.event import EventBus
 from chatchat.types import (
     ChatCompletion,
     ChatCompletionChunk,
@@ -230,7 +229,6 @@ class BaseClient:
         return self._chat_stream(url, payload, full)
 
     def _nonstream_chat(self, url, payload, full):
-        self._emit('client:step')
         try:
             raw = self._send_nonstreaming(url, payload)
         except Exception as e:
@@ -238,6 +236,7 @@ class BaseClient:
             raise
         reply = self._get_provider_message(raw)
         self.messages = full + [reply]
+        self._emit('client:step', {'response': raw})
         self._emit('client:end', {'response': raw})
         return self._to_chat_completion(raw)
 
@@ -285,6 +284,10 @@ def dynamic_import_client(provider):
 
 
 class Client:
+    """非 Actor 的 LLM 客户端，直接封装 BaseClient 调用。
+
+    Client 仅作为 Agent 内部组件使用，不存在并发问题，无需 mailbox 线程。
+    """
     def __init__(self, provider, model, instruction=None, http_options=None, event_bus=None, source='unknown'):
         client_class = dynamic_import_client(provider)
         self.client: BaseClient = client_class(
@@ -293,18 +296,11 @@ class Client:
         )
         self.client._source = source
 
-    @overload
-    def chat(self, messages, *, model=None, stream: Literal[False] = False,
-        thinking=False, tools=None, **kwargs) -> ChatCompletion: ...
-    @overload
-    def chat(self, messages, *, model=None, stream: Literal[True] = True,
-        thinking=False, tools=None, **kwargs) -> Generator[ChatCompletionChunk, None, None]: ...
-
-    def chat(self, messages, *, model=None, stream=False,
-             thinking=False, tools=None, **kwargs):
+    def chat(self, messages, *, model=None, stream=False, thinking=False, tools=None, **kwargs):
         return self.client.chat(
-            messages, model=model, stream=stream, thinking=thinking,
-            tools=tools, **kwargs,
+            messages,
+            model=model, stream=stream, thinking=thinking, tools=tools,
+            **kwargs,
         )
 
     def clear(self):

@@ -1,8 +1,11 @@
 import queue
 import threading
+import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Callable
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -86,8 +89,8 @@ class EventBus:
                     for handler in handlers:
                         try:
                             handler(event)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.exception('Event handler %s failed for topic %s: %s', handler, event.topic, e)
                 self._queue.task_done()
 
     def __enter__(self):

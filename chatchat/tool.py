@@ -1,6 +1,3 @@
-from chatchat.event import EventBus
-
-
 class Tool:
     def __init__(self, *, tool, name, description, parameters=None,
                  event_bus=None, source='unknown'):
@@ -11,10 +8,6 @@ class Tool:
         self._bus = event_bus
         self._source = source
         self._interact_handlers = []
-
-    def set_event_bus(self, bus: EventBus, source='unknown'):
-        self._bus = bus
-        self._source = source
 
     def _emit(self, topic: str, data: dict = None):
         if self._bus:

@@ -1,23 +1,27 @@
 """
-Team 综合示例
-展示 Supervisor、Pipeline、Parallel 三种编排模式，以及嵌套 Team 结构。
-通过 --mode 参数选择运行模式：supervisor / pipeline / parallel / nested
+多层级 Team 示例：4 个子团队 + 跨层级协作
+
+结构:
+Team(研发部) ── 项目经理
+├── Team(产品组) ── 产品经理 -> 产品助理, 需求分析师
+├── Team(设计组) ── 设计主管 -> UI设计师, 交互设计师
+├── Team(开发组) ── 技术主管 -> 前端开发, 后端开发, 数据库工程师
+└── Team(测试组) ── 测试主管 -> 测试工程师, 自动化测试
 """
-import os, sys, argparse, random
+import os, sys, random, argparse
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from chatchat.agent import Agent
-from chatchat.team import Team
+from chatchat.agent import AgentConfig
+from chatchat.team import Team, TeamConfig
 from chatchat.tool import tool
 from chatchat.event import EventBus, Event
 
+
 parser = argparse.ArgumentParser()
-parser.add_argument('--provider', type=str, default='deepseek')
-parser.add_argument('--model', type=str, default='deepseek-v4-flash')
+parser.add_argument('--provider', type=str, default='agnes')
+parser.add_argument('--model', type=str, default='agnes-2.5-flash')
 parser.add_argument('--timeout', type=int, default=None)
 parser.add_argument('--proxy', type=str, default=None)
-parser.add_argument('--mode', type=str, default='supervisor',
-                    choices=['supervisor', 'pipeline', 'parallel', 'nested'])
 args = parser.parse_args()
 
 http_options = {}
@@ -27,7 +31,6 @@ if args.proxy:
     http_options['proxy'] = args.proxy
 
 
-# ====== 工具定义 ======
 @tool(name='query_ticket', description='查询火车票数量',
       parameters={'type': 'object', 'properties': {
           'from_city': {'type': 'string'}, 'to_city': {'type': 'string'},
@@ -44,226 +47,64 @@ def query_price(from_city, to_city):
     return f'{from_city} 到 {to_city} 票价 {random.randint(100, 200)} 元。'
 
 
-@tool(name='generate_outline', description='生成文章大纲')
-def generate_outline(topic: str):
-    return f'大纲：\n1. {topic} 背景\n2. {topic} 核心内容\n3. {topic} 展望'
-
-
-@tool(name='expand_section', description='扩写章节')
-def expand_section(section: str):
-    return f'扩写：{section}'
-
-
-@tool(name='polish_article', description='润色文章')
-def polish_article(content: str):
-    return f'润色后：{content}'
-
-
-@tool(name='design_frontend', description='设计前端页面')
-def design_frontend(spec: str):
-    return f'前端方案：{spec}'
-
-
-@tool(name='write_backend', description='编写后端接口')
-def write_backend(spec: str):
-    return f'后端接口：{spec}'
-
-
-@tool(name='run_tests', description='执行测试')
-def run_tests(spec: str):
-    return f'测试结果：{spec}'
-
-
-# ====== 事件处理器 ======
 def handle_team_start(event: Event):
-    d = event.data
-    print(f'[team:start   {event.source:>10}] mode={d.get("mode","")} name={d.get("name","")}')
+    print(f'[team:start   {event.source:>10}] {event.data.get("message","")[:60]}')
 
 
 def handle_team_step(event: Event):
-    print(f'[team:step    {event.source:>10}] {event.data.get("content", "")}')
+    print(f'[team:step    {event.source:>10}] {event.data.get("content","")}')
 
 
 def handle_team_end(event: Event):
-    d = event.data
-    print(f'[team:end     {event.source:>10}] mode={d.get("mode","")}')
+    print(f'[team:end     {event.source:>10}] complete')
 
 
 def handle_agent_start(event: Event):
-    print(f'[agent:start  {event.source:>10}] {event.data.get("message", "")[:60]}')
+    print(f'[agent:start  {event.source:>10}] {event.data.get("message","")[:60]}')
 
 
 def handle_agent_step(event: Event):
     tcs = event.data.get('tool_calls', [])
-    names = [tc['name'] for tc in tcs]
-    print(f'[agent:step   {event.source:>10}] round {event.data.get("step", "")} -> {names}')
+    if tcs:
+        names = [tc['name'] for tc in tcs]
+        arys = [str(tc.get('arguments', ''))[:40] for tc in tcs]
+        print(f'[agent:step   {event.source:>10}] {names} {arys}')
 
 
 def handle_agent_end(event: Event):
-    print(f'[agent:end    {event.source:>10}] {event.data.get("content", "")[:60]}...')
-
-
-def handle_tool_start(event: Event):
-    name = event.data.get('name', '')
-    args = event.data.get('arguments', {})
-    print(f'[tool:start   {event.source:>10}] "{name}" {args}')
-
-
-def handle_tool_end(event: Event):
-    name = event.data.get('name', '')
-    result = event.data.get('result', '')
-    print(f'[tool:end     {event.source:>10}] "{name}" done: {str(result)[:60]}...')
+    content = (event.data.get('content', '') or '')[:60]
+    print(f'[agent:end    {event.source:>10}] {content}...')
 
 
 def handle_agent_error(event: Event):
-    print(f'[agent:error  {event.source:>10}] {event.data.get("error", "")}')
+    print(f'[agent:error  {event.source:>10}] {event.data.get("error","")}')
 
 
-# ====== 各模式演示 ======
-def run_supervisor(bus):
-    ticket_agent = Agent(
-        name='票务专员', event_bus=bus, provider=args.provider, model=args.model,
-        http_options=http_options,
-        instruction='你是票务专员，负责查询火车票信息和票价。',
-        tools=[query_ticket, query_price],
-    )
-    manager = Agent(
-        name='项目经理', event_bus=bus, provider=args.provider, model=args.model,
-        http_options=http_options,
-        instruction='你是项目经理，分析用户需求后将任务分配给团队成员。\n可用成员：\n- 票务专员：查询火车票信息、票价',
-    )
-    team = Team(name='客服团队', leader=manager, event_bus=bus, max_depth=3)
-    team.add_member(ticket_agent)
-    prompt = '查一下上海到北京的火车票和票价'
-    print(f'user> {prompt}\n')
-    result = team.chat(prompt)
-    bus.flush()
-    print(f'\nassistant> {result}')
+def handle_client_start(event: Event):
+    print(f'[client:start {event.source:>10}] LLM 请求开始')
 
 
-def run_pipeline(bus):
-    writer = Agent(
-        name='写手', event_bus=bus, provider=args.provider, model=args.model,
-        http_options=http_options, tools=[generate_outline],
-        instruction='你负责根据主题生成文章大纲。',
-    )
-    expander = Agent(
-        name='扩写者', event_bus=bus, provider=args.provider, model=args.model,
-        http_options=http_options, tools=[expand_section],
-        instruction='你负责扩写文章章节。',
-    )
-    polisher = Agent(
-        name='润色师', event_bus=bus, provider=args.provider, model=args.model,
-        http_options=http_options, tools=[polish_article],
-        instruction='你负责润色整篇文章。',
-    )
-    team = Team(name='写作流水线', leader=writer, event_bus=bus)
-    team.add_member(writer)
-    team.add_member(expander)
-    team.add_member(polisher)
-
-    prompt = '人工智能的发展趋势'
-    print(f'user> {prompt}\n')
-    result = team.pipeline(prompt)
-    bus.flush()
-    print(f'\nresult> {result}')
+def handle_client_step(event: Event):
+    d = event.data
+    if d.get('response'):
+        choices = d['response'].get('choices', [])
+        if choices:
+            content = choices[0].get('message', {}).get('content', '') or ''
+            if content:
+                print(f'[client:step  {event.source:>10}] {content}')
+    elif d.get('delta'):
+        content = d['delta'].get('content', '') or ''
+        if content:
+            print(content, end='', flush=True)
 
 
-def run_parallel(bus):
-    ticket_agent = Agent(
-        name='票务专员', event_bus=bus, provider=args.provider, model=args.model,
-        http_options=http_options,
-        instruction='你是票务专员，负责查询火车票信息。',
-        tools=[query_ticket],
-    )
-    price_agent = Agent(
-        name='价格专员', event_bus=bus, provider=args.provider, model=args.model,
-        http_options=http_options,
-        instruction='你是价格专员，负责查询票价。',
-        tools=[query_price],
-    )
-    team = Team(name='查询团队', leader=ticket_agent, event_bus=bus)
-    team.add_member(ticket_agent)
-    team.add_member(price_agent)
-
-    tasks = {
-        '票务专员': '查询上海到北京的火车票',
-        '价格专员': '查询上海到北京的票价',
-    }
-    print(f'tasks> {tasks}\n')
-    result = team.parallel(tasks)
-    bus.flush()
-    print(f'\nresults> {result}')
+def handle_client_end(event: Event):
+    print(f'\n[client:end   {event.source:>10}] LLM 响应完成')
 
 
-def run_nested(bus):
-    frontend_leader = Agent(
-        name='前端组长', event_bus=bus, provider=args.provider, model=args.model,
-        http_options=http_options, tools=[design_frontend],
-        instruction='你是前端组长，负责前端页面设计。\n可用成员：\n- 前端开发：实现前端页面',
-    )
-    frontend_dev = Agent(
-        name='前端开发', event_bus=bus, provider=args.provider, model=args.model,
-        http_options=http_options, tools=[design_frontend],
-        instruction='你是前端开发工程师，负责实现前端页面。',
-    )
-    frontend_team = Team(name='前端组', leader=frontend_leader, event_bus=bus)
-    frontend_team.add_member(frontend_dev)
+def handle_client_error(event: Event):
+    print(f'[client:error {event.source:>10}] {event.data.get("error","")[:80]}')
 
-    backend_leader = Agent(
-        name='后端组长', event_bus=bus, provider=args.provider, model=args.model,
-        http_options=http_options, tools=[write_backend],
-        instruction='你是后端组长，负责后端接口设计。\n可用成员：\n- 后端开发：实现后端接口',
-    )
-    backend_dev = Agent(
-        name='后端开发', event_bus=bus, provider=args.provider, model=args.model,
-        http_options=http_options, tools=[write_backend],
-        instruction='你是后端开发工程师，负责实现后端接口。',
-    )
-    backend_team = Team(name='后端组', leader=backend_leader, event_bus=bus)
-    backend_team.add_member(backend_dev)
-
-    test_leader = Agent(
-        name='测试组长', event_bus=bus, provider=args.provider, model=args.model,
-        http_options=http_options, tools=[run_tests],
-        instruction='你是测试组长，负责测试计划。\n可用成员：\n- 测试工程师：执行测试',
-    )
-    test_dev = Agent(
-        name='测试工程师', event_bus=bus, provider=args.provider, model=args.model,
-        http_options=http_options, tools=[run_tests],
-        instruction='你是测试工程师，负责执行测试用例。',
-    )
-    test_team = Team(name='测试组', leader=test_leader, event_bus=bus)
-    test_team.add_member(test_dev)
-
-    director = Agent(
-        name='研发总监', event_bus=bus, provider=args.provider, model=args.model,
-        http_options=http_options,
-        instruction='你是研发总监，协调前端、后端、测试团队。\n可用子团队负责人：\n- 前端组长\n- 后端组长\n- 测试组长',
-    )
-    dev_team = Team(name='研发部', leader=director, event_bus=bus, max_depth=5)
-    dev_team.add_member(frontend_team)
-    dev_team.add_member(backend_team)
-    dev_team.add_member(test_team)
-
-    print(f'=== 组织结构 ===')
-    print(f'研发部 members: {[m.name for m in dev_team.members]}')
-    print(f'is_leaf={dev_team.is_leaf}, 前端组 is_leaf={frontend_team.is_leaf}\n')
-
-    prompt = '开发用户登录功能，包括前端页面、后端接口和测试用例'
-    print(f'user> {prompt}\n')
-    result = dev_team.chat(prompt)
-    bus.flush()
-    print(f'\nresult> {result}')
-
-
-# ====== 主入口 ======
-modes = {
-    'supervisor': run_supervisor,
-    'pipeline': run_pipeline,
-    'parallel': run_parallel,
-    'nested': run_nested,
-}
 
 with EventBus() as bus:
     bus.subscribe('team:start', handle_team_start)
@@ -273,7 +114,171 @@ with EventBus() as bus:
     bus.subscribe('agent:step', handle_agent_step)
     bus.subscribe('agent:end', handle_agent_end)
     bus.subscribe('agent:error', handle_agent_error)
-    bus.subscribe('tool:start', handle_tool_start)
-    bus.subscribe('tool:end', handle_tool_end)
+    bus.subscribe('client:start', handle_client_start)
+    bus.subscribe('client:step', handle_client_step)
+    bus.subscribe('client:end', handle_client_end)
+    bus.subscribe('client:error', handle_client_error)
 
-    modes[args.mode](bus)
+    with Team(
+        name='研发部', provider=args.provider, model=args.model,
+        event_bus=bus,
+        leader=AgentConfig(
+            name='项目经理',
+            http_options=http_options, stream=False,
+            instruction='你是项目经理，负责统筹整个研发团队。\n'
+                        '团队包含 4 个子团队：产品组、设计组、开发组、测试组。\n'
+                        '成员已就绪，无需使用 spawn_agent 创建新成员。\n'
+                        '使用 create_task 创建任务，用 assign_task 分配给各子团队负责人。\n'
+                        '子团队负责人：产品经理、设计主管、技术主管、测试主管。',
+        ),
+        members=[
+            # 产品组
+            TeamConfig(
+                name='产品组', leader=AgentConfig(
+                    name='产品经理',
+                    http_options=http_options, stream=False,
+                    instruction='你是产品经理，负责产品需求工作。\n'
+                                '可用成员：产品助理、需求分析师。\n'
+                                '用 create_task 创建任务，用 assign_task 分配给组员。',
+                ), members=[
+                    AgentConfig(
+                        name='产品助理',
+                        http_options=http_options, stream=False,
+                        instruction='你是产品助理，协助产品经理整理需求文档。',
+                    ),
+                    AgentConfig(
+                        name='需求分析师',
+                        http_options=http_options, stream=False,
+                        instruction='你是需求分析师，负责分析用户需求，编写需求规格说明书。',
+                    ),
+                ],
+            ),
+            # 设计组
+            TeamConfig(
+                name='设计组', leader=AgentConfig(
+                    name='设计主管',
+                    http_options=http_options, stream=False,
+                    instruction='你是设计主管，负责设计团队管理。\n'
+                                '可用成员：UI设计师、交互设计师。\n'
+                                '用 create_task 创建任务，用 assign_task 分配给组员。',
+                ), members=[
+                    AgentConfig(
+                        name='UI设计师',
+                        http_options=http_options, stream=False,
+                        instruction='你是UI设计师，负责用户界面设计。',
+                    ),
+                    AgentConfig(
+                        name='交互设计师',
+                        http_options=http_options, stream=False,
+                        instruction='你是交互设计师，负责交互流程设计。',
+                    ),
+                ],
+            ),
+            # 开发组
+            TeamConfig(
+                name='开发组', leader=AgentConfig(
+                    name='技术主管',
+                    http_options=http_options, stream=False,
+                    instruction='你是技术主管，负责开发团队管理。\n'
+                                '可用成员：前端开发、后端开发、数据库工程师。\n'
+                                '用 create_task 创建任务，用 assign_task 分配给组员。\n'
+                                '组员之间可用 send_message 互相沟通。',
+                ), members=[
+                    AgentConfig(
+                        name='前端开发',
+                        http_options=http_options, stream=False,
+                        instruction='你是前端开发工程师。\n'
+                                    '可用 send_message 与后端开发沟通 API 接口格式。',
+                    ),
+                    AgentConfig(
+                        name='后端开发',
+                        http_options=http_options, stream=False,
+                        instruction='你是后端开发工程师。\n'
+                                    '可用 send_message 与前端开发沟通 API 接口格式。',
+                    ),
+                    AgentConfig(
+                        name='数据库工程师',
+                        http_options=http_options, stream=False,
+                        instruction='你是数据库工程师，负责数据库设计与管理。',
+                    ),
+                ],
+            ),
+            # 测试组
+            TeamConfig(
+                name='测试组', leader=AgentConfig(
+                    name='测试主管',
+                    http_options=http_options, stream=False,
+                    instruction='你是测试主管，负责测试团队管理。\n'
+                                '可用成员：测试工程师、自动化测试。\n'
+                                '用 create_task 创建任务，用 assign_task 分配给组员。',
+                ), members=[
+                    AgentConfig(
+                        name='测试工程师',
+                        http_options=http_options, stream=False,
+                        instruction='你是测试工程师，负责功能测试、回归测试。',
+                    ),
+                    AgentConfig(
+                        name='自动化测试',
+                        http_options=http_options, stream=False,
+                        instruction='你是自动化测试工程师，负责编写和执行自动化测试用例。',
+                    ),
+                ],
+            ),
+        ],
+    ) as team:
+        print('=' * 60)
+        print('1. 项目经理创建 4 个任务，分配给各子团队负责人')
+        print('=' * 60)
+        r = team.chat(
+            '请创建以下 4 个任务并分配给对应的子团队负责人：\n'
+            '1. 产品组 - 完成用户登录功能的需求分析（分配给产品经理）\n'
+            '2. 设计组 - 完成登录页面的 UI 设计（分配给设计主管）\n'
+            '3. 开发组 - 完成登录功能的开发（分配给技术主管）\n'
+            '4. 测试组 - 完成登录功能的测试（分配给测试主管）'
+        )
+        print(f'  {r}')
+        bus.flush()
+
+        print()
+        print('=' * 60)
+        print('2. 各子团队负责人将任务分解给组员')
+        print('=' * 60)
+        r = team.chat(
+            '请各子团队负责人将任务分解给组员：\n'
+            '产品经理将需求分析任务分配给需求分析师；\n'
+            '设计主管将 UI 设计任务分配给 UI设计师；\n'
+            '技术主管将开发任务分配给前端开发和后端开发；\n'
+            '测试主管将测试任务分配给测试工程师。'
+        )
+        print(f'  {r}')
+        bus.flush()
+
+        print()
+        print('=' * 60)
+        print('3. 跨组协作：前端开发 与 后端开发 确认 API 接口格式')
+        print('=' * 60)
+        r = team.chat(
+            '让前端开发与后端开发通过 send_message 沟通确认登录 API 的接口格式，'
+            '包括请求方法、参数和返回格式。'
+        )
+        print(f'  {r}')
+        bus.flush()
+
+        print()
+        print('=' * 60)
+        print('4. 组员完成任务后更新状态')
+        print('=' * 60)
+        r = team.chat(
+            '让完成任务的组员使用 update_task 更新任务状态为 completed。\n'
+            '需求分析已完成，UI 设计已完成，开发已完成，测试已完成。'
+        )
+        print(f'  {r}')
+        bus.flush()
+
+        print()
+        print('=' * 60)
+        print('5. 项目经理查看所有任务的整体状态')
+        print('=' * 60)
+        r = team.chat('列出所有任务的状态，汇总报告给我')
+        print(f'  {r}')
+        bus.flush()

@@ -1,5 +1,8 @@
+from __future__ import annotations
 import json
+from dataclasses import dataclass
 
+from chatchat.actor import Actor, Action
 from chatchat.client import Client
 from chatchat.skill import Skills
 from chatchat.tool import Tools
@@ -7,14 +10,27 @@ from chatchat.types import Message, ToolCall
 from chatchat.event import EventBus
 
 
-class Agent:
+@dataclass
+class AgentConfig:
+    name: str
+    provider: str | None = None
+    model: str | None = None
+    instruction: str = ''
+    stream: bool = True
+    thinking: bool = False
+    tools: list | None = None
+    skills: list | None = None
+    http_options: dict | None = None
+
+
+class Agent(Actor):
     def __init__(
         self, *, event_bus, provider, model, name=None, instruction=None,
         stream=True, thinking=False, tools=None, skills=None,
         http_options=None,
     ):
-        self._bus = event_bus
-        self.name = name or ''
+        actor_name = name or ''
+        Actor.__init__(self, name=actor_name, event_bus=event_bus)
         self.provider = provider
         self.model = model
         self.stream = stream
@@ -35,7 +51,8 @@ class Agent:
 
         if self.tools:
             for t in self.tools:
-                t.set_event_bus(self._bus, source=self.name)
+                t._bus = self._bus
+                t._source = self.name
 
         self._interact_handlers = []
         self._step = 0
@@ -43,7 +60,18 @@ class Agent:
     def _emit(self, topic: str, data: dict = None):
         self._bus.emit(topic, data or {}, source=self.name)
 
-    def chat(self, message: str):
+    def start(self):
+        Actor.start(self)
+
+    def stop(self, timeout: float = 5.0):
+        Actor.stop(self, timeout=timeout)
+
+    def _on_message(self, action: Action) -> str:
+        if action.type in ('chat', 'task_assigned', 'peer_message'):
+            return self._handle_chat(action.payload)
+        raise ValueError(f"Unknown action type: {action.type}")
+
+    def _handle_chat(self, message: str) -> str:
         self._step = 0
         self._emit('agent:start', {'message': message})
         try:
@@ -89,7 +117,9 @@ class Agent:
         new_messages = [{'role': 'user', 'content': text}]
         while True:
             response = client.chat(
-                new_messages, stream=False, thinking=self.thinking,
+                new_messages,
+                stream=False,
+                thinking=self.thinking,
                 tools=self.tools,
             )
             msg = response.choices[0].message
@@ -102,12 +132,14 @@ class Agent:
     def _stream_chat(self, client, text):
         new_messages = [{'role': 'user', 'content': text}]
         while True:
-            stream = client.chat(
-                new_messages, stream=True, thinking=self.thinking,
+            gen = client.chat(
+                new_messages,
+                stream=True,
+                thinking=self.thinking,
                 tools=self.tools,
             )
             acc = Message()
-            for chunk in stream:
+            for chunk in gen:
                 acc.accumulate(chunk.choices[0].delta)
                 yield chunk.choices[0].delta.content or ''
             if not acc.tool_calls:
