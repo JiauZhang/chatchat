@@ -4,8 +4,9 @@ from importlib import import_module
 from typing import Generator, Literal, overload
 
 from chatchat.config import load_config
-from chatchat.providers import __providers__, __custom_providers__
+from chatchat.providers import __providers__
 from chatchat import ProviderError, APIError
+from chatchat.rate_limiter import get_rate_limiter
 from chatchat.types import (
     ChatCompletion,
     ChatCompletionChunk,
@@ -19,14 +20,13 @@ from chatchat.types import (
 
 
 class BaseClient:
-    def __init__(self, provider, base_url, model=None, instruction=None,
-                 http_options=None, event_bus=None, source='unknown'):
-        self._source = source
+    def __init__(self, base_url, model=None, instruction=None,
+                 http_options=None, event_bus=None):
+        self._source = 'unknown'
         http_options = http_options or {}
         http_options.setdefault('timeout', 60.0)
-        self.provider = provider
         self._instruction = instruction
-        self.api_key = load_config(provider)
+        self.api_key = load_config(self.provider)
         self.model = model
         self._bus = event_bus
         self.client = httpx.Client(
@@ -47,6 +47,8 @@ class BaseClient:
         self._tool_calls_key = 'tool_calls'
         self._tool_call_index_key = 'index'
         self._tool_call_id_key = 'id'
+
+        self._rate_limiter = get_rate_limiter(self.provider)
 
     def _system_message(self):
         return {'role': 'system', 'content': self._instruction}
@@ -161,17 +163,28 @@ class BaseClient:
         return data['choices'][0]['message']
 
     def _send_nonstreaming(self, url, payload):
+        self._rate_limiter.acquire()
+        data = None
         try:
             response = self.client.post(url, json=payload)
             response.raise_for_status()
             data = response.json()
         except httpx.HTTPStatusError as e:
+            if e.response.status_code == 429:
+                self._rate_limiter.notify_429()
             raise APIError(
                 f'API request failed: {e.response.status_code} '
                 f'{e.response.text}'
             )
         except httpx.RequestError as e:
             raise APIError(f'Network error: {e}')
+        finally:
+            if data is not None:
+                usage = data.get('usage', {})
+                total = usage.get('total_tokens', 0) if isinstance(usage, dict) else 0
+            else:
+                total = 0
+            self._rate_limiter.release(actual_tokens=total)
 
         if 'error' in data:
             raise APIError(f'API error: {data["error"]}')
@@ -179,6 +192,7 @@ class BaseClient:
         return data
 
     def _send_streaming(self, url, payload):
+        self._rate_limiter.acquire()
         try:
             with self.client.stream('POST', url, json=payload) as response:
                 response.raise_for_status()
@@ -198,11 +212,15 @@ class BaseClient:
                         )
                     yield data
         except httpx.HTTPStatusError as e:
+            if e.response.status_code == 429:
+                self._rate_limiter.notify_429()
             raise APIError(
                 f'Stream request failed: {e.response.status_code} '
             )
         except httpx.RequestError as e:
             raise APIError(f'Network error during streaming: {e}')
+        finally:
+            self._rate_limiter.release()
 
     @overload
     def chat(self, messages, *, model=None,
@@ -270,17 +288,18 @@ class BaseClient:
 
 
 def dynamic_import_client(provider):
-    if provider in __custom_providers__:
-        return __custom_providers__[provider]
-    if provider not in __providers__:
-        name_list = list(__custom_providers__) + list(__providers__)
-        raise ProviderError(
-            f'Provider `{provider}` is not supported. '
-            f'Supported providers: {name_list}'
-        )
-    client_module = import_module(f'chatchat.providers.{provider}')
-    client_class = getattr(client_module, f'{provider.capitalize()}Client')
-    return client_class
+    if provider in __providers__:
+        return __providers__[provider]
+    try:
+        import_module(f'chatchat.providers.{provider}')
+    except ImportError:
+        pass
+    if provider in __providers__:
+        return __providers__[provider]
+    raise ProviderError(
+        f'Provider `{provider}` is not supported. '
+        f'Supported providers: {list(__providers__.keys())}'
+    )
 
 
 class Client:

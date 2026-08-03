@@ -3,7 +3,7 @@ from chatchat.config import save_config
 
 def parse_config(args):
     if args.list:
-        print(f'supported providers: {__providers__}')
+        print(f'supported providers: {list(__providers__.keys())}')
     elif args.cfgs:
         cfg = args.cfgs.split('=')
         provider_key = cfg[0].split('.')
@@ -15,7 +15,7 @@ def parse_config(args):
         (provider, key), value = provider_key, cfg[1]
         if provider not in __providers__:
             print(f'provider `{provider}` is currently NOT supported!')
-            print(f'supported providers: {__providers__}')
+            print(f'supported providers: {list(__providers__.keys())}')
             return
 
         save_config(provider, key, value)
