@@ -2,7 +2,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
-from chatchat.actor import Actor, Action
+from chatchat.actor import Actor, Action, _process_dependency_completed
 from chatchat.client import Client
 from chatchat.skill import Skills
 from chatchat.tool import Tools
@@ -57,6 +57,7 @@ class Agent(Actor):
 
         self._interact_handlers = []
         self._step = 0
+        self._dep_notified: dict[str, set[str]] = {}
 
     def _emit(self, topic: str, data: dict = None):
         self._bus.emit(topic, data or {}, source=self.name)
@@ -71,11 +72,23 @@ class Agent(Actor):
         if action.type == 'task_assigned':
             task = action.payload
             self._tasks[task.id] = task
+            if task.depends_on:
+                for dep_id in task.depends_on:
+                    dep = self._tasks.get(dep_id)
+                    if not dep or dep.status != TaskStatus.COMPLETED:
+                        self._dep_notified[task.id] = set()
+                        return f"任务 {task.id} 已接收，依赖 {dep_id} 尚未完成，等待通知后自动执行。"
             return self._handle_chat(
                 f"你被分配了一个新任务:\n"
                 f"task_id: {task.id}\n"
                 f"描述: {task.description}\n"
                 f"请使用工具执行此任务。"
+            )
+        if action.type == 'dependency_completed':
+            return _process_dependency_completed(
+                self._tasks, self._dep_notified,
+                action.payload.get('task_id', ''),
+                self._handle_chat,
             )
         if action.type in ('chat', 'peer_message', 'meeting_call'):
             return self._handle_chat(action.payload)
@@ -125,7 +138,7 @@ class Agent(Actor):
 
     def _nonstream_chat(self, client, text):
         new_messages = [{'role': 'user', 'content': text}]
-        while True:
+        for _ in range(10):
             response = client.chat(
                 new_messages,
                 stream=False,
@@ -138,6 +151,8 @@ class Agent(Actor):
                 return msg.content
 
             new_messages = self._execute_tool_calls(msg.tool_calls)
+        self._emit('agent:end', {'content': '已达到最大迭代次数'})
+        return '已达到最大迭代次数'
 
     def _stream_chat(self, client, text):
         new_messages = [{'role': 'user', 'content': text}]

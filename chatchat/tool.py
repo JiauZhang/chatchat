@@ -1,3 +1,9 @@
+import contextvars
+
+
+_current_tool_caller = contextvars.ContextVar('_current_tool_caller', default='')
+
+
 class Tool:
     def __init__(self, *, tool, name, description, parameters=None,
                  event_bus=None, source='unknown'):
@@ -14,14 +20,18 @@ class Tool:
             self._bus.emit(topic, data or {}, source=self._source)
 
     def __call__(self, **kwargs):
-        self._emit('tool:start', {'name': self.name, 'arguments': kwargs})
+        token = _current_tool_caller.set(self._source)
         try:
-            result = self.tool(**kwargs)
-        except Exception as e:
-            self._emit('tool:error', {'name': self.name, 'error': str(e), 'arguments': kwargs})
-            return f'Error calling tool {self.name}: {e}'
-        self._emit('tool:end', {'name': self.name, 'result': result})
-        return result
+            self._emit('tool:start', {'name': self.name, 'arguments': kwargs})
+            try:
+                result = self.tool(**kwargs)
+            except Exception as e:
+                self._emit('tool:error', {'name': self.name, 'error': str(e), 'arguments': kwargs})
+                return f'Error calling tool {self.name}: {e}'
+            self._emit('tool:end', {'name': self.name, 'result': result})
+            return result
+        finally:
+            _current_tool_caller.reset(token)
 
     def on_interact(self, handler):
         self._interact_handlers.append(handler)

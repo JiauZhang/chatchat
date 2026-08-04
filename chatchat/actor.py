@@ -5,7 +5,28 @@ from threading import Thread, Event
 from typing import Any
 import asyncio
 
-from chatchat.task import Task
+from chatchat.task import Task, TaskStatus
+
+
+def _process_dependency_completed(tasks, dep_notified, completed_task_id, handle_chat_fn):
+    started = []
+    for task_id, notified in list(dep_notified.items()):
+        task = tasks.get(task_id)
+        if not task:
+            continue
+        if completed_task_id in task.depends_on:
+            notified.add(completed_task_id)
+            if notified == set(task.depends_on):
+                if task.status in (TaskStatus.ASSIGNED, TaskStatus.CREATED):
+                    del dep_notified[task_id]
+                    started.append(task_id)
+                    handle_chat_fn(
+                        f"你依赖的任务均已完成后，可以开始执行任务 {task_id}: {task.description}\n"
+                        f"请使用工具执行此任务。"
+                    )
+    if started:
+        return f"依赖任务 {completed_task_id} 已完成，已启动任务 {started}"
+    return f"依赖任务 {completed_task_id} 已完成通知已收到。"
 
 
 @dataclass
@@ -47,15 +68,11 @@ class Actor:
     def is_running(self) -> bool:
         return self._thread is not None
 
-    # === 公开执行入口 ===
-
     def chat(self, message: Any, action_type: str = 'chat') -> Any:
-        """统一同步入口：走 mailbox。"""
         action = Action(type=action_type, payload=message)
         return self.run(action)
 
     async def achat(self, message: Any, action_type: str = 'chat') -> Any:
-        """统一异步入口：走 mailbox。"""
         action = Action(type=action_type, payload=message)
         return await self.arun(action)
 
@@ -78,8 +95,6 @@ class Actor:
     async def _arun(self, action: Action) -> None:
         await asyncio.to_thread(self._mailbox.put, (action, None))
 
-    # === 生命周期 ===
-
     def start(self):
         self._stop_event.clear()
         self._thread = Thread(target=self._process_loop, daemon=True)
@@ -90,8 +105,6 @@ class Actor:
         if self._thread:
             self._thread.join(timeout=timeout)
         self._thread = None
-
-    # === 内部机制 ===
 
     def _process_loop(self):
         while not self._stop_event.is_set():
