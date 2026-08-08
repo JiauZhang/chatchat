@@ -1,5 +1,3 @@
-import time
-import pytest
 from chatchat.scheduler import Scheduler
 from chatchat.agent import Agent, AgentConfig
 from chatchat.team import Team, TeamConfig

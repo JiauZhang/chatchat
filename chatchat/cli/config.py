@@ -13,11 +13,6 @@ def parse_config(args):
             return
 
         (provider, key), value = provider_key, cfg[1]
-        if provider not in __providers__:
-            print(f'provider `{provider}` is currently NOT supported!')
-            print(f'supported providers: {list(__providers__.keys())}')
-            return
-
         save_config(provider, key, value)
 
 def cli_config(subparser):

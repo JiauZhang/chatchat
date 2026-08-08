@@ -1,8 +1,7 @@
 from __future__ import annotations
 import threading
-from collections import defaultdict
 from queue import Queue, Empty
-from typing import Any
+from typing import Any, Callable
 
 from chatchat.message import ID, Message
 
@@ -11,10 +10,28 @@ class TimeoutError(Exception):
     pass
 
 
+_event_listeners: dict[str, list[Callable]] = {}
+
+
+def on_event(topic: str, handler: Callable):
+    _event_listeners.setdefault(topic, []).append(handler)
+
+
+def off_event(topic: str, handler: Callable):
+    _event_listeners.get(topic, []).remove(handler)
+
+
+def emit_event(topic: str, data: dict = None):
+    for handler in _event_listeners.get(topic, []):
+        try:
+            handler(topic, data or {})
+        except Exception:
+            pass
+
+
 class Scheduler:
     def __init__(self):
         self._entities: dict[str, Any] = {}
-        self._subscriptions: dict[str, set[str]] = defaultdict(set)
         self._pending_requests: dict[str, threading.Event] = {}
         self._pending_replies: dict[str, Message] = {}
         self._lock = threading.Lock()
@@ -65,32 +82,6 @@ class Scheduler:
                 self._pending_replies[to_msg.id] = reply
                 event.set()
 
-    def publish(self, topic: str, msg: Message):
-        with self._lock:
-            subscribers = list(self._subscriptions.get(topic, set()))
-            for uid in subscribers:
-                entity = self._entities.get(uid)
-                if entity:
-                    entity._mailbox.put(msg)
-
-    def subscribe(self, topic: str, entity_id: ID):
-        with self._lock:
-            self._subscriptions[topic].add(entity_id.uid)
-
-    def unsubscribe(self, topic: str, entity_id: ID):
-        with self._lock:
-            self._subscriptions[topic].discard(entity_id.uid)
-
-    def create_agent(self, config) -> ID:
-        from chatchat.agent import create_agent as _create_agent
-        agent = _create_agent(config, self)
-        return agent.id
-
-    def create_team(self, config) -> ID:
-        from chatchat.team import create_team as _create_team
-        team = _create_team(config, self)
-        return team.id
-
     def lookup(self, entity_id: ID):
         with self._lock:
             return self._entities.get(entity_id.uid)
@@ -106,13 +97,7 @@ class Scheduler:
         with self._lock:
             if kind:
                 return [e.id for e in self._entities.values() if e.id.kind == kind]
-            return list(self._entities.keys())
-
-    def stop(self, entity_id: ID):
-        entity = self.lookup(entity_id)
-        if entity:
-            entity.stop()
-            self.unregister(entity_id)
+            return [e.id for e in self._entities.values()]
 
     def shutdown(self):
         with self._lock:
@@ -122,6 +107,5 @@ class Scheduler:
                 if entity:
                     entity.stop()
             self._entities.clear()
-            self._subscriptions.clear()
             self._pending_requests.clear()
             self._pending_replies.clear()

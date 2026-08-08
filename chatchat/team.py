@@ -6,6 +6,7 @@ from typing import Any
 
 from chatchat.agent import Agent, AgentConfig, create_agent
 from chatchat.message import ID, Message
+from chatchat.scheduler import emit_event
 
 
 @dataclass
@@ -34,11 +35,9 @@ class Team:
         self._leader = create_agent(config.leader, scheduler)
 
     def _emit(self, topic: str, data: dict = None):
-        self.scheduler.publish(topic, Message(
-            sender=self.id,
-            recipient=ID(uid='__all__', kind='system'),
-            type='event', subtype=topic, payload=data or {},
-        ))
+        d = dict(data or {})
+        d['_source'] = self.name
+        emit_event(topic, d)
 
     @property
     def name(self) -> str:
@@ -83,8 +82,6 @@ class Team:
                 continue
 
     def handle_message(self, msg: Message) -> Any:
-        if msg.type in ('text', 'request'):
-            return self._leader.handle_message(msg)
-        if msg.type == 'signal':
+        if msg.type in ('text', 'request', 'signal'):
             return self._leader.handle_message(msg)
         return None

@@ -110,53 +110,6 @@ class TestReply:
         e.stop()
 
 
-class TestPublishSubscribe:
-    def test_subscriber_receives_event(self):
-        s = Scheduler()
-        e = EchoEntity('sub')
-        s.register(e)
-        s.subscribe('test:event', e.id)
-        s.publish('test:event', Message(sender=ID(), type='event', subtype='test:event', payload={}))
-        msg = e._mailbox.get(timeout=1)
-        assert msg.subtype == 'test:event'
-
-    def test_unsubscribed_does_not_receive(self):
-        s = Scheduler()
-        e = EchoEntity('sub')
-        s.register(e)
-        s.subscribe('test:event', e.id)
-        s.unsubscribe('test:event', e.id)
-        s.publish('test:event', Message(sender=ID(), type='event', subtype='test:event', payload={}))
-        import queue
-        with pytest.raises(queue.Empty):
-            e._mailbox.get(timeout=0.3)
-
-
-class TestCreateAgent:
-    def test_create_agent_returns_id(self):
-        s = Scheduler()
-        from chatchat.agent import AgentConfig
-        cfg = AgentConfig(name='test', provider='deepseek', model='deepseek-chat', http_options={'timeout': 10})
-        aid = s.create_agent(cfg)
-        assert aid.name == 'test'
-        entity = s.lookup(aid)
-        assert entity is not None
-        entity.stop()
-
-
-class TestCreateTeam:
-    def test_create_team_returns_id(self):
-        s = Scheduler()
-        from chatchat.team import TeamConfig
-        from chatchat.agent import AgentConfig
-        cfg = TeamConfig(name='t', leader=AgentConfig(name='l', provider='deepseek', model='deepseek-chat', http_options={'timeout': 10}))
-        tid = s.create_team(cfg)
-        assert tid.name == 't'
-        entity = s.lookup(tid)
-        assert entity is not None
-        entity.stop()
-
-
 class TestLookup:
     def test_lookup_by_name(self):
         s = Scheduler()
@@ -185,7 +138,8 @@ class TestStop:
         s.register(agent)
         agent.start()
         assert agent.is_running
-        s.stop(agent.id)
+        agent.stop()
+        s.unregister(agent.id)
         assert not agent.is_running
 
 
@@ -196,6 +150,3 @@ class TestShutdown:
         s.register(e)
         s.shutdown()
         assert s.list_entities() == []
-
-
-import pytest

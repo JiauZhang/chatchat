@@ -6,6 +6,7 @@ from queue import Queue, Empty
 from typing import Any, Callable, Generator
 
 from chatchat.message import ID, Message
+from chatchat.scheduler import emit_event
 from chatchat.tool import Tool, Tools
 from chatchat.skill import Skills
 
@@ -97,9 +98,6 @@ class Agent:
         }
 
     def _inject_management_tools(self):
-        """Auto-inject create_agent, send_message, task_stop tools."""
-        tools = []
-
         def _create_agent(name: str, instruction: str, description: str = '',
                           background: bool = False, provider: str = None,
                           model: str = None) -> str:
@@ -203,11 +201,9 @@ class Agent:
             self.add_tool(t)
 
     def _emit(self, topic: str, data: dict = None):
-        self.scheduler.publish(topic, Message(
-            sender=self.id,
-            recipient=ID(uid='__all__', kind='system'),
-            type='event', subtype=topic, payload=data or {},
-        ))
+        d = dict(data or {})
+        d['_source'] = self.name
+        emit_event(topic, d)
 
     def _emit_lifecycle(self, event: str, **data):
         for handler in self._hooks.get(event, []):

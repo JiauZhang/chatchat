@@ -1,7 +1,7 @@
 import argparse, random, sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from chatchat.scheduler import Scheduler
+from chatchat.scheduler import Scheduler, on_event, off_event
 from chatchat.agent import Agent, AgentConfig
 from chatchat.tool import tool
 from chatchat.message import ID
@@ -61,54 +61,40 @@ def save_file(path, content):
     raise PermissionError(f'no write permission for {path}')
 
 
-class EventMonitor(Agent):
-    def __init__(self, scheduler):
-        super().__init__(AgentConfig(name='_monitor'), scheduler)
-        self.id = ID(uid='_monitor', kind='monitor', name='monitor')
-
-    def handle_message(self, msg):
-        if msg.type != 'event':
-            return None
-        tag = msg.subtype
-        name = msg.sender.name if msg.sender else ''
-        data = msg.payload or {}
-
-        if tag == 'tool:start':
-            args = data.get('arguments', {})
-            print(f'[{tag:<12} {name:>10}] calling "{name}" with {args}')
-        elif tag == 'tool:step':
-            content = data.get('content', '')
-            print(f'[{tag:<12} {name:>10}] {content}')
-        elif tag == 'tool:end':
-            result = data.get('result', '')
-            print(f'[{tag:<12} {name:>10}] done: {str(result)[:50]}...')
-        elif tag == 'tool:error':
-            args = data.get('arguments', {})
-            err = data.get('error', '')
-            print(f'[{tag:<12} {name:>10}] "{name}" failed: {err} args={args}')
-        elif tag == 'agent:start':
-            msg = data.get('message', '')
-            print(f'[{tag:<12} {name:>10}] message: {msg}')
-        elif tag == 'agent:step':
-            tcs = data.get('tool_calls', [])
-            names = [tc['name'] for tc in tcs]
-            print(f'[{tag:<12} {name:>10}] tool round {data.get("step", "")} -> {names}')
-        elif tag == 'agent:end':
-            response = data.get('content', '')
-            print(f'[{tag:<12} {name:>10}] response: {response[:60]}...')
-        elif tag == 'agent:error':
-            print(f'[{tag:<12} {name:>10}] error: {data.get("error", "")}')
-        return None
+def handle_event(topic, data):
+    name = data.get('_source', '')
+    if topic == 'tool:start':
+        args = data.get('arguments', {})
+        print(f'[{topic:<12} {name:>10}] calling "{name}" with {args}')
+    elif topic == 'tool:step':
+        content = data.get('content', '')
+        print(f'[{topic:<12} {name:>10}] {content}')
+    elif topic == 'tool:end':
+        result = data.get('result', '')
+        print(f'[{topic:<12} {name:>10}] done: {str(result)[:50]}...')
+    elif topic == 'tool:error':
+        args = data.get('arguments', {})
+        err = data.get('error', '')
+        print(f'[{topic:<12} {name:>10}] "{name}" failed: {err} args={args}')
+    elif topic == 'agent:start':
+        msg = data.get('message', '')
+        print(f'[{topic:<12} {name:>10}] message: {msg}')
+    elif topic == 'agent:step':
+        tcs = data.get('tool_calls', [])
+        names = [tc['name'] for tc in tcs]
+        print(f'[{topic:<12} {name:>10}] tool round {data.get("step", "")} -> {names}')
+    elif topic == 'agent:end':
+        response = data.get('content', '')
+        print(f'[{topic:<12} {name:>10}] response: {response[:60]}...')
+    elif topic == 'agent:error':
+        print(f'[{topic:<12} {name:>10}] error: {data.get("error", "")}')
 
 
 scheduler = Scheduler()
 
-monitor = EventMonitor(scheduler)
-scheduler.register(monitor)
 for topic in ['agent:start', 'agent:step', 'agent:end', 'agent:error',
               'tool:start', 'tool:step', 'tool:end', 'tool:error']:
-    scheduler.subscribe(topic, monitor.id)
-monitor.start()
+    on_event(topic, handle_event)
 
 agent = Agent(AgentConfig(
     name='supervisor',
@@ -123,6 +109,5 @@ agent = Agent(AgentConfig(
 result = agent.chat('search AI news and summarize')
 print(f'\nsupervisor result: {result[:100]}')
 
-monitor.stop()
 scheduler.shutdown()
 print('Done.')

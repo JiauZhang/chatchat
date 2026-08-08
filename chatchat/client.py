@@ -1,7 +1,7 @@
 import json
 import httpx
 from importlib import import_module
-from typing import Generator, Literal, overload
+from typing import Generator
 
 from chatchat.config import load_config
 from chatchat.providers import __providers__
@@ -125,25 +125,6 @@ class BaseClient:
             else:
                 payload['tools'] = tools
         payload.update(kwargs)
-        return payload
-
-    def _prepare_payload(self, messages, model, stream, thinking, tools):
-        if self._instruction:
-            system_msg = {'role': 'system', 'content': self._instruction}
-            messages = [system_msg] + messages
-        payload = {
-            'model': model or self.model,
-            'messages': messages,
-            'stream': stream,
-        }
-        if thinking:
-            payload['thinking'] = {'enabled': True}
-        if tools:
-            from chatchat.tool import Tools
-            if isinstance(tools, Tools):
-                payload['tools'] = tools.to_dict()
-            else:
-                payload['tools'] = tools
         return payload
 
     def _to_tool_call(self, data: dict) -> ToolCall:
