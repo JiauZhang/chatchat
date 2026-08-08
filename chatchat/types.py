@@ -45,8 +45,8 @@ class Message:
             else:
                 if tc.id:
                     target.id = tc.id
-                if tc.name:
-                    target.name += tc.name
+                if tc.name and not target.name:
+                    target.name = tc.name
                 if tc.arguments:
                     target.arguments += tc.arguments
 

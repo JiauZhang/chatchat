@@ -1,23 +1,22 @@
 import contextvars
 
-
 _current_tool_caller = contextvars.ContextVar('_current_tool_caller', default='')
 
 
 class Tool:
     def __init__(self, *, tool, name, description, parameters=None,
-                 event_bus=None, source='unknown'):
+                 emit_fn=None, source='unknown'):
         self.name = name
         self.description = description
         self.parameters = parameters
         self.tool = tool
-        self._bus = event_bus
+        self._emit_fn = emit_fn
         self._source = source
         self._interact_handlers = []
 
     def _emit(self, topic: str, data: dict = None):
-        if self._bus:
-            self._bus.emit(topic, data or {}, source=self._source)
+        if self._emit_fn:
+            self._emit_fn(topic, data or {})
 
     def __call__(self, **kwargs):
         token = _current_tool_caller.set(self._source)
@@ -55,11 +54,11 @@ class Tool:
         }
 
 
-def tool(*, name, description, parameters=None, event_bus=None):
+def tool(*, name, description, parameters=None, emit_fn=None):
     def decorator(func):
         return Tool(
             tool=func, name=name, description=description,
-            parameters=parameters, event_bus=event_bus,
+            parameters=parameters, emit_fn=emit_fn,
         )
     return decorator
 

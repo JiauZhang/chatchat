@@ -19,11 +19,6 @@ class Task:
     description: str = ""
     status: TaskStatus = TaskStatus.CREATED
     owner: str = ""
-    parent_id: str = ""
-    depends_on: list[str] = field(default_factory=list)
-    subscribers: list[str] = field(default_factory=list)
-    _subscriber_mailboxes: dict = field(default_factory=dict)
-    subtasks: list[str] = field(default_factory=list)
     result: Any = None
     error: str = ""
     created_at: float = field(default_factory=time.time)

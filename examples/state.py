@@ -1,9 +1,9 @@
-import json
-import argparse
-import random
-from chatchat.agent import Agent
+import json, argparse, random, sys, os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from chatchat.scheduler import Scheduler
+from chatchat.agent import Agent, AgentConfig
 from chatchat.tool import tool
-from chatchat.event import EventBus, Event
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--provider', type=str, default='deepseek')
@@ -48,90 +48,31 @@ def query_news(topic):
     return '\n'.join(headlines)
 
 
-def handle_start(event: Event):
-    tag = event.topic
-    name = event.source or 'agent'
-    if event.topic == 'agent:start':
-        msg = f'message: {event.data.get("message", "")}'
-    elif event.topic == 'tool:start':
-        args = event.data.get('arguments', {})
-        msg = f'calling "{name}" with {args}'
-    else:
-        msg = tag
-    print(f'[{tag:<12} {name:>10}] {msg}')
+scheduler = Scheduler()
+agent = Agent(AgentConfig(
+    name='analyst',
+    provider=args.provider, model=args.model,
+    http_options=http_options, stream=False,
+    instruction=(
+        'You are a financial analyst. You have stock query and news query tools. '
+        'For complex research tasks, delegate to sub-agents.'
+    ),
+    tools=[query_stock, query_news],
+), scheduler)
 
+result = agent.chat('What is the current price of AAPL and TSLA?')
+print(f'\nanalyst result: {result}\n')
 
-def handle_step(event: Event):
-    tag = event.topic
-    name = event.source or 'agent'
-    if event.topic == 'agent:step':
-        tcs = event.data.get('tool_calls', [])
-        names = [tc['name'] for tc in tcs]
-        msg = f'tool round {event.data.get("step", "")} -> {names}'
-    elif event.topic == 'client:step':
-        msg = event.data.get('delta', {}).get('content', '')[:30] or tag
-    else:
-        msg = event.data.get('content', '') or tag
-    print(f'[{tag:<12} {name:>10}] {msg}')
+state = agent.state_dict()
+with open('_agent_state.json', 'w', encoding='utf-8') as f:
+    json.dump(state, f, ensure_ascii=False, indent=2)
 
+with open('_agent_state.json', 'r', encoding='utf-8') as f:
+    restored_state = json.load(f)
 
-def handle_end(event: Event):
-    tag = event.topic
-    name = event.source or 'agent'
-    if event.topic == 'agent:end':
-        response = event.data.get('content', '')
-        msg = f'response: {response[:60]}...'
-    elif event.topic == 'tool:end':
-        result = event.data.get('result', '')
-        msg = f'"{name}" done: {str(result)[:50]}...'
-    else:
-        msg = tag
-    print(f'[{tag:<12} {name:>10}] {msg}')
+new_agent = Agent.from_state_dict(restored_state, scheduler=scheduler, tools=[query_stock, query_news])
 
+result = new_agent.chat('What about GOOG?')
+print(f'\nrestored agent result: {result}\n')
 
-def handle_error(event: Event):
-    tag = event.topic
-    name = event.source or 'agent'
-    print(f'[{tag:<12} {name:>10}] error: {event.data.get("error", "")}')
-
-
-with EventBus() as bus:
-    bus.subscribe('agent:start', handle_start)
-    bus.subscribe('agent:step', handle_step)
-    bus.subscribe('agent:end', handle_end)
-    bus.subscribe('agent:error', handle_error)
-    bus.subscribe('tool:start', handle_start)
-    bus.subscribe('tool:step', handle_step)
-    bus.subscribe('tool:end', handle_end)
-    bus.subscribe('tool:error', handle_error)
-    bus.subscribe('client:step', handle_step)
-
-    agent = Agent(
-        name='analyst',
-        event_bus=bus,
-        provider=args.provider, model=args.model,
-        http_options=http_options, stream=False,
-        instruction=(
-            'You are a financial analyst. You have stock query and news query tools. '
-            'For complex research tasks, delegate to sub-agents.'
-        ),
-        tools=[query_stock, query_news],
-    )
-
-    result = agent.chat('What is the current price of AAPL and TSLA?')
-    print(f'\nanalyst result: {result}\n')
-
-    state = agent.state_dict()
-    with open('_agent_state.json', 'w', encoding='utf-8') as f:
-        json.dump(state, f, ensure_ascii=False, indent=2)
-
-    with open('_agent_state.json', 'r', encoding='utf-8') as f:
-        restored_state = json.load(f)
-
-    new_agent = Agent.from_state_dict(restored_state, event_bus=bus, tools=[query_stock, query_news])
-
-    result = new_agent.chat('What about GOOG?')
-    print(f'\nrestored agent result: {result}\n')
-
-    import os
-    os.remove('_agent_state.json')
+os.remove('_agent_state.json')

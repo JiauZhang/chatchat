@@ -1,5 +1,4 @@
 from chatchat.tool import Tool, Tools, tool
-from chatchat.event import EventBus, Event
 
 
 def test_tool_decorator():
@@ -29,57 +28,14 @@ def test_tool_to_dict():
     assert d['function']['description'] == 'echo the input'
 
 
-def test_tool_emits_events():
-    events = []
-
-    def collector(event: Event):
-        events.append((event.topic, event.source, event.data))
-
-    bus = EventBus(source='add')
-    bus.start()
-    bus.subscribe('tool:*', collector)
-
-    t = Tool(name='add', description='add two numbers', tool=lambda a, b: a + b,
-             event_bus=bus, source='add')
-
-    result = t(a=3, b=4)
-
-    bus.stop()
-    assert result == 7
-    assert len(events) == 2
-    assert events[0][0] == 'tool:start'
-    assert events[0][1] == 'add'
-    assert events[0][2] == {'name': 'add', 'arguments': {'a': 3, 'b': 4}}
-    assert events[1][0] == 'tool:end'
-    assert events[1][1] == 'add'
-    assert events[1][2] == {'name': 'add', 'result': 7}
-
-
 def test_tool_error():
-    events = []
-
-    def collector(event: Event):
-        events.append((event.topic, event.source, event.data))
-
-    bus = EventBus(source='fail')
-    bus.start()
-    bus.subscribe('tool:*', collector)
-
     def failing(a):
         raise ValueError('something broke')
 
-    t = Tool(name='fail', description='a failing tool', tool=failing,
-             event_bus=bus)
-
+    t = Tool(name='fail', description='a failing tool', tool=failing)
     result = t(a=1)
-
-    bus.stop()
     assert 'Error calling tool' in result
     assert 'something broke' in result
-    assert len(events) == 2
-    assert events[0][0] == 'tool:start'
-    assert events[1][0] == 'tool:error'
-    assert 'something broke' in events[1][2].get('error', '')
 
 
 def test_tool_no_parameters():

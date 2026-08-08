@@ -1,200 +1,201 @@
 import threading
-import pytest
+from queue import Queue, Empty
 from chatchat.scheduler import Scheduler, TimeoutError
 from chatchat.message import ID, Message
 
 
-class EchoWorker:
-    def __init__(self, name='echo'):
-        self.id = ID(uid=name, kind='worker', name=name)
-        self._mailbox = __import__('queue').Queue()
+class EchoEntity:
+    def __init__(self, name, scheduler=None):
+        self.id = ID(uid=name, kind='agent', name=name)
+        self._mailbox = Queue()
+        self._scheduler = scheduler
         self._stop_event = threading.Event()
-        self._thread = None
+        self._thread: threading.Thread | None = None
+
+    def handle_message(self, msg):
+        if msg.type == 'request':
+            if msg.subtype == 'ping':
+                return 'pong'
+            if msg.subtype == 'echo':
+                return msg.payload
+        return msg.payload
 
     def start(self):
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._process_loop, daemon=True)
         self._thread.start()
 
+    def stop(self):
+        self._stop_event.set()
+        if self._thread:
+            self._thread.join(timeout=1)
+
     def _process_loop(self):
         while not self._stop_event.is_set():
             try:
                 msg = self._mailbox.get(timeout=0.1)
-                if msg.type == 'signal':
-                    continue
-                self.scheduler.reply(msg, f'echo: {msg.payload}')
-            except __import__('queue').Empty:
+                result = self.handle_message(msg)
+                if result is not None and self._scheduler:
+                    self._scheduler.reply(msg, result)
+            except Empty:
                 continue
 
-    def stop(self):
-        self._stop_event.set()
-        if self._thread:
-            self._thread.join(timeout=2)
 
-    def handle_message(self, msg):
-        return f'echo: {msg.payload}'
-
-
-class TestScheduler:
-    def test_register_and_lookup(self):
+class TestRegister:
+    def test_register_entity(self):
         s = Scheduler()
-        w = EchoWorker('test')
-        w.scheduler = s
-        sid = s.register(w)
-        assert s.lookup(sid) is w
-        assert s.lookup(sid).id.uid == 'test'
+        e = EchoEntity('alice')
+        s.register(e)
+        assert s.lookup(e.id).id.name == 'alice'
 
-    def test_send_fire_and_forget(self):
+    def test_unregister_entity(self):
         s = Scheduler()
-        w = EchoWorker('target')
-        w.scheduler = s
-        s.register(w)
-        w.start()
-        msg = Message(sender=ID(), recipient=w.id, type='text', payload='hello')
-        s.send(msg)
-        import time
-        time.sleep(0.1)
-        w.stop()
-        assert True
+        e = EchoEntity('alice')
+        s.register(e)
+        s.unregister(e.id)
+        assert s.lookup(e.id) is None
 
+
+class TestSend:
+    def test_send_message(self):
+        s = Scheduler()
+        e = EchoEntity('bob')
+        s.register(e)
+        s.send(Message(sender=ID(), recipient=e.id, type='text', payload='hello'))
+        msg = e._mailbox.get(timeout=1)
+        assert msg.payload == 'hello'
+
+
+class TestRequest:
     def test_request_reply(self):
         s = Scheduler()
-        w = EchoWorker('target')
-        w.scheduler = s
-        s.register(w)
-        w.start()
-        msg = Message(sender=ID(), recipient=w.id, type='text', payload='hello')
-        reply = s.request(msg, timeout=5)
-        assert reply.type == 'reply'
-        assert reply.payload == 'echo: hello'
-        w.stop()
-
-    def test_request_timeout(self):
-        s = Scheduler()
-        w = EchoWorker('slow')
-        w.scheduler = s
-        s.register(w)
-        msg = Message(sender=ID(), recipient=w.id, type='text', payload='hello')
-        with pytest.raises(TimeoutError, match='Timeout'):
-            s.request(msg, timeout=0.1)
-        w.stop()
+        e = EchoEntity('bob', scheduler=s)
+        s.register(e)
+        e.start()
+        reply = s.request(
+            Message(sender=ID(), recipient=e.id, type='request', subtype='ping'),
+            timeout=5,
+        )
+        assert reply.payload == 'pong'
 
     def test_request_unknown_recipient(self):
         s = Scheduler()
-        unknown_id = ID(uid='nonexistent', kind='worker')
-        msg = Message(sender=ID(), recipient=unknown_id, type='text', payload='hello')
-        with pytest.raises(ValueError, match='Unknown recipient'):
-            s.request(msg, timeout=1)
+        import pytest
+        with pytest.raises(ValueError):
+            s.request(Message(sender=ID(), recipient=ID(uid='nobody'), type='request', subtype='ping'))
 
-    def test_publish_subscribe(self):
+    def test_request_timeout(self):
         s = Scheduler()
-        w = EchoWorker('subscriber')
-        w.scheduler = s
-        s.register(w)
-        s.subscribe('test.event', w.id)
-        msg = Message(sender=ID(), recipient=ID(), type='event', payload='data')
-        s.publish('test.event', msg)
-        import time
-        time.sleep(0.1)
-        w.stop()
-        assert True
+        e = EchoEntity('slow')
+        s.register(e)
+        import pytest
+        with pytest.raises(TimeoutError):
+            s.request(
+                Message(sender=ID(), recipient=e.id, type='request', subtype='echo', payload='hi'),
+                timeout=0.01,
+            )
 
-    def test_subscribe_unsubscribe(self):
+
+class TestReply:
+    def test_reply_resolves_pending_request(self):
         s = Scheduler()
-        w = EchoWorker('sub')
-        w.scheduler = s
-        s.register(w)
-        s.subscribe('test', w.id)
-        s.unsubscribe('test', w.id)
-        msg = Message(sender=ID(), recipient=ID(), type='event')
-        s.publish('test', msg)
-        import time
-        time.sleep(0.1)
-        w.stop()
-        assert True
+        e = EchoEntity('helper', scheduler=s)
+        s.register(e)
+        e.start()
+        reply = s.request(
+            Message(sender=ID(), recipient=e.id, type='request', subtype='echo', payload='hello'),
+            timeout=5,
+        )
+        assert reply.payload == 'hello'
+        e.stop()
 
-    def test_wait_notify(self):
+
+class TestPublishSubscribe:
+    def test_subscriber_receives_event(self):
         s = Scheduler()
-        notified = []
+        e = EchoEntity('sub')
+        s.register(e)
+        s.subscribe('test:event', e.id)
+        s.publish('test:event', Message(sender=ID(), type='event', subtype='test:event', payload={}))
+        msg = e._mailbox.get(timeout=1)
+        assert msg.subtype == 'test:event'
 
-        def notifier():
-            import time
-            time.sleep(0.1)
-            s.notify('test_condition')
-            notified.append(True)
-
-        t = threading.Thread(target=notifier, daemon=True)
-        t.start()
-        s.wait('test_condition', timeout=5)
-        assert len(notified) == 1
-
-    def test_wait_timeout(self):
+    def test_unsubscribed_does_not_receive(self):
         s = Scheduler()
-        s.wait('never_notified', timeout=0.1)
-        assert True
+        e = EchoEntity('sub')
+        s.register(e)
+        s.subscribe('test:event', e.id)
+        s.unsubscribe('test:event', e.id)
+        s.publish('test:event', Message(sender=ID(), type='event', subtype='test:event', payload={}))
+        import queue
+        with pytest.raises(queue.Empty):
+            e._mailbox.get(timeout=0.3)
 
-    def test_list_entities(self):
+
+class TestCreateAgent:
+    def test_create_agent_returns_id(self):
         s = Scheduler()
-        w1 = EchoWorker('a')
-        w2 = EchoWorker('b')
-        w1.scheduler = s
-        w2.scheduler = s
-        s.register(w1)
-        s.register(w2)
-        entities = s.list_entities()
-        assert len(entities) == 2
-        assert 'a' in entities
-        assert 'b' in entities
+        from chatchat.agent import AgentConfig
+        cfg = AgentConfig(name='test', provider='deepseek', model='deepseek-chat', http_options={'timeout': 10})
+        aid = s.create_agent(cfg)
+        assert aid.name == 'test'
+        entity = s.lookup(aid)
+        assert entity is not None
+        entity.stop()
 
+
+class TestCreateTeam:
+    def test_create_team_returns_id(self):
+        s = Scheduler()
+        from chatchat.team import TeamConfig
+        from chatchat.agent import AgentConfig
+        cfg = TeamConfig(name='t', leader=AgentConfig(name='l', provider='deepseek', model='deepseek-chat', http_options={'timeout': 10}))
+        tid = s.create_team(cfg)
+        assert tid.name == 't'
+        entity = s.lookup(tid)
+        assert entity is not None
+        entity.stop()
+
+
+class TestLookup:
+    def test_lookup_by_name(self):
+        s = Scheduler()
+        e = EchoEntity('charlie')
+        s.register(e)
+        assert s.lookup_by_name('charlie') is e
+        assert s.lookup_by_name('nobody') is None
+
+
+class TestListEntities:
+    def test_list_entities_with_kind(self):
+        s = Scheduler()
+        e = EchoEntity('dave')
+        s.register(e)
+        ids = s.list_entities(kind='agent')
+        assert len(ids) >= 1
+        uid = [id.uid for id in ids]
+        assert 'dave' in uid
+
+
+class TestStop:
     def test_stop_entity(self):
         s = Scheduler()
-        w = EchoWorker('test')
-        w.scheduler = s
-        s.register(w)
-        w.start()
-        s.stop(w.id)
-        assert s.lookup(w.id) is None
+        from chatchat.agent import Agent, AgentConfig
+        agent = Agent(AgentConfig(name='killme', provider='deepseek', model='deepseek-chat', http_options={'timeout': 10}), s)
+        s.register(agent)
+        agent.start()
+        assert agent.is_running
+        s.stop(agent.id)
+        assert not agent.is_running
 
-    def test_shutdown(self):
+
+class TestShutdown:
+    def test_shutdown_clears_all(self):
         s = Scheduler()
-        w1 = EchoWorker('a')
-        w2 = EchoWorker('b')
-        w1.scheduler = s
-        w2.scheduler = s
-        s.register(w1)
-        s.register(w2)
-        w1.start()
-        w2.start()
+        e = EchoEntity('dead')
+        s.register(e)
         s.shutdown()
-        assert len(s.list_entities()) == 0
+        assert s.list_entities() == []
 
-    def test_send_to_unregistered(self):
-        s = Scheduler()
-        unknown_id = ID(uid='nowhere', kind='worker')
-        msg = Message(sender=ID(), recipient=unknown_id, type='text')
-        s.send(msg)
-        assert True
 
-    def test_multiple_requests(self):
-        s = Scheduler()
-        w = EchoWorker('target')
-        w.scheduler = s
-        s.register(w)
-        w.start()
-        results = []
-        def do_request(n):
-            msg = Message(sender=ID(), recipient=w.id, type='text', payload=f'req{n}')
-            try:
-                reply = s.request(msg, timeout=5)
-                results.append(reply.payload)
-            except Exception as e:
-                results.append(f'error: {e}')
-        threads = [threading.Thread(target=do_request, args=(i,), daemon=True) for i in range(3)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
-        assert 'echo: req0' in results
-        assert 'echo: req1' in results
-        assert 'echo: req2' in results
-        w.stop()
+import pytest

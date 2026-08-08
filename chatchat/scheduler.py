@@ -1,8 +1,6 @@
 from __future__ import annotations
 import threading
-import time
 from collections import defaultdict
-from dataclasses import dataclass, field
 from queue import Queue, Empty
 from typing import Any
 
@@ -19,7 +17,6 @@ class Scheduler:
         self._subscriptions: dict[str, set[str]] = defaultdict(set)
         self._pending_requests: dict[str, threading.Event] = {}
         self._pending_replies: dict[str, Message] = {}
-        self._conditions: dict[str, threading.Event] = {}
         self._lock = threading.Lock()
 
     def register(self, entity) -> ID:
@@ -84,37 +81,26 @@ class Scheduler:
         with self._lock:
             self._subscriptions[topic].discard(entity_id.uid)
 
-    def wait(self, condition: str, timeout: float | None = None):
-        with self._lock:
-            event = self._conditions.get(condition)
-            if event is None:
-                event = threading.Event()
-                self._conditions[condition] = event
-        event.wait(timeout=timeout)
-
-    def notify(self, condition: str):
-        with self._lock:
-            event = self._conditions.pop(condition, None)
-        if event:
-            event.set()
-
     def create_agent(self, config) -> ID:
-        from chatchat.worker import Worker
-        worker = Worker(config, self)
-        self.register(worker)
-        worker.start()
-        return worker.id
+        from chatchat.agent import create_agent as _create_agent
+        agent = _create_agent(config, self)
+        return agent.id
 
     def create_team(self, config) -> ID:
-        from chatchat.team import Team
-        team = Team(config, self)
-        self.register(team)
-        team.start()
+        from chatchat.team import create_team as _create_team
+        team = _create_team(config, self)
         return team.id
 
     def lookup(self, entity_id: ID):
         with self._lock:
             return self._entities.get(entity_id.uid)
+
+    def lookup_by_name(self, name: str):
+        with self._lock:
+            for entity in self._entities.values():
+                if entity.id.name == name:
+                    return entity
+        return None
 
     def list_entities(self, kind: str = '') -> list[ID]:
         with self._lock:
@@ -139,4 +125,3 @@ class Scheduler:
             self._subscriptions.clear()
             self._pending_requests.clear()
             self._pending_replies.clear()
-            self._conditions.clear()
