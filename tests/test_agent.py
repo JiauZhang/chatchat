@@ -173,7 +173,7 @@ class TestManagementTools:
         s = Scheduler()
         agent = Agent(AgentConfig(
             name='test', provider='deepseek', model='deepseek-chat',
-            http_options={'timeout': 10},
+            http_options={'timeout': 10}, management_tools=True,
         ), s)
         assert 'create_agent' in agent.tools
         assert 'send_message' in agent.tools
@@ -183,7 +183,7 @@ class TestManagementTools:
         s = Scheduler()
         agent = Agent(AgentConfig(
             name='alice', provider='deepseek', model='deepseek-chat',
-            http_options={'timeout': 10},
+            http_options={'timeout': 10}, management_tools=True,
         ), s)
         tool = agent.tools['send_message']
         result = tool(to='nobody', message='hi')
@@ -193,7 +193,7 @@ class TestManagementTools:
         s = Scheduler()
         agent = Agent(AgentConfig(
             name='alice', provider='deepseek', model='deepseek-chat',
-            http_options={'timeout': 10},
+            http_options={'timeout': 10}, management_tools=True,
         ), s)
         s.register(agent)
         target = Agent(AgentConfig(
@@ -213,7 +213,7 @@ class TestManagementTools:
         s = Scheduler()
         agent = Agent(AgentConfig(
             name='alice', provider='deepseek', model='deepseek-chat',
-            http_options={'timeout': 10},
+            http_options={'timeout': 10}, management_tools=True,
         ), s)
         tool = agent.tools['task_stop']
         result = tool(name='nobody')
@@ -223,7 +223,7 @@ class TestManagementTools:
         s = Scheduler()
         agent = Agent(AgentConfig(
             name='alice', provider='deepseek', model='deepseek-chat',
-            http_options={'timeout': 10},
+            http_options={'timeout': 10}, management_tools=True,
         ), s)
         # Pre-populate a sub-agent to test duplicate detection (no real API call)
         sub = Agent(AgentConfig(

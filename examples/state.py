@@ -52,7 +52,7 @@ scheduler = Scheduler()
 agent = Agent(AgentConfig(
     name='analyst',
     provider=args.provider, model=args.model,
-    http_options=http_options, stream=False,
+    http_options=http_options, stream=True,
     instruction=(
         'You are a financial analyst. You have stock query and news query tools. '
         'For complex research tasks, delegate to sub-agents.'

@@ -83,6 +83,7 @@ team = Team(TeamConfig(
     leader=make_agent_config(
         name='lead',
         instruction='You are a tech lead. Use create_agent to create sub-agents for tasks. Use send_message to communicate with them.',
+        management_tools=True,
     ),
 ), scheduler)
 scheduler.register(team)

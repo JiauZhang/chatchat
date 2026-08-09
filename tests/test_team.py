@@ -58,18 +58,20 @@ class TestIntegration:
         assert reply.payload['name'] == 'leader'
         team.stop()
 
-    def test_leader_chat_nonstream(self, monkeypatch):
+    def test_leader_chat(self, monkeypatch):
         s = Scheduler()
-        team = Team(TeamConfig(name='t', leader=make_agent_config('leader', stream=False)), s)
+        team = Team(TeamConfig(name='t', leader=make_agent_config('leader')), s)
         s.register(team)
         team.start()
         leader = team.leader
 
-        monkeypatch.setattr(leader.client, 'chat', lambda *a, **kw: type('R', (), {
-            'choices': [type('C', (), {
-                'message': type('M', (), {'content': 'done', 'tool_calls': None})(),
-            })()],
-        })())
+        from chatchat.types import ChatCompletionChunk, ChunkChoice, Delta
+        def mock_chat(*a, **kw):
+            yield ChatCompletionChunk(
+                choices=[ChunkChoice(delta=Delta(content='done'), finish_reason='stop')],
+            )
+
+        monkeypatch.setattr(leader.client, 'chat', mock_chat)
 
         msg = Message(sender=ID(), recipient=team.id, type='text', payload='hello')
         reply = s.request(msg, timeout=10)

@@ -9,7 +9,6 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--provider', type=str, default='deepseek')
 parser.add_argument('--model', type=str, default='deepseek-v4-flash')
 parser.add_argument('--timeout', type=int, default=30)
-parser.add_argument('--non-streaming', action='store_true')
 args = parser.parse_args()
 
 http_options = {'timeout': args.timeout}
@@ -46,7 +45,7 @@ scheduler = Scheduler()
 agent = Agent(AgentConfig(
     name='assistant',
     provider=args.provider, model=args.model,
-    http_options=http_options, stream=not args.non_streaming,
+    http_options=http_options, stream=True,
     instruction='You are a helpful assistant with write_file tool.',
     tools=[write_file],
 ), scheduler)
@@ -54,11 +53,4 @@ write_file.on_interact(handle_interact)
 
 prompt = input('user> ')
 response = agent.chat(prompt)
-
-if agent.stream:
-    print('assistant> ', end='')
-    for chunk in response:
-        print(chunk, end='', flush=True)
-    print()
-else:
-    print(f'assistant> {response}')
+print(f'assistant> {response}')

@@ -11,7 +11,6 @@ parser.add_argument('--provider', type=str, default='deepseek')
 parser.add_argument('--model', type=str, default='deepseek-v4-flash')
 parser.add_argument('--timeout', type=int, default=None)
 parser.add_argument('--proxy', type=str, default=None)
-parser.add_argument('--non-streaming', action='store_true')
 args = parser.parse_args()
 
 http_options = {}
@@ -94,7 +93,7 @@ scheduler = Scheduler()
 agent = Agent(AgentConfig(
     name='assistant',
     provider=args.provider, model=args.model, http_options=http_options,
-    stream=not args.non_streaming,
+    stream=True,
     instruction='You are a helpful assistant with tools for tickets, files, and shell commands.',
     tools=[query_train_ticket, query_ticket_price, read_file, write_file, execute_shell_command],
 ), scheduler)
@@ -110,11 +109,5 @@ while True:
         continue
 
     response = agent.chat(prompt)
-    if agent.stream:
-        chunks = []
-        for chunk in response:
-            chunks.append(chunk)
-        print(f'assistant> {"".join(chunks)}')
-    else:
-        print(f'assistant> {response}')
+    print(f'assistant> {response}')
     print()
