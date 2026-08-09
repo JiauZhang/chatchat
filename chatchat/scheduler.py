@@ -3,7 +3,7 @@ import threading
 from queue import Queue, Empty
 from typing import Any, Callable
 
-from chatchat.message import ID, Message
+from chatchat.message import Message
 
 
 class TimeoutError(Exception):
@@ -36,18 +36,18 @@ class Scheduler:
         self._pending_replies: dict[str, Message] = {}
         self._lock = threading.Lock()
 
-    def register(self, entity) -> ID:
+    def register(self, entity) -> str:
         with self._lock:
-            self._entities[entity.id.uid] = entity
+            self._entities[entity.id] = entity
         return entity.id
 
-    def unregister(self, entity_id: ID):
+    def unregister(self, entity_id: str):
         with self._lock:
-            self._entities.pop(entity_id.uid, None)
+            self._entities.pop(entity_id, None)
 
     def send(self, msg: Message):
         with self._lock:
-            entity = self._entities.get(msg.recipient.uid)
+            entity = self._entities.get(msg.recipient)
             if entity:
                 entity._mailbox.put(msg)
 
@@ -55,7 +55,7 @@ class Scheduler:
         event = threading.Event()
         with self._lock:
             self._pending_requests[msg.id] = event
-            entity = self._entities.get(msg.recipient.uid)
+            entity = self._entities.get(msg.recipient)
             if not entity:
                 self._pending_requests.pop(msg.id, None)
                 raise ValueError(f'Unknown recipient: {msg.recipient}')
@@ -82,21 +82,21 @@ class Scheduler:
                 self._pending_replies[to_msg.id] = reply
                 event.set()
 
-    def lookup(self, entity_id: ID):
+    def lookup(self, entity_id: str):
         with self._lock:
-            return self._entities.get(entity_id.uid)
+            return self._entities.get(entity_id)
 
     def lookup_by_name(self, name: str):
         with self._lock:
             for entity in self._entities.values():
-                if entity.id.name == name:
+                if entity.id == name:
                     return entity
         return None
 
-    def list_entities(self, kind: str = '') -> list[ID]:
+    def list_entities(self, kind: str = '') -> list[str]:
         with self._lock:
             if kind:
-                return [e.id for e in self._entities.values() if e.id.kind == kind]
+                return [e.id for e in self._entities.values() if getattr(e, 'kind', '') == kind]
             return [e.id for e in self._entities.values()]
 
     def shutdown(self):

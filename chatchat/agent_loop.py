@@ -16,7 +16,10 @@ class AgentLoop:
 
     def run(self, text: str) -> str:
         new_messages = [{'role': 'user', 'content': text}]
-        for _ in range(self.max_turns):
+        max_iter = self.max_turns if self.max_turns > 0 else float('inf')
+        step = 0
+        while step < max_iter:
+            step += 1
             gen = self.client.chat(
                 new_messages,
                 stream=True,

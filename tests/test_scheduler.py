@@ -1,12 +1,13 @@
 import threading
 from queue import Queue, Empty
 from chatchat.scheduler import Scheduler, TimeoutError
-from chatchat.message import ID, Message
+from chatchat.message import Message, make_id
 
 
 class EchoEntity:
     def __init__(self, name, scheduler=None):
-        self.id = ID(uid=name, kind='agent', name=name)
+        self.id = name
+        self.kind = 'agent'
         self._mailbox = Queue()
         self._scheduler = scheduler
         self._stop_event = threading.Event()
@@ -46,7 +47,7 @@ class TestRegister:
         s = Scheduler()
         e = EchoEntity('alice')
         s.register(e)
-        assert s.lookup(e.id).id.name == 'alice'
+        assert s.lookup(e.id).id == 'alice'
 
     def test_unregister_entity(self):
         s = Scheduler()
@@ -61,7 +62,7 @@ class TestSend:
         s = Scheduler()
         e = EchoEntity('bob')
         s.register(e)
-        s.send(Message(sender=ID(), recipient=e.id, type='text', payload='hello'))
+        s.send(Message(sender=make_id(), recipient=e.id, type='text', payload='hello'))
         msg = e._mailbox.get(timeout=1)
         assert msg.payload == 'hello'
 
@@ -73,7 +74,7 @@ class TestRequest:
         s.register(e)
         e.start()
         reply = s.request(
-            Message(sender=ID(), recipient=e.id, type='request', subtype='ping'),
+            Message(sender=make_id(), recipient=e.id, type='request', subtype='ping'),
             timeout=5,
         )
         assert reply.payload == 'pong'
@@ -82,7 +83,7 @@ class TestRequest:
         s = Scheduler()
         import pytest
         with pytest.raises(ValueError):
-            s.request(Message(sender=ID(), recipient=ID(uid='nobody'), type='request', subtype='ping'))
+            s.request(Message(sender=make_id(), recipient='nobody', type='request', subtype='ping'))
 
     def test_request_timeout(self):
         s = Scheduler()
@@ -91,7 +92,7 @@ class TestRequest:
         import pytest
         with pytest.raises(TimeoutError):
             s.request(
-                Message(sender=ID(), recipient=e.id, type='request', subtype='echo', payload='hi'),
+                Message(sender=make_id(), recipient=e.id, type='request', subtype='echo', payload='hi'),
                 timeout=0.01,
             )
 
@@ -103,7 +104,7 @@ class TestReply:
         s.register(e)
         e.start()
         reply = s.request(
-            Message(sender=ID(), recipient=e.id, type='request', subtype='echo', payload='hello'),
+            Message(sender=make_id(), recipient=e.id, type='request', subtype='echo', payload='hello'),
             timeout=5,
         )
         assert reply.payload == 'hello'
@@ -126,8 +127,7 @@ class TestListEntities:
         s.register(e)
         ids = s.list_entities(kind='agent')
         assert len(ids) >= 1
-        uid = [id.uid for id in ids]
-        assert 'dave' in uid
+        assert 'dave' in ids
 
 
 class TestStop:

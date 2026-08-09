@@ -65,10 +65,14 @@ def tool(*, name, description, parameters=None, emit_fn=None):
 
 class Tools:
     def __init__(self, *tools: Tool):
-        self.tools = tools
+        self.tools = list(tools)
         self.name_to_tool = {}
         for tool in self.tools:
             self.name_to_tool[tool.name] = tool
+
+    def add(self, tool: Tool):
+        self.tools.append(tool)
+        self.name_to_tool[tool.name] = tool
 
     def __getitem__(self, name):
         return self.name_to_tool[name]

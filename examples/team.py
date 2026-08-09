@@ -4,7 +4,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from chatchat.scheduler import Scheduler, on_event, off_event
 from chatchat.agent import Agent, AgentConfig
 from chatchat.team import Team, TeamConfig
-from chatchat.message import ID, Message
+from chatchat.message import Message, make_id
 from chatchat.tool import tool
 from chatchat.rate_limiter import set_rate_limits
 
@@ -31,16 +31,15 @@ set_rate_limits([
 def handle_event(topic, data):
     source = data.get('_source', '')
     if topic == 'agent:start':
-        print(f'[agent:start  {source:>10}] {data.get("message","")[:60]}')
+        print(f'[agent:start  {source:>10}] {data.get("message","")}')
     elif topic == 'agent:step':
         tcs = data.get('tool_calls', [])
         if tcs:
             names = [tc['name'] for tc in tcs]
-            arys = [str(tc.get('arguments', ''))[:40] for tc in tcs]
+            arys = [tc.get('arguments', '') for tc in tcs]
             print(f'[agent:step   {source:>10}] {names} {arys}')
     elif topic == 'agent:end':
-        content = (data.get('content', '') or '')[:60]
-        print(f'[agent:end    {source:>10}] {content}...')
+        print(f'[agent:end    {source:>10}] {data.get("content","")}')
     elif topic == 'agent:error':
         print(f'[agent:error  {source:>10}] {data.get("error","")}')
     elif topic == 'client:start':
@@ -55,18 +54,44 @@ def handle_event(topic, data):
         print(f'\n[client:end   {source:>10}] LLM response complete')
     elif topic == 'tool:start':
         print(f'[tool:start   {source:>10}] {data.get("name","")}')
+    elif topic == 'tool:step':
+        print(f'[tool:step   {source:>10}] {data.get("content","")}')
     elif topic == 'tool:end':
         print(f'[tool:end     {source:>10}] {data.get("name","")}')
     elif topic == 'tool:error':
         print(f'[tool:error   {source:>10}] {data.get("name","")}: {data.get("error","")}')
 
 
-def make_agent_config(name, **kwargs):
-    return AgentConfig(
-        name=name, provider=args.provider, model=args.model,
-        http_options=http_options, stream=True, thinking=args.thinking,
-        **kwargs,
-    )
+@tool(name='write_file', description='write content to a file',
+      parameters={'type': 'object', 'properties': {
+          'path': {'type': 'string', 'description': 'file path'},
+          'content': {'type': 'string', 'description': 'content to write'},
+      }, 'required': ['path', 'content']})
+def write_file(path, content):
+    write_file._emit('tool:step', {'content': f'writing {len(content)} chars to {path}'})
+    try:
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write(content)
+        return f'wrote {len(content)} chars to {path}'
+    except Exception as e:
+        return f'write failed: {e}'
+
+
+@tool(name='read_file', description='read file content',
+      parameters={'type': 'object', 'properties': {
+          'path': {'type': 'string', 'description': 'file path'},
+      }, 'required': ['path']})
+def read_file(path):
+    read_file._emit('tool:step', {'content': f'reading {path}'})
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        read_file._emit('tool:step', {'content': f'read {len(content)} chars from {path}'})
+        return content
+    except Exception as e:
+        read_file._emit('tool:step', {'content': f'read failed: {e}'})
+        return f'read failed: {e}'
 
 
 scheduler = Scheduler()
@@ -79,12 +104,12 @@ for topic in ['agent:start', 'agent:step', 'agent:end', 'agent:error',
 time.sleep(0.1)
 
 team = Team(TeamConfig(
-    name='dev-team',
-    leader=make_agent_config(
-        name='lead',
-        instruction='You are a tech lead. Use create_agent to create sub-agents for tasks. Use send_message to communicate with them.',
-        management_tools=True,
-    ),
+    name='lead',
+    provider=args.provider, model=args.model,
+    instruction='You are a tech lead.',
+    http_options=http_options, stream=True, thinking=args.thinking,
+    leader_tools=[read_file],
+    agent_tools=[write_file, read_file],
 ), scheduler)
 scheduler.register(team)
 team.start()
@@ -93,7 +118,7 @@ time.sleep(0.1)
 
 
 def team_chat(message, timeout=None):
-    msg = Message(sender=ID(), recipient=team.id, type='text', payload=message)
+    msg = Message(sender=make_id(), recipient=team.id, type='text', payload=message)
     reply = scheduler.request(msg, timeout=timeout)
     return reply.payload
 
@@ -101,8 +126,8 @@ def team_chat(message, timeout=None):
 print('=' * 60)
 print('Team demo: leader creates sub-agents dynamically')
 print('=' * 60)
-r = team_chat('build a ticket booking system.')
-print(f'  result: {r[:200] if r else "empty"}...')
+r = team_chat('write a python `heap sort` tutorial to output.md')
+print(f'\n\nTeam result: {r if r else "empty"}')
 
 team.stop()
 scheduler.shutdown()

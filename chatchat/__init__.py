@@ -1,7 +1,7 @@
 from .version import __version__
 from .scheduler import Scheduler, TimeoutError
-from .message import ID, Message
-from .agent import Agent, AgentConfig, create_agent
+from .message import Message, make_id
+from .agent import Agent, AgentConfig, BaseAgentConfig, create_agent
 from .team import Team, TeamConfig, create_team
 
 

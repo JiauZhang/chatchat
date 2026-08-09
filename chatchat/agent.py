@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from queue import Queue, Empty
 from typing import Any, Callable
 
-from chatchat.message import ID, Message
+from chatchat.message import Message
 from chatchat.scheduler import emit_event
 from chatchat.tool import Tool, Tools
 from chatchat.skill import Skills
@@ -12,7 +12,7 @@ from chatchat.agent_loop import AgentLoop
 
 
 @dataclass
-class AgentConfig:
+class BaseAgentConfig:
     name: str
     description: str = ''
     provider: str | None = None
@@ -20,17 +20,20 @@ class AgentConfig:
     instruction: str = ''
     stream: bool = True
     thinking: bool = False
-    tools: list | None = None
     skills: list | None = None
     http_options: dict | None = None
-    max_turns: int = 20
+    max_turns: int = 0
     source: str = 'user'
     background: bool = False
-    management_tools: bool = False
+
+
+@dataclass
+class AgentConfig(BaseAgentConfig):
+    tools: list | None = None
 
 
 class BaseAgent:
-    def __init__(self, id: ID, scheduler):
+    def __init__(self, id: str, scheduler):
         self.id = id
         self.scheduler = scheduler
         self._mailbox = Queue()
@@ -38,7 +41,7 @@ class BaseAgent:
         self._task_completed = threading.Event()
         self._thread: threading.Thread | None = None
         self._sub_agents: dict[str, BaseAgent] = {}
-        self._parent: ID | None = None
+        self._parent: str | None = None
 
     def start(self):
         self._stop_event.clear()
@@ -59,11 +62,17 @@ class BaseAgent:
 
     def _emit(self, topic: str, data: dict = None):
         d = dict(data or {})
-        d['_source'] = getattr(self, 'name', self.id.uid)
+        d['_source'] = getattr(self, 'name', self.id)
         emit_event(topic, d)
 
     def handle_message(self, msg: Message) -> Any:
         raise NotImplementedError
+
+    def create_sub_agent(self, config: AgentConfig) -> Agent:
+        agent = create_agent(config, self.scheduler)
+        agent._parent = self.id
+        self._sub_agents[config.name] = agent
+        return agent
 
     def _process_loop(self):
         while not self._stop_event.is_set():
@@ -98,8 +107,8 @@ class Agent(BaseAgent):
         self.name = config.name
         self.description = config.description
         self.config = config
-        id = ID(uid=config.name, kind='agent', name=config.name)
-        super().__init__(id, scheduler)
+        self.kind = 'agent'
+        super().__init__(config.name, scheduler)
 
         self._setup_tools()
         self._setup_skills()
@@ -147,8 +156,6 @@ class Agent(BaseAgent):
             for t in self.tools:
                 t._emit_fn = self._emit
                 t._source = self.name
-        if self.config.management_tools:
-            self._inject_management_tools()
 
     def _setup_skills(self):
         self.skills = Skills(self.config.skills) if self.config.skills else None
@@ -168,11 +175,6 @@ class Agent(BaseAgent):
                 instruction=self.instruction, http_options=self.config.http_options,
                 emit_fn=self._emit, source=self.name,
             )
-
-    def _inject_management_tools(self):
-        from chatchat.agent_tools import create_agent_tool, send_message_tool, task_stop_tool
-        for t in [create_agent_tool(self), send_message_tool(self), task_stop_tool(self)]:
-            self.add_tool(t)
 
     def _emit_lifecycle(self, event: str, **data):
         for handler in self._hooks.get(event, []):
@@ -287,13 +289,7 @@ class Agent(BaseAgent):
         if self.tools is None:
             self.tools = Tools(tool)
         else:
-            self.tools.name_to_tool[tool.name] = tool
-
-    def create_sub_agent(self, config: AgentConfig) -> Agent:
-        agent = create_agent(config, self.scheduler)
-        agent._parent = self.id
-        self._sub_agents[config.name] = agent
-        return agent
+            self.tools.add(tool)
 
     def clear(self):
         if self.client:
@@ -333,7 +329,7 @@ class Agent(BaseAgent):
             stream=True,
             thinking=state['config'].get('thinking', False),
             http_options=state['config'].get('http_options', {}),
-            max_turns=state['config'].get('max_turns', 20),
+            max_turns=state['config'].get('max_turns', 0),
             tools=tools,
         )
         agent = Agent(config, scheduler)
