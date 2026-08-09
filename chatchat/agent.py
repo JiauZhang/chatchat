@@ -35,6 +35,7 @@ class BaseAgent:
         self.scheduler = scheduler
         self._mailbox = Queue()
         self._stop_event = threading.Event()
+        self._task_completed = threading.Event()
         self._thread: threading.Thread | None = None
         self._sub_agents: dict[str, BaseAgent] = {}
         self._parent: ID | None = None
@@ -68,18 +69,20 @@ class BaseAgent:
         while not self._stop_event.is_set():
             try:
                 msg = self._mailbox.get(timeout=0.1)
-                if msg.type == 'signal' and msg.subtype == 'stop':
-                    self._stop_event.set()
-                    continue
-                try:
-                    result = self.handle_message(msg)
-                    if result is not None:
-                        self.scheduler.reply(msg, result)
-                except Exception as e:
-                    self._emit('agent:error', {'error': str(e)})
-                    self.scheduler.reply(msg, f'error: {e}')
             except Empty:
                 continue
+            if msg.type == 'signal' and msg.subtype == 'stop':
+                self._stop_event.set()
+                continue
+            try:
+                result = self.handle_message(msg)
+                if result is not None:
+                    self.scheduler.reply(msg, result)
+            except Exception as e:
+                self._emit('agent:error', {'error': str(e)})
+                self.scheduler.reply(msg, f'error: {e}')
+            finally:
+                self._task_completed.set()
 
 
 def create_agent(config: AgentConfig, scheduler) -> Agent:
@@ -98,35 +101,15 @@ class Agent(BaseAgent):
         id = ID(uid=config.name, kind='agent', name=config.name)
         super().__init__(id, scheduler)
 
-        self._task_completed = threading.Event()
+        self._setup_tools()
+        self._setup_skills()
+        self._setup_client()
 
-        self.tools = Tools(*config.tools) if config.tools else None
-        if self.tools:
-            for t in self.tools:
-                t._emit_fn = self._emit
-                t._source = self.name
-        if config.management_tools:
-            self._inject_management_tools()
-
-        self.skills = Skills(config.skills) if config.skills else None
-        instruction = config.instruction
-        if self.skills:
-            si = self.skills.instruction
-            if si:
-                instruction = f'{instruction}\n\n{si}' if instruction else si
-        self.instruction = instruction
-
-        self.client = None
-        if config.provider and config.model:
-            from chatchat.client import Client
-            self.client = Client(
-                provider=config.provider, model=config.model,
-                instruction=self.instruction, http_options=config.http_options,
-                emit_fn=self._emit, source=self.name,
-            )
-
+        self._loop = AgentLoop(
+            self.client, self.tools, self.config.max_turns,
+            self.config.thinking, self._emit,
+        )
         self._pending_notifications: list[dict] = []
-        self._interact_handlers = []
         self._hooks: dict[str, list[Callable]] = {
             'start': [],
             'step': [],
@@ -158,6 +141,34 @@ class Agent(BaseAgent):
     def max_turns(self) -> int:
         return self.config.max_turns
 
+    def _setup_tools(self):
+        self.tools = Tools(*self.config.tools) if self.config.tools else None
+        if self.tools:
+            for t in self.tools:
+                t._emit_fn = self._emit
+                t._source = self.name
+        if self.config.management_tools:
+            self._inject_management_tools()
+
+    def _setup_skills(self):
+        self.skills = Skills(self.config.skills) if self.config.skills else None
+        instruction = self.config.instruction
+        if self.skills:
+            si = self.skills.instruction
+            if si:
+                instruction = f'{instruction}\n\n{si}' if instruction else si
+        self.instruction = instruction
+
+    def _setup_client(self):
+        self.client = None
+        if self.config.provider and self.config.model:
+            from chatchat.client import Client
+            self.client = Client(
+                provider=self.config.provider, model=self.config.model,
+                instruction=self.instruction, http_options=self.config.http_options,
+                emit_fn=self._emit, source=self.name,
+            )
+
     def _inject_management_tools(self):
         from chatchat.agent_tools import create_agent_tool, send_message_tool, task_stop_tool
         for t in [create_agent_tool(self), send_message_tool(self), task_stop_tool(self)]:
@@ -180,30 +191,9 @@ class Agent(BaseAgent):
             if agent.config.background:
                 agent._task_completed.wait(timeout=timeout)
 
-    def _process_loop(self):
-        while not self._stop_event.is_set():
-            try:
-                msg = self._mailbox.get(timeout=0.1)
-                if msg.type == 'signal' and msg.subtype == 'stop':
-                    self._stop_event.set()
-                    continue
-                try:
-                    result = self.handle_message(msg)
-                    if result is not None:
-                        self.scheduler.reply(msg, result)
-                except Exception as e:
-                    self._emit('agent:error', {'error': str(e)})
-                    self.scheduler.reply(msg, f'error: {e}')
-                finally:
-                    self._task_completed.set()
-            except Empty:
-                continue
-
     def handle_message(self, msg: Message) -> Any:
         if msg.type == 'text':
-            result = self._handle_chat(msg.payload)
-            self._wait_for_background()
-            return result
+            return self._handle_chat(msg.payload)
         if msg.type == 'notification':
             self._pending_notifications.append(msg.payload)
             return None
@@ -281,11 +271,7 @@ class Agent(BaseAgent):
             self._emit_lifecycle('error', error='No LLM client configured')
             return 'Error: No LLM client configured'
         try:
-            loop = AgentLoop(
-                self.client, self.tools, self.config.max_turns,
-                self.config.thinking, self._emit,
-            )
-            result = loop.run(message)
+            result = self._loop.run(message)
             self._wait_for_background()
             self._emit_lifecycle('end', content=result)
             self._notify_parent(result)
@@ -308,17 +294,6 @@ class Agent(BaseAgent):
         agent._parent = self.id
         self._sub_agents[config.name] = agent
         return agent
-
-    def on_interact(self, handler):
-        self._interact_handlers.append(handler)
-        return self
-
-    def _ask(self, question: str = '', metadata: dict | None = None):
-        for h in self._interact_handlers:
-            reply = h(question, metadata or {})
-            if reply is not None:
-                return reply
-        return None
 
     def clear(self):
         if self.client:
