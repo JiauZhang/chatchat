@@ -19,12 +19,10 @@ def create_agent_tool(agent, agent_tools=None) -> Tool:
     )
     def _(instruction: str) -> str:
         agent_id = make_id()
-        if agent_id in agent._sub_agents:
-            return f'error: agent "{agent_id}" already exists'
         cfg = AgentConfig(
             name=agent_id, instruction=instruction,
             provider=agent.config.provider, model=agent.config.model,
-            stream=True, thinking=agent.config.thinking,
+            thinking=agent.config.thinking,
             http_options=agent.config.http_options,
             max_turns=agent.config.max_turns,
             source='user', tools=agent_tools,

@@ -29,8 +29,11 @@ print(search(query='AI news'))
 print()
 
 client = Client(args.provider, args.model, http_options={'timeout': args.timeout})
-result = client.chat(
-    [{'role': 'user', 'content': 'search AI news'}],
-    tools=tools, stream=False,
+result = ''.join(
+    chunk.choices[0].delta.content or ''
+    for chunk in client.chat(
+        [{'role': 'user', 'content': 'search AI news'}],
+        tools=tools,
+    )
 )
-print(f'agent with manual tool: {result.choices[0].message.content[:80]}...')
+print(f'agent with manual tool: {result[:80]}...')

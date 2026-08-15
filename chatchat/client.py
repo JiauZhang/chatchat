@@ -9,21 +9,18 @@ from chatchat.config import load_config
 from chatchat.providers import __providers__
 from chatchat import ProviderError, APIError
 from chatchat.rate_limiter import get_rate_limiter
+from chatchat.scheduler import emit_event
 from chatchat.types import (
-    ChatCompletion,
     ChatCompletionChunk,
-    Choice,
     ChunkChoice,
     Delta,
-    Message,
     ToolCall,
-    Usage,
 )
 
 
 class BaseClient:
     def __init__(self, base_url, model=None, instruction=None,
-                 http_options=None, emit_fn=None):
+                 http_options=None):
         self._source = 'unknown'
         http_options = http_options or {}
         http_options.setdefault('timeout', 60.0)
@@ -31,7 +28,6 @@ class BaseClient:
         self._instruction = instruction
         self.api_key = load_config(self.provider)
         self.model = model
-        self._emit_fn = emit_fn
         self.client = httpx.Client(
             base_url=base_url,
             **http_options,
@@ -57,31 +53,19 @@ class BaseClient:
         self._messages = []
 
     def _emit(self, topic: str, data: dict = None):
-        if self._emit_fn:
-            self._emit_fn(topic, data or {})
+        if data is None:
+            d = {}
+        elif isinstance(data, dict):
+            d = dict(data)
+        elif hasattr(data, '__dict__'):
+            d = data.__dict__
+        else:
+            d = {'_raw': data}
+        d.setdefault('_source', self._source)
+        emit_event(topic, d)
 
-    def _get_provider_message(self, data: dict) -> dict:
-        return data['choices'][0]['message']
-
-    def _send_nonstreaming(self, url, payload):
-        self._rate_limiter.acquire()
-        data = None
-        try:
-            response = self.client.post(url, json=payload)
-            response.raise_for_status()
-            data = response.json()
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code == 429:
-                self._rate_limiter.notify_429()
-            raise APIError(
-                f'API request failed: {e.response.status_code} '
-                f'{e.response.text}'
-            )
-        except httpx.RequestError as e:
-            raise APIError(f'API request failed: {e}')
-        finally:
-            self._rate_limiter.release()
-        return data
+    def _to_provider_format(self, messages):
+        return messages
 
     def _send_streaming(self, url, payload):
         self._rate_limiter.acquire()
@@ -91,6 +75,10 @@ class BaseClient:
                     self._rate_limiter.notify_429()
                 if response.status_code >= 400:
                     response.read()
+                    self._emit('client:error', {
+                        'status_code': response.status_code,
+                        'error': response.text[:500],
+                    })
                     raise APIError(
                         f'API request failed: {response.status_code} '
                         f'{response.text}'
@@ -101,6 +89,7 @@ class BaseClient:
                     elif line.startswith('data:'):
                         yield line[5:]
         except httpx.RequestError as e:
+            self._emit('client:error', {'error': str(e)})
             raise APIError(f'API request failed: {e}')
         finally:
             self._rate_limiter.release()
@@ -109,14 +98,14 @@ class BaseClient:
         """Convert messages to provider-specific format. Override in subclasses."""
         return messages
 
-    def _build_request_body(self, model, messages, stream, thinking, tools, **kwargs):
+    def _build_request_body(self, model, messages, thinking, tools, **kwargs):
         if self._instruction:
             system_msg = {'role': 'system', 'content': self._instruction}
             messages = [system_msg] + messages
         payload = {
             'model': model or self.model,
             'messages': messages,
-            'stream': stream,
+            'stream': True,
         }
         if thinking:
             payload['thinking'] = {'enabled': True}
@@ -136,36 +125,6 @@ class BaseClient:
             id=data.get('id', ''),
             name=func.get('name', ''),
             arguments=func.get('arguments', ''),
-        )
-
-    def _to_message(self, data: dict) -> Message:
-        content = data.get('content', '')
-        tool_calls = data.get('tool_calls', [])
-        return Message(
-            content=content,
-            tool_calls=[self._to_tool_call(tc) for tc in tool_calls],
-        )
-
-    def _to_choice(self, data: dict) -> Choice:
-        return Choice(
-            index=data.get('index', 0),
-            message=self._to_message(data.get('message', {})),
-            finish_reason=data.get('finish_reason'),
-        )
-
-    def _to_chat_completion(self, data: dict) -> ChatCompletion:
-        usage = None
-        if 'usage' in data:
-            known = {k: v for k, v in data['usage'].items()
-                     if k in Usage.__dataclass_fields__}
-            usage = Usage(**known)
-        return ChatCompletion(
-            id=data.get('id', ''),
-            object=data.get('object', 'chat.completion'),
-            created=data.get('created', 0),
-            model=data.get('model', ''),
-            choices=[self._to_choice(c) for c in (data.get('choices') or [])],
-            usage=usage,
         )
 
     def _to_delta(self, data: dict) -> Delta:
@@ -190,24 +149,15 @@ class BaseClient:
             choices=[self._to_chunk_choice(c) for c in (data.get('choices') or [])],
         )
 
-    def chat(self, messages, *, model=None, stream=False, thinking=False, tools=None, **kwargs):
+    def chat(self, messages, *, model=None, thinking=False, tools=None, **kwargs):
         converted = self._to_provider_format(messages)
         full = self.messages + converted
         payload = self._build_request_body(
-            model=model, messages=full, stream=stream, thinking=thinking, tools=tools, **kwargs,
+            model=model, messages=full, thinking=thinking, tools=tools, **kwargs,
         )
         url = '/chat/completions'
         self._emit('client:start', {'payload': payload})
-        if not stream:
-            return self._nonstream_chat(url, payload, full)
         return self._chat_stream(url, payload, full)
-
-    def _nonstream_chat(self, url, payload, messages):
-        data = self._send_nonstreaming(url, payload)
-        response_msg = self._get_provider_message(data)
-        self._messages = messages + [response_msg]
-        self._emit('client:end', {'response': data})
-        return self._to_chat_completion(data)
 
     def _chat_stream(self, url, payload, messages):
         response_msg = {'role': 'assistant', 'content': ''}
@@ -227,7 +177,7 @@ class BaseClient:
                     response_msg['content'] += delta.content
                 if delta.tool_calls:
                     self._accumulate_tool_calls(response_msg, delta.tool_calls)
-            self._emit('client:step', {'delta': chunk.choices[0].delta.__dict__ if chunk.choices else {}})
+            self._emit('client:step', chunk)
             yield chunk
 
     def _accumulate_tool_calls(self, response_msg: dict, tool_calls: list):
@@ -265,11 +215,10 @@ def dynamic_import_client(provider):
 
 
 class Client:
-    def __init__(self, provider, model, instruction=None, http_options=None, emit_fn=None, source='unknown'):
+    def __init__(self, provider, model, instruction=None, http_options=None, source='unknown'):
         client_class = dynamic_import_client(provider)
         self.client: BaseClient = client_class(
             model=model, instruction=instruction, http_options=http_options,
-            emit_fn=emit_fn,
         )
         self.client._source = source
 
@@ -284,9 +233,9 @@ class Client:
     def clear(self):
         self.client.clear()
 
-    def chat(self, messages, *, model=None, stream=False, thinking=False, tools=None, **kwargs):
+    def chat(self, messages, *, model=None, thinking=False, tools=None, **kwargs):
         return self.client.chat(
             messages,
-            model=model, stream=stream, thinking=thinking, tools=tools,
+            model=model, thinking=thinking, tools=tools,
             **kwargs,
         )

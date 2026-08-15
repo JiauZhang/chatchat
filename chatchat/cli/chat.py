@@ -15,17 +15,11 @@ def parse_config(args):
                 exit()
 
             new_messages = [{'role': 'user', 'content': prompt}]
-            stream = not args.non_streaming
-
-            if stream:
-                response = llm.chat(new_messages, stream=True, thinking=args.thinking)
-                print('assistant> ', end='')
-                for chunk in response:
-                    print(chunk.choices[0].delta.content or '', end='', flush=True)
-                print()
-            else:
-                response = llm.chat(new_messages, stream=False, thinking=args.thinking)
-                print(f'assistant> {response.choices[0].message.content}')
+            response = llm.chat(new_messages, thinking=args.thinking)
+            print('assistant> ', end='')
+            for chunk in response:
+                print(chunk.choices[0].delta.content or '', end='', flush=True)
+            print()
 
 
 def cli_chat(subparser):
@@ -34,5 +28,4 @@ def cli_chat(subparser):
     config_parser.add_argument('--proxy', type=str, default=None)
     config_parser.add_argument('--timeout', type=float, default=None)
     config_parser.add_argument('--thinking', action='store_true')
-    config_parser.add_argument('--non-streaming', action='store_true')
     config_parser.set_defaults(parser=parse_config)

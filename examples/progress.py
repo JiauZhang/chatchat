@@ -99,7 +99,7 @@ for topic in ['agent:start', 'agent:step', 'agent:end', 'agent:error',
 agent = Agent(AgentConfig(
     name='supervisor',
     provider=args.provider, model=args.model,
-    http_options=http_options, stream=True,
+    http_options=http_options,
     instruction=(
         'You are a supervisor. Search, summarize, and save to a file.'
     ),

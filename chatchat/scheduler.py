@@ -1,5 +1,6 @@
 from __future__ import annotations
 import threading
+import traceback
 from queue import Queue, Empty
 from typing import Any, Callable
 
@@ -26,7 +27,97 @@ def emit_event(topic: str, data: dict = None):
         try:
             handler(topic, data or {})
         except Exception:
-            pass
+            traceback.print_exc()
+
+
+def _on_client_start(topic, data):
+    source = data.get('_source', '')
+    print(f'[client:start  {source:>10}] LLM request started')
+
+
+def _on_client_step(topic, data):
+    choices = data.get('choices', [])
+    if choices:
+        delta = choices[0].delta
+        if delta.reasoning_content:
+            print(delta.reasoning_content, end='', flush=True)
+        elif delta.content:
+            print(delta.content, end='', flush=True)
+        elif delta.tool_calls:
+            for tc in delta.tool_calls:
+                if tc.arguments:
+                    print(tc.arguments, end='', flush=True)
+
+
+def _on_client_end(topic, data):
+    source = data.get('_source', '')
+    print(f'\n[client:end   {source:>10}] LLM response complete')
+
+
+def _on_client_error(topic, data):
+    source = data.get('_source', '')
+    error = data.get('error', '')
+    print(f'[client:error {source:>10}] {error}')
+
+
+def _on_tool_start(topic, data):
+    print(f'[tool:start   {data.get("_source",""):>10}] {data.get("name","")}')
+
+
+def _on_tool_step(topic, data):
+    print(f'[tool:step    {data.get("_source",""):>10}] {data.get("content","")}')
+
+
+def _on_tool_end(topic, data):
+    print(f'[tool:end     {data.get("_source",""):>10}] {data.get("name","")}')
+
+
+def _on_tool_error(topic, data):
+    s = data.get('_source', '')
+    print(f'[tool:error   {s:>10}] {data.get("name","")}: {data.get("error","")}')
+
+
+def _on_agent_start(topic, data):
+    print(f'[agent:start  {data.get("_source",""):>10}] {data.get("message","")}')
+
+
+def _on_agent_step(topic, data):
+    source = data.get('_source', '')
+    tcs = data.get('tool_calls', [])
+    if tcs:
+        names = [tc['name'] for tc in tcs]
+        arys = [tc.get('arguments', '') for tc in tcs]
+        print(f'[agent:step   {source:>10}] {names} {arys}')
+
+
+def _on_agent_end(topic, data):
+    print(f'[agent:end    {data.get("_source",""):>10}] {data.get("content","")}')
+
+
+def _on_agent_error(topic, data):
+    s = data.get('_source', '')
+    print(f'[agent:error  {s:>10}] {data.get("error","")}')
+
+
+def enable_event_logging(*categories):
+    if not categories:
+        categories = ('client', 'tool', 'agent')
+    for cat in categories:
+        if cat == 'client':
+            on_event('client:start', _on_client_start)
+            on_event('client:step', _on_client_step)
+            on_event('client:end', _on_client_end)
+            on_event('client:error', _on_client_error)
+        elif cat == 'tool':
+            on_event('tool:start', _on_tool_start)
+            on_event('tool:step', _on_tool_step)
+            on_event('tool:end', _on_tool_end)
+            on_event('tool:error', _on_tool_error)
+        elif cat == 'agent':
+            on_event('agent:start', _on_agent_start)
+            on_event('agent:step', _on_agent_step)
+            on_event('agent:end', _on_agent_end)
+            on_event('agent:error', _on_agent_error)
 
 
 class Scheduler:

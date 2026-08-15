@@ -93,7 +93,6 @@ scheduler = Scheduler()
 agent = Agent(AgentConfig(
     name='assistant',
     provider=args.provider, model=args.model, http_options=http_options,
-    stream=True,
     instruction='You are a helpful assistant with tools for tickets, files, and shell commands.',
     tools=[query_train_ticket, query_ticket_price, read_file, write_file, execute_shell_command],
 ), scheduler)

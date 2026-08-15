@@ -1,8 +1,7 @@
 import os, sys, argparse, time
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from chatchat.scheduler import Scheduler, on_event, off_event
-from chatchat.agent import Agent, AgentConfig
+from chatchat.scheduler import Scheduler, enable_event_logging
 from chatchat.team import Team, TeamConfig
 from chatchat.message import Message, make_id
 from chatchat.tool import tool
@@ -26,40 +25,6 @@ if args.proxy:
 set_rate_limits([
     {'provider': 'agnes', 'rpm': 20},
 ])
-
-
-def handle_event(topic, data):
-    source = data.get('_source', '')
-    if topic == 'agent:start':
-        print(f'[agent:start  {source:>10}] {data.get("message","")}')
-    elif topic == 'agent:step':
-        tcs = data.get('tool_calls', [])
-        if tcs:
-            names = [tc['name'] for tc in tcs]
-            arys = [tc.get('arguments', '') for tc in tcs]
-            print(f'[agent:step   {source:>10}] {names} {arys}')
-    elif topic == 'agent:end':
-        print(f'[agent:end    {source:>10}] {data.get("content","")}')
-    elif topic == 'agent:error':
-        print(f'[agent:error  {source:>10}] {data.get("error","")}')
-    elif topic == 'client:start':
-        print(f'[client:start {source:>10}] LLM request started')
-    elif topic == 'client:step':
-        d = data
-        if d.get('delta'):
-            content = d['delta'].get('content', '') or ''
-            if content.strip():
-                print(content, end='', flush=True)
-    elif topic == 'client:end':
-        print(f'\n[client:end   {source:>10}] LLM response complete')
-    elif topic == 'tool:start':
-        print(f'[tool:start   {source:>10}] {data.get("name","")}')
-    elif topic == 'tool:step':
-        print(f'[tool:step   {source:>10}] {data.get("content","")}')
-    elif topic == 'tool:end':
-        print(f'[tool:end     {source:>10}] {data.get("name","")}')
-    elif topic == 'tool:error':
-        print(f'[tool:error   {source:>10}] {data.get("name","")}: {data.get("error","")}')
 
 
 @tool(name='write_file', description='write content to a file',
@@ -96,10 +61,7 @@ def read_file(path):
 
 scheduler = Scheduler()
 
-for topic in ['agent:start', 'agent:step', 'agent:end', 'agent:error',
-              'client:start', 'client:step', 'client:end',
-              'tool:start', 'tool:end', 'tool:error']:
-    on_event(topic, handle_event)
+enable_event_logging('client', 'tool', 'agent')
 
 time.sleep(0.1)
 
@@ -107,7 +69,7 @@ team = Team(TeamConfig(
     name='lead',
     provider=args.provider, model=args.model,
     instruction='You are a tech lead.',
-    http_options=http_options, stream=True, thinking=args.thinking,
+    http_options=http_options, thinking=args.thinking,
     leader_tools=[read_file],
     agent_tools=[write_file, read_file],
 ), scheduler)

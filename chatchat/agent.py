@@ -18,7 +18,6 @@ class BaseAgentConfig:
     provider: str | None = None
     model: str | None = None
     instruction: str = ''
-    stream: bool = True
     thinking: bool = False
     skills: list | None = None
     http_options: dict | None = None
@@ -60,8 +59,15 @@ class BaseAgent:
     def is_running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
 
-    def _emit(self, topic: str, data: dict = None):
-        d = dict(data or {})
+    def _emit(self, topic: str, data=None):
+        if data is None:
+            d = {}
+        elif isinstance(data, dict):
+            d = dict(data)
+        elif hasattr(data, '__dict__'):
+            d = data.__dict__
+        else:
+            d = {'_raw': data}
         d['_source'] = getattr(self, 'name', self.id)
         emit_event(topic, d)
 
@@ -79,9 +85,6 @@ class BaseAgent:
             try:
                 msg = self._mailbox.get(timeout=0.1)
             except Empty:
-                continue
-            if msg.type == 'signal' and msg.subtype == 'stop':
-                self._stop_event.set()
                 continue
             try:
                 result = self.handle_message(msg)
@@ -116,7 +119,7 @@ class Agent(BaseAgent):
 
         self._loop = AgentLoop(
             self.client, self.tools, self.config.max_turns,
-            self.config.thinking, self._emit,
+            self.config.thinking,
         )
         self._pending_notifications: list[dict] = []
         self._hooks: dict[str, list[Callable]] = {
@@ -135,10 +138,6 @@ class Agent(BaseAgent):
         return self.config.model
 
     @property
-    def stream(self) -> bool:
-        return True
-
-    @property
     def thinking(self) -> bool:
         return self.config.thinking
 
@@ -151,11 +150,11 @@ class Agent(BaseAgent):
         return self.config.max_turns
 
     def _setup_tools(self):
-        self.tools = Tools(*self.config.tools) if self.config.tools else None
-        if self.tools:
-            for t in self.tools:
-                t._emit_fn = self._emit
-                t._source = self.name
+        self.tools = None
+        if self.config.tools:
+            self.tools = Tools()
+            for t in self.config.tools:
+                self.add_tool(t)
 
     def _setup_skills(self):
         self.skills = Skills(self.config.skills) if self.config.skills else None
@@ -173,7 +172,7 @@ class Agent(BaseAgent):
             self.client = Client(
                 provider=self.config.provider, model=self.config.model,
                 instruction=self.instruction, http_options=self.config.http_options,
-                emit_fn=self._emit, source=self.name,
+                source=self.name,
             )
 
     def _emit_lifecycle(self, event: str, **data):
@@ -284,7 +283,6 @@ class Agent(BaseAgent):
             raise
 
     def add_tool(self, tool: Tool):
-        tool._emit_fn = self._emit
         tool._source = self.name
         if self.tools is None:
             self.tools = Tools(tool)
@@ -303,7 +301,6 @@ class Agent(BaseAgent):
             'config': {
                 'provider': self.config.provider,
                 'model': self.config.model,
-                'stream': True,
                 'thinking': self.config.thinking,
                 'http_options': self.config.http_options,
                 'max_turns': self.config.max_turns,
@@ -326,7 +323,6 @@ class Agent(BaseAgent):
             instruction=state.get('instruction', ''),
             provider=state['config']['provider'],
             model=state['config']['model'],
-            stream=True,
             thinking=state['config'].get('thinking', False),
             http_options=state['config'].get('http_options', {}),
             max_turns=state['config'].get('max_turns', 0),

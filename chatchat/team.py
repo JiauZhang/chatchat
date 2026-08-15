@@ -34,7 +34,7 @@ class Team(BaseAgent):
         leader_config = AgentConfig(
             name=config.name, description=config.description,
             provider=config.provider, model=config.model,
-            instruction=config.instruction, stream=config.stream,
+            instruction=config.instruction,
             thinking=config.thinking, skills=config.skills,
             http_options=config.http_options, max_turns=config.max_turns,
             source=config.source, background=config.background,
@@ -52,7 +52,6 @@ class Team(BaseAgent):
 
     def start(self):
         super().start()
-        self._leader.start()
 
     def stop(self, timeout: float = 2.0):
         self._leader.stop(timeout=timeout)

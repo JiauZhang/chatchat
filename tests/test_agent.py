@@ -14,7 +14,6 @@ class TestAgentCreation:
         assert agent.name == 'test'
         assert agent.provider == 'deepseek'
         assert agent.model == 'deepseek-chat'
-        assert agent.stream is True
 
     def test_with_instruction(self):
         s = Scheduler()
@@ -34,15 +33,6 @@ class TestAgentCreation:
         ), s)
         assert agent.tools is not None
         assert 'ping' in agent.tools
-
-    def test_tool_emit_fn_set(self):
-        s = Scheduler()
-        t = Tool(name='t', description='t', tool=lambda: 'ok')
-        Agent(AgentConfig(
-            name='test', provider='deepseek', model='deepseek-chat',
-            tools=[t], http_options={'timeout': 10},
-        ), s)
-        assert t._emit_fn is not None
 
 
 class TestAgentClear:

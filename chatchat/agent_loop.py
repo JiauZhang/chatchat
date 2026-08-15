@@ -2,27 +2,26 @@ from __future__ import annotations
 import json
 from typing import Any, Generator
 
+from chatchat.scheduler import emit_event
 from chatchat.types import Message as AccMessage
 
 
 class AgentLoop:
-    def __init__(self, client, tools, max_turns: int, thinking: bool, emit_fn):
+    def __init__(self, client, tools, max_turns: int, thinking: bool):
         self.client = client
         self.tools = tools
         self.max_turns = max_turns
         self.thinking = thinking
-        self._emit_fn = emit_fn
-        self._step = 0
+        self._turn = 0
 
     def run(self, text: str) -> str:
         new_messages = [{'role': 'user', 'content': text}]
         max_iter = self.max_turns if self.max_turns > 0 else float('inf')
-        step = 0
-        while step < max_iter:
-            step += 1
+        turn = 0
+        while turn < max_iter:
+            turn += 1
             gen = self.client.chat(
                 new_messages,
-                stream=True,
                 thinking=self.thinking,
                 tools=self.tools,
             )
@@ -35,9 +34,9 @@ class AgentLoop:
         return '已达到最大迭代次数'
 
     def _execute_tool_calls(self, tool_calls: list) -> list[dict]:
-        self._step += 1
+        self._turn += 1
         self._emit('agent:step', {
-            'step': self._step,
+            'step': self._turn,
             'tool_calls': [
                 {'name': tc.name, 'arguments': tc.arguments}
                 for tc in tool_calls
@@ -58,5 +57,4 @@ class AgentLoop:
         return results
 
     def _emit(self, topic: str, data: dict = None):
-        if self._emit_fn:
-            self._emit_fn(topic, data or {})
+        emit_event(topic, data or {})
