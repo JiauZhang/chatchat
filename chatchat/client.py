@@ -1,4 +1,6 @@
 import json
+from pathlib import Path
+
 import httpx
 from importlib import import_module
 from typing import Generator
@@ -245,24 +247,20 @@ class BaseClient:
                 entry['function']['arguments'] += tc.arguments
 
 
+_supported_providers = sorted(
+    p.stem for p in Path(__file__).parent.joinpath('providers').glob('*.py')
+    if p.stem != '__init__'
+)
+
+
 def dynamic_import_client(provider):
-    if provider in __providers__:
-        return __providers__[provider]
-    try:
-        module = import_module(f'chatchat.providers.{provider}')
-        provider_class = getattr(module, f'{provider}Client', None)
-        if provider_class is None:
-            provider_class = getattr(module, 'ProviderClient', None)
-        if provider_class:
-            __providers__[provider] = provider_class
-            return provider_class
-    except ImportError:
-        pass
+    if provider not in __providers__ and provider in _supported_providers:
+        import_module(f'chatchat.providers.{provider}')
     if provider in __providers__:
         return __providers__[provider]
     raise ProviderError(
         f'Provider `{provider}` is not supported. '
-        f'Supported providers: {list(__providers__.keys())}'
+        f'Supported providers: {_supported_providers}'
     )
 
 
