@@ -49,7 +49,7 @@ def send_message_tool(agent) -> Tool:
         },
     )
     def _(to: str, message: str, blocking: bool = False) -> str:
-        target = agent.scheduler.lookup_by_name(to)
+        target = agent._runtime.lookup_by_name(to)
         if not target:
             return f'error: unknown agent "{to}"'
         msg = Message(
@@ -58,11 +58,11 @@ def send_message_tool(agent) -> Tool:
         )
         if blocking:
             try:
-                reply = agent.scheduler.request(msg, timeout=60)
+                reply = agent._runtime.request(msg, timeout=60)
                 return f'reply from {to}: {reply.payload}'
             except Exception as e:
                 return f'error waiting for reply: {e}'
-        agent.scheduler.send(msg)
+        agent._runtime.send(msg)
         return f'message sent to {to}'
     return _
 
@@ -84,7 +84,7 @@ def task_stop_tool(agent) -> Tool:
             return f'error: unknown sub-agent "{name}"'
         sub = agent._sub_agents[name]
         sub.stop()
-        agent.scheduler.unregister(sub.id)
+        agent._runtime.unregister(sub.id)
         del agent._sub_agents[name]
         return f'agent "{name}" stopped'
     return _

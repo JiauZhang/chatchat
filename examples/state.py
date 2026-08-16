@@ -1,8 +1,7 @@
 import json, argparse, random, sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from chatchat.scheduler import Scheduler
-from chatchat.agent import Agent, AgentConfig
+from chatchat.agent import Agent, AgentConfig, create_agent
 from chatchat.tool import tool
 
 parser = argparse.ArgumentParser()
@@ -48,8 +47,7 @@ def query_news(topic):
     return '\n'.join(headlines)
 
 
-scheduler = Scheduler()
-agent = Agent(AgentConfig(
+agent = create_agent(AgentConfig(
     name='analyst',
     provider=args.provider, model=args.model,
     http_options=http_options,
@@ -58,7 +56,7 @@ agent = Agent(AgentConfig(
         'For complex research tasks, delegate to sub-agents.'
     ),
     tools=[query_stock, query_news],
-), scheduler)
+))
 
 result = agent.chat('What is the current price of AAPL and TSLA?')
 print(f'\nanalyst result: {result}\n')
@@ -70,7 +68,7 @@ with open('_agent_state.json', 'w', encoding='utf-8') as f:
 with open('_agent_state.json', 'r', encoding='utf-8') as f:
     restored_state = json.load(f)
 
-new_agent = Agent.from_state_dict(restored_state, scheduler=scheduler, tools=[query_stock, query_news])
+new_agent = Agent.from_state_dict(restored_state, tools=[query_stock, query_news])
 
 result = new_agent.chat('What about GOOG?')
 print(f'\nrestored agent result: {result}\n')

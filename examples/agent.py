@@ -1,8 +1,7 @@
 import os, sys, argparse, random, subprocess
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from chatchat.scheduler import Scheduler
-from chatchat.agent import Agent, AgentConfig
+from chatchat.agent import Agent, AgentConfig, create_agent
 from chatchat.tool import Tool, tool
 
 
@@ -89,13 +88,12 @@ def execute_shell_command(command):
         return 'command timed out after 30s'
 
 
-scheduler = Scheduler()
-agent = Agent(AgentConfig(
+agent = create_agent(AgentConfig(
     name='assistant',
     provider=args.provider, model=args.model, http_options=http_options,
     instruction='You are a helpful assistant with tools for tickets, files, and shell commands.',
     tools=[query_train_ticket, query_ticket_price, read_file, write_file, execute_shell_command],
-), scheduler)
+))
 
 print('Enter /exit to quit, /clear to reset conversation.')
 while True:

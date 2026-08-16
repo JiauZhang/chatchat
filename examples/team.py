@@ -1,8 +1,7 @@
 import os, sys, argparse, time
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from chatchat.scheduler import Scheduler, enable_event_logging
-from chatchat.team import Team, TeamConfig
+from chatchat.team import Team, TeamConfig, create_team
 from chatchat.message import Message, make_id
 from chatchat.tool import tool
 from chatchat.rate_limiter import set_rate_limits
@@ -59,29 +58,28 @@ def read_file(path):
         return f'read failed: {e}'
 
 
-scheduler = Scheduler()
+scheduler = None
 
-enable_event_logging('client', 'tool', 'agent')
+from chatchat import get_runtime
+get_runtime().enable_logging('client', 'tool', 'agent')
 
 time.sleep(0.1)
 
-team = Team(TeamConfig(
+team = create_team(TeamConfig(
     name='lead',
     provider=args.provider, model=args.model,
     instruction='You are a tech lead.',
     http_options=http_options, thinking=args.thinking,
     leader_tools=[read_file],
     agent_tools=[write_file, read_file],
-), scheduler)
-scheduler.register(team)
-team.start()
+))
 
 time.sleep(0.1)
 
 
 def team_chat(message, timeout=None):
     msg = Message(sender=make_id(), recipient=team.id, type='text', payload=message)
-    reply = scheduler.request(msg, timeout=timeout)
+    reply = get_runtime().request(msg, timeout=timeout)
     return reply.payload
 
 
@@ -92,4 +90,4 @@ r = team_chat('write a python `heap sort` tutorial to output.md')
 print(f'\n\nTeam result: {r if r else "empty"}')
 
 team.stop()
-scheduler.shutdown()
+get_runtime().shutdown()

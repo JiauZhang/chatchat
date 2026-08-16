@@ -5,22 +5,19 @@ from queue import Queue, Empty
 from typing import Any, Callable
 
 from chatchat.message import Message
-from chatchat.scheduler import emit_event
+from chatchat.runtime import get_runtime
 from chatchat.tool import Tool, Tools
 from chatchat.skill import Skills
 from chatchat.agent_loop import AgentLoop
+from chatchat.client import ClientConfig
 
 
 @dataclass
-class BaseAgentConfig:
+class BaseAgentConfig(ClientConfig):
     name: str
     description: str = ''
-    provider: str | None = None
-    model: str | None = None
-    instruction: str = ''
     thinking: bool = False
     skills: list | None = None
-    http_options: dict | None = None
     max_turns: int = 0
     source: str = 'user'
     background: bool = False
@@ -32,9 +29,9 @@ class AgentConfig(BaseAgentConfig):
 
 
 class BaseAgent:
-    def __init__(self, id: str, scheduler):
+    def __init__(self, id: str):
         self.id = id
-        self.scheduler = scheduler
+        self._runtime = get_runtime()
         self._mailbox = Queue()
         self._stop_event = threading.Event()
         self._task_completed = threading.Event()
@@ -60,22 +57,13 @@ class BaseAgent:
         return self._thread is not None and self._thread.is_alive()
 
     def _emit(self, topic: str, data=None):
-        if data is None:
-            d = {}
-        elif isinstance(data, dict):
-            d = dict(data)
-        elif hasattr(data, '__dict__'):
-            d = data.__dict__
-        else:
-            d = {'_raw': data}
-        d['_source'] = getattr(self, 'name', self.id)
-        emit_event(topic, d)
+        self._runtime.emit(topic, data, name=getattr(self, 'name', self.id))
 
     def handle_message(self, msg: Message) -> Any:
         raise NotImplementedError
 
     def create_sub_agent(self, config: AgentConfig) -> Agent:
-        agent = create_agent(config, self.scheduler)
+        agent = create_agent(config)
         agent._parent = self.id
         self._sub_agents[config.name] = agent
         return agent
@@ -89,29 +77,29 @@ class BaseAgent:
             try:
                 result = self.handle_message(msg)
                 if result is not None:
-                    self.scheduler.reply(msg, result)
+                    self._runtime.reply(msg, result)
             except Exception as e:
                 self._emit('agent:error', {'error': str(e)})
-                self.scheduler.reply(msg, f'error: {e}')
+                self._runtime.reply(msg, f'error: {e}')
             finally:
                 self._task_completed.set()
 
 
-def create_agent(config: AgentConfig, scheduler) -> Agent:
-    agent = Agent(config, scheduler)
-    scheduler.register(agent)
+def create_agent(config: AgentConfig) -> Agent:
+    agent = Agent(config)
+    get_runtime().register(agent)
     if not config.background:
         agent.start()
     return agent
 
 
 class Agent(BaseAgent):
-    def __init__(self, config: AgentConfig, scheduler):
+    def __init__(self, config: AgentConfig):
         self.name = config.name
         self.description = config.description
         self.config = config
         self.kind = 'agent'
-        super().__init__(config.name, scheduler)
+        super().__init__(config.name)
 
         self._setup_tools()
         self._setup_skills()
@@ -119,7 +107,7 @@ class Agent(BaseAgent):
 
         self._loop = AgentLoop(
             self.client, self.tools, self.config.max_turns,
-            self.config.thinking,
+            self.config.thinking, self.name,
         )
         self._pending_notifications: list[dict] = []
         self._hooks: dict[str, list[Callable]] = {
@@ -170,9 +158,11 @@ class Agent(BaseAgent):
         if self.config.provider and self.config.model:
             from chatchat.client import Client
             self.client = Client(
-                provider=self.config.provider, model=self.config.model,
-                instruction=self.instruction, http_options=self.config.http_options,
-                source=self.name,
+                provider=self.config.provider,
+                model=self.config.model,
+                instruction=self.config.instruction,
+                name=self.config.name,
+                http_options=self.config.http_options,
             )
 
     def _emit_lifecycle(self, event: str, **data):
@@ -252,7 +242,7 @@ class Agent(BaseAgent):
     def _notify_parent(self, result: str):
         if not self._parent:
             return
-        self.scheduler.send(Message(
+        self._runtime.send(Message(
             sender=self.id, recipient=self._parent,
             type='notification', subtype='task_complete',
             payload={
@@ -283,7 +273,7 @@ class Agent(BaseAgent):
             raise
 
     def add_tool(self, tool: Tool):
-        tool._source = self.name
+        tool._name = self.name
         if self.tools is None:
             self.tools = Tools(tool)
         else:
@@ -315,7 +305,6 @@ class Agent(BaseAgent):
     def from_state_dict(
         cls,
         state: dict,
-        scheduler,
         tools: list | None = None,
     ) -> Agent:
         config = AgentConfig(
@@ -328,6 +317,6 @@ class Agent(BaseAgent):
             max_turns=state['config'].get('max_turns', 0),
             tools=tools,
         )
-        agent = Agent(config, scheduler)
+        agent = Agent(config)
         agent.load_state_dict(state)
         return agent

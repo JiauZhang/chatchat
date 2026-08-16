@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from dataclasses import dataclass
 
 import httpx
 from importlib import import_module
@@ -7,9 +8,10 @@ from typing import Generator
 
 from chatchat.config import load_config
 from chatchat.providers import __providers__
-from chatchat import ProviderError, APIError
 from chatchat.rate_limiter import get_rate_limiter
-from chatchat.scheduler import emit_event
+from chatchat.runtime import get_runtime
+from chatchat.exceptions import ProviderError, APIError
+from chatchat.tool import Tools
 from chatchat.types import (
     ChatCompletionChunk,
     ChunkChoice,
@@ -18,28 +20,37 @@ from chatchat.types import (
 )
 
 
+@dataclass
+class ClientConfig:
+    name: str = 'unknown'
+    provider: str | None = None
+    model: str | None = None
+    instruction: str = ''
+    http_options: dict | None = None
+
+
 class BaseClient:
-    def __init__(self, base_url, model=None, instruction=None,
-                 http_options=None):
-        self._source = 'unknown'
-        http_options = http_options or {}
+    base_url = ''
+
+    def __init__(self, config: ClientConfig):
+        self.config = config
+        self.name = config.name
+        http_options = config.http_options or {}
         http_options.setdefault('timeout', 60.0)
         http_options.setdefault('follow_redirects', True)
-        self._instruction = instruction
+        self._instruction = config.instruction
         self.api_key = load_config(self.provider)
-        self.model = model
+        self.model = config.model
         self.client = httpx.Client(
-            base_url=base_url,
+            base_url=self.base_url,
             **http_options,
             headers={
                 'Content-Type': 'application/json',
                 'Authorization': f'Bearer {self.api_key}',
             },
         )
-        self.base_url = self.client.base_url
         self._messages = []
         self._rate_limiter = get_rate_limiter(self.provider)
-        self._provider = self.provider
 
     @property
     def messages(self):
@@ -53,16 +64,9 @@ class BaseClient:
         self._messages = []
 
     def _emit(self, topic: str, data: dict = None):
-        if data is None:
-            d = {}
-        elif isinstance(data, dict):
-            d = dict(data)
-        elif hasattr(data, '__dict__'):
-            d = data.__dict__
-        else:
-            d = {'_raw': data}
-        d.setdefault('_source', self._source)
-        emit_event(topic, d)
+        if data is not None and not isinstance(data, dict):
+            data = data.__dict__
+        get_runtime().emit(topic, data, name=self.name)
 
     def _to_provider_format(self, messages):
         return messages
@@ -110,7 +114,6 @@ class BaseClient:
         if thinking:
             payload['thinking'] = {'enabled': True}
         if tools:
-            from chatchat.tool import Tools
             if isinstance(tools, Tools):
                 payload['tools'] = tools.to_dict()
             else:
@@ -215,12 +218,15 @@ def dynamic_import_client(provider):
 
 
 class Client:
-    def __init__(self, provider, model, instruction=None, http_options=None, source='unknown'):
-        client_class = dynamic_import_client(provider)
-        self.client: BaseClient = client_class(
-            model=model, instruction=instruction, http_options=http_options,
+    def __init__(self, provider, model, instruction=None, name=None, http_options=None):
+        config = ClientConfig(
+            provider=provider, model=model,
+            instruction=instruction or '',
+            name=name or 'unknown',
+            http_options=http_options,
         )
-        self.client._source = source
+        client_class = dynamic_import_client(config.provider)
+        self.client: BaseClient = client_class(config)
 
     @property
     def messages(self):

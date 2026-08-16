@@ -1,13 +1,11 @@
-from chatchat.client import BaseClient
+from chatchat.client import BaseClient, ClientConfig
 from chatchat.providers import register_provider
 
 
 @register_provider('agnes')
 class AgnesClient(BaseClient):
-    def __init__(self, model=None, instruction=None, http_options=None):
-        http_options = http_options or {}
+    def __init__(self, config: ClientConfig):
+        http_options = config.http_options or {}
         domain = http_options.pop('domain', 'com')
-        super().__init__(
-            f'https://apihub.agnes-ai.{domain}/v1',
-            http_options=http_options, model=model, instruction=instruction,
-        )
+        self.base_url = f'https://apihub.agnes-ai.{domain}/v1'
+        super().__init__(config)

@@ -1,8 +1,7 @@
 import os, argparse, sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from chatchat.scheduler import Scheduler
-from chatchat.agent import Agent, AgentConfig
+from chatchat.agent import Agent, AgentConfig, create_agent
 from chatchat.tool import tool
 
 parser = argparse.ArgumentParser()
@@ -41,14 +40,13 @@ def handle_interact(question, metadata):
     return input('user>  ')
 
 
-scheduler = Scheduler()
-agent = Agent(AgentConfig(
+agent = create_agent(AgentConfig(
     name='assistant',
     provider=args.provider, model=args.model,
     http_options=http_options,
     instruction='You are a helpful assistant with write_file tool.',
     tools=[write_file],
-), scheduler)
+))
 write_file.on_interact(handle_interact)
 
 prompt = input('user> ')

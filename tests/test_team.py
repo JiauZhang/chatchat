@@ -1,27 +1,25 @@
-from chatchat.scheduler import Scheduler
-from chatchat.agent import Agent, AgentConfig
-from chatchat.team import Team, TeamConfig
+from chatchat import get_runtime, set_runtime, Runtime
+from chatchat.agent import Agent, AgentConfig, create_agent
+from chatchat.team import Team, TeamConfig, create_team
 from chatchat.message import Message, make_id
 
 
 class TestTeamCreation:
     def test_basic_creation(self):
-        s = Scheduler()
-        team = Team(TeamConfig(name='leader', provider='deepseek', model='deepseek-chat'), s)
+        team = Team(TeamConfig(name='leader', provider='deepseek', model='deepseek-chat'))
         assert team.id == 'leader'
         assert team.leader.name == 'leader'
 
     def test_leader_property(self):
-        s = Scheduler()
-        team = Team(TeamConfig(name='leader', provider='deepseek', model='deepseek-chat'), s)
+        team = Team(TeamConfig(name='leader', provider='deepseek', model='deepseek-chat'))
         assert team.leader.name == 'leader'
 
 
 class TestTeamLifecycle:
     def test_start_stop(self):
-        s = Scheduler()
-        team = Team(TeamConfig(name='lead', provider='deepseek', model='deepseek-chat'), s)
-        team.start()
+        runtime = Runtime()
+        set_runtime(runtime)
+        team = create_team(TeamConfig(name='lead', provider='deepseek', model='deepseek-chat'))
         assert team.is_running
         assert team.leader.is_running
         team.stop()
@@ -30,8 +28,7 @@ class TestTeamLifecycle:
 
 class TestHandleMessage:
     def test_text_routes_to_leader(self, monkeypatch):
-        s = Scheduler()
-        team = Team(TeamConfig(name='lead', provider='deepseek', model='deepseek-chat'), s)
+        team = Team(TeamConfig(name='lead', provider='deepseek', model='deepseek-chat'))
         called = []
         monkeypatch.setattr(team._leader, 'handle_message', lambda msg: called.append(msg) or 'ok')
         msg = Message(sender=make_id(), recipient=team.id, type='text', payload='hello')
@@ -42,20 +39,18 @@ class TestHandleMessage:
 
 class TestIntegration:
     def test_send_to_team_via_scheduler(self):
-        s = Scheduler()
-        team = Team(TeamConfig(name='lead', provider='deepseek', model='deepseek-chat'), s)
-        s.register(team)
-        team.start()
+        runtime = Runtime()
+        set_runtime(runtime)
+        team = create_team(TeamConfig(name='lead', provider='deepseek', model='deepseek-chat'))
         msg = Message(sender=make_id(), recipient=team.id, type='request', subtype='status')
-        reply = s.request(msg, timeout=5)
+        reply = runtime.request(msg, timeout=5)
         assert reply.payload['name'] == 'lead'
         team.stop()
 
     def test_leader_chat(self, monkeypatch):
-        s = Scheduler()
-        team = Team(TeamConfig(name='lead', provider='deepseek', model='deepseek-chat'), s)
-        s.register(team)
-        team.start()
+        runtime = Runtime()
+        set_runtime(runtime)
+        team = create_team(TeamConfig(name='lead', provider='deepseek', model='deepseek-chat'))
         leader = team.leader
 
         from chatchat.types import ChatCompletionChunk, ChunkChoice, Delta
@@ -67,6 +62,6 @@ class TestIntegration:
         monkeypatch.setattr(leader.client, 'chat', mock_chat)
 
         msg = Message(sender=make_id(), recipient=team.id, type='text', payload='hello')
-        reply = s.request(msg, timeout=10)
+        reply = runtime.request(msg, timeout=10)
         assert reply.payload == 'done'
         team.stop()

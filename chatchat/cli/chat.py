@@ -4,9 +4,9 @@ from chatchat.client import Client
 def parse_config(args):
     if args.params:
         provider, model = args.params
-        llm = Client(provider, model=model, http_options={
-                'proxy': args.proxy, 'timeout': args.timeout,
-            }
+        llm = Client(
+            provider=provider, model=model,
+            http_options={'proxy': args.proxy, 'timeout': args.timeout},
         )
 
         while True:

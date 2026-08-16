@@ -1,10 +1,10 @@
 import argparse, random, sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from chatchat.scheduler import Scheduler, on_event, off_event
-from chatchat.agent import Agent, AgentConfig
+from chatchat.agent import Agent, AgentConfig, create_agent
 from chatchat.tool import tool
 from chatchat.message import ID
+from chatchat import get_runtime
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--provider', type=str, default='deepseek')
@@ -61,8 +61,10 @@ def save_file(path, content):
     raise PermissionError(f'no write permission for {path}')
 
 
-def handle_event(topic, data):
-    name = data.get('_source', '')
+def handle_event(ev):
+    name = ev.name
+    topic = ev.topic
+    data = ev.data
     if topic == 'tool:start':
         args = data.get('arguments', {})
         print(f'[{topic:<12} {name:>10}] calling "{name}" with {args}')
@@ -90,13 +92,14 @@ def handle_event(topic, data):
         print(f'[{topic:<12} {name:>10}] error: {data.get("error", "")}')
 
 
-scheduler = Scheduler()
+scheduler = None
+runtime = get_runtime()
 
 for topic in ['agent:start', 'agent:step', 'agent:end', 'agent:error',
               'tool:start', 'tool:step', 'tool:end', 'tool:error']:
-    on_event(topic, handle_event)
+    runtime.on(topic, handle_event)
 
-agent = Agent(AgentConfig(
+agent = create_agent(AgentConfig(
     name='supervisor',
     provider=args.provider, model=args.model,
     http_options=http_options,
@@ -104,10 +107,10 @@ agent = Agent(AgentConfig(
         'You are a supervisor. Search, summarize, and save to a file.'
     ),
     tools=[search_web, summarize, save_file],
-), scheduler)
+))
 
 result = agent.chat('search AI news and summarize')
 print(f'\nsupervisor result: {result[:100]}')
 
-scheduler.shutdown()
+runtime.shutdown()
 print('Done.')

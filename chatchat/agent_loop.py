@@ -2,16 +2,17 @@ from __future__ import annotations
 import json
 from typing import Any, Generator
 
-from chatchat.scheduler import emit_event
+from chatchat.runtime import get_runtime
 from chatchat.types import Message as AccMessage
 
 
 class AgentLoop:
-    def __init__(self, client, tools, max_turns: int, thinking: bool):
+    def __init__(self, client, tools, max_turns: int, thinking: bool, name: str = ''):
         self.client = client
         self.tools = tools
         self.max_turns = max_turns
         self.thinking = thinking
+        self._name = name
         self._turn = 0
 
     def run(self, text: str) -> str:
@@ -57,4 +58,4 @@ class AgentLoop:
         return results
 
     def _emit(self, topic: str, data: dict = None):
-        emit_event(topic, data or {})
+        get_runtime().emit(topic, data, name=self._name)

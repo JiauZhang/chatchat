@@ -1,27 +1,25 @@
 import contextvars
 
-from chatchat.scheduler import emit_event
+from chatchat.runtime import get_runtime
 
 _current_tool_caller = contextvars.ContextVar('_current_tool_caller', default='')
 
 
 class Tool:
     def __init__(self, *, tool, name, description, parameters=None,
-                 source='unknown'):
+                 name_source='unknown'):
         self.name = name
         self.description = description
         self.parameters = parameters
         self.tool = tool
-        self._source = source
+        self._name = name_source
         self._interact_handlers = []
 
     def _emit(self, topic: str, data: dict = None):
-        d = dict(data or {})
-        d.setdefault('_source', self._source)
-        emit_event(topic, d)
+        get_runtime().emit(topic, data, name=self._name)
 
     def __call__(self, **kwargs):
-        token = _current_tool_caller.set(self._source)
+        token = _current_tool_caller.set(self._name)
         try:
             self._emit('tool:start', {'name': self.name, 'arguments': kwargs})
             try:

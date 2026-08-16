@@ -28,7 +28,7 @@ print(search(query='AI news'))
 
 print()
 
-client = Client(args.provider, args.model, http_options={'timeout': args.timeout})
+client = Client(provider=args.provider, model=args.model, http_options={'timeout': args.timeout})
 result = ''.join(
     chunk.choices[0].delta.content or ''
     for chunk in client.chat(

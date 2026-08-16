@@ -5,6 +5,7 @@ from typing import Any
 from chatchat.agent import AgentConfig, BaseAgentConfig, BaseAgent, create_agent
 from chatchat.agent_tools import create_agent_tool, send_message_tool, task_stop_tool
 from chatchat.message import Message
+from chatchat.runtime import get_runtime
 
 
 @dataclass
@@ -13,18 +14,19 @@ class TeamConfig(BaseAgentConfig):
     agent_tools: list | None = None
 
 
-def create_team(config: TeamConfig, scheduler) -> Team:
-    team = Team(config, scheduler)
-    scheduler.register(team)
+def create_team(config: TeamConfig) -> Team:
+    team = Team(config)
+    runtime = get_runtime()
+    runtime.register(team)
     team.start()
     return team
 
 
 class Team(BaseAgent):
-    def __init__(self, config: TeamConfig, scheduler):
+    def __init__(self, config: TeamConfig):
         self.config = config
         self.kind = 'team'
-        super().__init__(config.name, scheduler)
+        super().__init__(config.name)
 
         leader_tools = list(config.leader_tools or []) + [
             create_agent_tool(self, agent_tools=config.agent_tools),
@@ -40,7 +42,7 @@ class Team(BaseAgent):
             source=config.source, background=config.background,
             tools=leader_tools,
         )
-        self._leader = create_agent(leader_config, scheduler)
+        self._leader = create_agent(leader_config)
 
     @property
     def name(self) -> str:

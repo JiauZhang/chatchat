@@ -134,7 +134,7 @@ class TestStop:
     def test_stop_entity(self):
         s = Scheduler()
         from chatchat.agent import Agent, AgentConfig
-        agent = Agent(AgentConfig(name='killme', provider='deepseek', model='deepseek-chat', http_options={'timeout': 10}), s)
+        agent = Agent(AgentConfig(name='killme', provider='deepseek', model='deepseek-chat', http_options={'timeout': 10}))
         s.register(agent)
         agent.start()
         assert agent.is_running
