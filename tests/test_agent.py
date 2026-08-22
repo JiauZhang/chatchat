@@ -164,13 +164,12 @@ class TestSubAgent:
 
 
 class TestManagementTools:
-    def test_management_tools_register_on_agent(self):
+    def test_tools_from_config(self):
         agent = Agent(AgentConfig(
             name='test', provider='agnes', model='agnes-2.5-flash',
             http_options={'timeout': 10},
+            tools=[send_message_tool, task_stop_tool],
         ))
-        agent.add_tool(send_message_tool)
-        agent.add_tool(task_stop_tool)
         assert 'send_message' in agent.tools
         assert 'task_stop' in agent.tools
 
@@ -178,8 +177,8 @@ class TestManagementTools:
         agent = Agent(AgentConfig(
             name='alice', provider='agnes', model='agnes-2.5-flash',
             http_options={'timeout': 10},
+            tools=[send_message_tool],
         ))
-        agent.add_tool(send_message_tool)
         tool = agent.tools['send_message']
         result = await tool(ctx=ToolContext(agent=agent), to='nobody', message='hi')
         assert 'unknown agent' in result
@@ -190,12 +189,12 @@ class TestManagementTools:
         agent = create_agent(AgentConfig(
             name='alice', provider='agnes', model='agnes-2.5-flash',
             http_options={'timeout': 10},
+            tools=[send_message_tool],
         ))
         target = Agent(AgentConfig(
             name='bob', provider='agnes', model='agnes-2.5-flash',
             http_options={'timeout': 10},
         ))
-        agent.add_tool(send_message_tool)
         agent.start()
         target.start()
         tool = agent.tools['send_message']
@@ -208,8 +207,8 @@ class TestManagementTools:
         agent = Agent(AgentConfig(
             name='alice', provider='agnes', model='agnes-2.5-flash',
             http_options={'timeout': 10},
+            tools=[task_stop_tool],
         ))
-        agent.add_tool(task_stop_tool)
         tool = agent.tools['task_stop']
         result = await tool(ctx=ToolContext(agent=agent), name='nobody')
         assert 'unknown sub-agent' in result

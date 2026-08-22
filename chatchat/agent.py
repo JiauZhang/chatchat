@@ -6,7 +6,7 @@ from typing import Any, Callable
 
 from chatchat.actor import Actor
 from chatchat.runtime import Event
-from chatchat.tool import Tool, Tools
+from chatchat.tool import Tools
 from chatchat.skill import Skills
 from chatchat.agent_loop import AgentLoop
 from chatchat.client import ClientConfig, create_client
@@ -56,10 +56,11 @@ class Agent(Actor):
 
     def _setup_tools(self):
         self.tools = None
-        if self.config.tools:
-            self.tools = Tools()
-            for t in self.config.tools:
-                self.add_tool(t)
+        if tools := self._build_tools():
+            self.tools = Tools(*tools)
+
+    def _build_tools(self):
+        return self.config.tools
 
     def _setup_skills(self):
         self.skills = Skills(self.config.skills) if self.config.skills else None
@@ -136,12 +137,6 @@ class Agent(Actor):
             lambda ev: handler(self, **ev.data),
         )
         return self
-
-    def add_tool(self, tool: Tool):
-        if self.tools is None:
-            self.tools = Tools(tool)
-        else:
-            self.tools.add(tool)
 
     def clear(self):
         self._notifications.clear()
