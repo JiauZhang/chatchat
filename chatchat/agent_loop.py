@@ -16,8 +16,10 @@ class AgentLoop:
         self._name = name
         self._agent = agent if agent is not None else SimpleNamespace(name=name)
         self._turn = 0
+        self.usage = None
 
     async def run(self, text: str, context=None) -> str:
+        self.usage = None
         new_messages = list(context or []) + [{'role': 'user', 'content': text}]
         max_steps = self.max_steps if self.max_steps > 0 else float('inf')
         turn = 0
@@ -29,6 +31,9 @@ class AgentLoop:
                 tools=self.tools,
             ):
                 pass
+            usage = getattr(self.client, 'latest_usage', None)
+            if usage:
+                self.usage = usage if self.usage is None else self.usage + usage
             latest = self.client.latest
             if latest is None or not latest.tool_calls:
                 return latest.content if latest else ''
@@ -49,7 +54,7 @@ class AgentLoop:
         await self._emit('agent:step', data)
         results = []
         for tc in tool_calls:
-            if tc.name not in self.tools:
+            if self.tools is None or tc.name not in self.tools:
                 results.append({
                     'role': 'tool',
                     'content': f'Error: unknown tool "{tc.name}"',

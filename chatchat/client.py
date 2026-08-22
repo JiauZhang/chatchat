@@ -167,10 +167,7 @@ class BaseClient:
         try:
             async for line in self._send_streaming(url, payload):
                 if line.strip() == '[DONE]':
-                    self.latest = response_msg
-                    self.messages = full + [response_msg.to_dict()]
-                    await self._emit('client:end', {'usage': self.latest_usage})
-                    return
+                    break
                 try:
                     data = json.loads(line)
                 except json.JSONDecodeError:
@@ -184,6 +181,10 @@ class BaseClient:
                     response_msg.accumulate(delta)
                 await self._emit('client:step', chunk)
                 yield chunk
+            self.latest = response_msg
+            self.messages = full + [response_msg.to_dict()]
+            await self._emit('client:end')
+            await self._emit('client:tokens', {'usage': self.latest_usage})
         finally:
             await self._rate_limiter.release(total_tokens)
 

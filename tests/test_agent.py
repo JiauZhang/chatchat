@@ -4,11 +4,11 @@ from unittest.mock import patch
 
 from chatchat import get_runtime, set_runtime, Scheduler
 from chatchat.agent import Agent, AgentConfig, create_agent
-from chatchat.agent_tools import create_agent_tool, send_message_tool, task_stop_tool
+from chatchat.agent_tools import send_message_tool, task_stop_tool
 from chatchat.client import BaseClient
 from chatchat.exceptions import SubAgentError
 from chatchat.runtime import Event, make_id
-from chatchat.team import Team, TeamConfig
+from chatchat.team import Team, TeamConfig, create_team
 from chatchat.tool import Tool, ToolContext
 from chatchat.types import ChatCompletionChunk, ChunkChoice, Delta, Message
 
@@ -133,25 +133,26 @@ class TestAgentLifecycle:
 
 class TestSubAgent:
     async def test_create_sub_agent(self):
-        agent = Agent(AgentConfig(
+        team = Team(TeamConfig(
             name='parent', provider='agnes', model='agnes-2.5-flash',
             http_options={'timeout': 10},
         ))
-        sub = agent.create_sub_agent(AgentConfig(
+        sub = team.create_sub_agent(AgentConfig(
             name='child', provider='agnes', model='agnes-2.5-flash',
             http_options={'timeout': 10},
         ))
         assert sub.name == 'child'
         assert sub.is_running
-        assert 'child' in agent._sub_agents
+        assert 'child' in team._sub_agents
         await sub.stop()
+        await team.stop()
 
     async def test_create_sub_agent_with_config(self):
-        agent = Agent(AgentConfig(
+        team = Team(TeamConfig(
             name='parent', provider='agnes', model='agnes-2.5-flash',
             http_options={'timeout': 10},
         ))
-        sub = agent.create_sub_agent(AgentConfig(
+        sub = team.create_sub_agent(AgentConfig(
             name='researcher', provider='agnes', model='agnes-2.5-flash',
             instruction='You are a research assistant.',
             http_options={'timeout': 10},
@@ -159,18 +160,17 @@ class TestSubAgent:
         assert sub.name == 'researcher'
         assert sub.is_running
         await sub.stop()
+        await team.stop()
 
 
 class TestManagementTools:
-    def test_create_agent_tool_auto_injected(self):
+    def test_management_tools_register_on_agent(self):
         agent = Agent(AgentConfig(
             name='test', provider='agnes', model='agnes-2.5-flash',
             http_options={'timeout': 10},
         ))
-        agent.add_tool(create_agent_tool)
         agent.add_tool(send_message_tool)
         agent.add_tool(task_stop_tool)
-        assert 'create_agent' in agent.tools
         assert 'send_message' in agent.tools
         assert 'task_stop' in agent.tools
 
@@ -214,27 +214,6 @@ class TestManagementTools:
         result = await tool(ctx=ToolContext(agent=agent), name='nobody')
         assert 'unknown sub-agent' in result
 
-    def test_create_agent_detects_duplicate(self):
-        agent = Agent(AgentConfig(
-            name='alice', provider='agnes', model='agnes-2.5-flash',
-            http_options={'timeout': 10},
-        ))
-        agent.add_tool(create_agent_tool)
-        dup_id = make_id()
-        sub = Agent(AgentConfig(
-            name=dup_id, provider='agnes', model='agnes-2.5-flash',
-            http_options={'timeout': 10},
-        ))
-        agent._sub_agents[dup_id] = sub
-        tool = agent.tools['create_agent']
-        sub2 = Agent(AgentConfig(
-            name='other', provider='agnes', model='agnes-2.5-flash',
-            http_options={'timeout': 10},
-        ))
-        agent._sub_agents['other'] = sub2
-        assert dup_id in agent._sub_agents
-        assert 'other' in agent._sub_agents
-
 
 class TestSkillsInjection:
     def test_skills_instruction_injected_into_client(self, tmp_path):
@@ -265,11 +244,10 @@ class TestDelegation:
     async def test_create_agent_tool_delegates_via_scheduler(self):
         runtime = Scheduler()
         set_runtime(runtime)
-        agent = create_agent(AgentConfig(
+        team = create_team(TeamConfig(
             name='parent', provider='agnes', model='agnes-2.5-flash',
             http_options={'timeout': 10},
         ))
-        agent.add_tool(create_agent_tool)
         chunk = ChatCompletionChunk(
             choices=[ChunkChoice(delta=Delta(content='done'), finish_reason='stop')],
         )
@@ -278,27 +256,26 @@ class TestDelegation:
             msg = Message()
             if chunk.choices:
                 msg.accumulate(chunk.choices[0].delta)
-            for sub in agent._sub_agents.values():
+            for sub in team._sub_agents.values():
                 sub.client.latest = msg
             yield chunk
 
         with patch.object(BaseClient, 'chat', side_effect=fake_chat):
             result = await asyncio.wait_for(
-                agent.tools['create_agent'](ctx=ToolContext(agent=agent), instruction='hello'), timeout=5,
+                team.tools['create_agent'](ctx=ToolContext(agent=team), instruction='hello'), timeout=5,
             )
         assert '[Agent' in result
         assert 'completed' in result
         assert 'done' in result
-        await agent.stop()
+        await team.stop()
 
     async def test_create_agent_tool_reports_sub_error(self):
         runtime = Scheduler()
         set_runtime(runtime)
-        agent = create_agent(AgentConfig(
+        team = create_team(TeamConfig(
             name='parent', provider='agnes', model='agnes-2.5-flash',
             http_options={'timeout': 10},
         ))
-        agent.add_tool(create_agent_tool)
 
         def raise_chat(*args, **kwargs):
             async def gen():
@@ -309,9 +286,9 @@ class TestDelegation:
         with patch.object(BaseClient, 'chat', side_effect=raise_chat):
             with pytest.raises(SubAgentError):
                 await asyncio.wait_for(
-                    agent.tools['create_agent'](ctx=ToolContext(agent=agent), instruction='hello'), timeout=5,
+                    team.tools['create_agent'](ctx=ToolContext(agent=team), instruction='hello'), timeout=5,
                 )
-        await agent.stop()
+        await team.stop()
 
     async def test_create_sub_team_max_depth(self):
         team = Team(TeamConfig(

@@ -10,7 +10,7 @@ from chatchat.tool import Tool, Tools
 from chatchat.skill import Skills
 from chatchat.agent_loop import AgentLoop
 from chatchat.client import ClientConfig, create_client
-from chatchat.exceptions import SubAgentError
+from chatchat.types import Usage
 
 
 @dataclass
@@ -39,6 +39,8 @@ class Agent(Actor):
         self._setup_skills()
         self._setup_client()
         self._notifications: list[dict] = []
+        self._lock = asyncio.Lock()
+        self._usage = Usage()
         self._loop = AgentLoop(
             self.client, self.tools, config.max_steps, config.thinking, self.name,
             agent=self,
@@ -116,29 +118,6 @@ class Agent(Actor):
             }
         return None
 
-    def create_sub_agent(self, config: AgentConfig) -> 'Agent':
-        if self._depth + 1 > self.config.max_depth:
-            raise SubAgentError(
-                f'Recursion depth limit {self.config.max_depth} exceeded'
-            )
-        agent = create_agent(config)
-        agent._parent = self.id
-        agent._depth = self._depth + 1
-        self._sub_agents[config.name] = agent
-        return agent
-
-    def create_sub_team(self, config) -> 'Team':
-        from chatchat.team import create_team
-        if self._depth + 1 > self.config.max_depth:
-            raise SubAgentError(
-                f'Recursion depth limit {self.config.max_depth} exceeded'
-            )
-        team = create_team(config)
-        team._parent = self.id
-        team._depth = self._depth + 1
-        self._sub_agents[config.name] = team
-        return team
-
     async def _wait_for_background(self, timeout: float = None):
         waits = [
             a._task_completed.wait() for a in self._sub_agents.values()
@@ -194,7 +173,22 @@ class Agent(Actor):
             },
         ))
 
+    @property
+    def total_usage(self) -> Usage:
+        total = Usage(
+            self._usage.prompt_tokens,
+            self._usage.completion_tokens,
+            self._usage.total_tokens,
+        )
+        for sub in self._sub_agents.values():
+            total += sub.total_usage
+        return total
+
     async def _handle_chat_locked(self, message: str) -> str:
+        async with self._lock:
+            return await self._handle_chat_inner(message)
+
+    async def _handle_chat_inner(self, message: str) -> str:
         self._task_completed.clear()
         await self._emit('start', {'message': message})
         if not self.client:
@@ -204,8 +198,10 @@ class Agent(Actor):
         try:
             result = await self._loop.run(message, context=self._drain_notifications())
             await self._wait_for_background()
-            usage = getattr(self.client, 'latest_usage', None)
-            await self._emit('end', {'content': result, 'usage': usage})
+            if self._loop.usage:
+                self._usage += self._loop.usage
+            await self._emit('end', {'content': result})
+            await self._emit('tokens', {'usage': self.total_usage})
             if self.config.background:
                 await self._notify_parent(result)
             return result

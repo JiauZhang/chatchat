@@ -31,14 +31,13 @@ class Tool:
         return None
 
     def to_dict(self):
-        return {
-            'type': 'function',
-            'function': {
-                'name': self.name,
-                'description': self.description,
-                'parameters': self.parameters,
-            },
+        function = {
+            'name': self.name,
+            'description': self.description,
         }
+        if self.parameters is not None:
+            function['parameters'] = self.parameters
+        return {'type': 'function', 'function': function}
 
     async def __call__(self, ctx: ToolContext = None, **kwargs):
         source = ctx.agent.name if ctx else self.name

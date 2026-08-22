@@ -1,8 +1,7 @@
 from __future__ import annotations
-from dataclasses import replace
 
 from chatchat.exceptions import SubAgentError
-from chatchat.runtime import Event, make_id
+from chatchat.runtime import Event
 from chatchat.tool import tool, ToolContext
 
 
@@ -20,29 +19,6 @@ async def delegate_task(agent, target, message: str, timeout: float = 300):
     if isinstance(reply, Exception):
         raise SubAgentError(f'{target.kind} "{target.id}" failed: {reply}') from reply
     return reply
-
-
-@tool(
-    name='create_agent',
-    description='Create a sub-agent for delegated tasks. Use this when a task is independent enough to run separately, or when you need parallel work.',
-    parameters={
-        'type': 'object',
-        'properties': {
-            'instruction': {'type': 'string', 'description': 'Task description for the sub-agent'},
-        },
-        'required': ['instruction'],
-    },
-)
-async def create_agent_tool(ctx: ToolContext, instruction: str) -> str:
-    agent = ctx.agent
-    agent_id = make_id()
-    agent_tools = getattr(agent.config, 'agent_tools', None)
-    cfg = replace(agent.config, name=agent_id, instruction=instruction,
-                  tools=agent_tools, source='user')
-    sub = agent.create_sub_agent(cfg)
-    sub.add_tool(send_message_tool)
-    result = await delegate_task(agent, sub, instruction)
-    return f'[Agent "{agent_id}" completed]\n{result}'
 
 
 @tool(

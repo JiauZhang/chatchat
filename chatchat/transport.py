@@ -10,11 +10,6 @@ class _RetryableError(Exception):
 
 
 class Transport:
-    """HTTP 传输层：负责一次 OpenAI 兼容的后端调用与 SSE 行抽取。
-
-    职责单一——只有连接、鉴权、状态码处理、SSE `data:` 行剥离；不涉及补全语义。
-    """
-
     def __init__(self, *, name, base_url, api_key, timeout, proxy, notify_429, emit):
         self._name = name
         self.base_url = base_url
@@ -36,10 +31,6 @@ class Transport:
         return self._session
 
     async def stream(self, url, payload):
-        """单次请求，逐行产出剥离了 `data:` 前缀的 SSE 内容。
-
-        429/5xx 抛 _RetryableError 供上层重试；4xx 直接抛 APIError。
-        """
         session = self._get_session()
         full_url = self.base_url.rstrip('/') + url
         headers = {'Authorization': f'Bearer {self._api_key}'}

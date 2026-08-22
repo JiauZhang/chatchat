@@ -6,11 +6,6 @@ from chatchat.runtime import Event, current_loop, get_runtime, make_id
 
 
 class Actor:
-    """实体响应式核心：mailbox 收发、消息循环、子实体管理、状态。
-
-    与 LLM/工具无关；Agent/Team 在此之上添加各自的对话与能力。
-    """
-
     def __init__(self, name: str, kind: str):
         self.name = name
         self.kind = kind

@@ -16,6 +16,19 @@ class Usage:
     completion_tokens: int = 0
     total_tokens: int = 0
 
+    def __add__(self, other: 'Usage') -> 'Usage':
+        return Usage(
+            prompt_tokens=self.prompt_tokens + other.prompt_tokens,
+            completion_tokens=self.completion_tokens + other.completion_tokens,
+            total_tokens=self.total_tokens + other.total_tokens,
+        )
+
+    def __iadd__(self, other: 'Usage') -> 'Usage':
+        self.prompt_tokens += other.prompt_tokens
+        self.completion_tokens += other.completion_tokens
+        self.total_tokens += other.total_tokens
+        return self
+
 
 @dataclass
 class Message:

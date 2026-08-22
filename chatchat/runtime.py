@@ -56,8 +56,7 @@ class Scheduler:
         self._names: dict[str, str] = {}
         self._spawners: dict[str, Callable] = {}
         self._observers: dict[str, list[Callable]] = {}
-        self._pending_requests: dict[str, asyncio.Event] = {}
-        self._pending_replies: dict[str, Any] = {}
+        self._pending_futures: dict[str, asyncio.Future] = {}
         self._logging_enabled: set[str] = set()
 
     def register_entity(self, entity_id: str, kind: str, mailbox: asyncio.Queue, name: str = ''):
@@ -146,10 +145,9 @@ class Scheduler:
                         traceback.print_exc()
 
     def _resolve_pending(self, event: Event):
-        ev = self._pending_requests.get(event.topic)
-        if ev:
-            self._pending_replies[event.topic] = event.data
-            ev.set()
+        future = self._pending_futures.get(event.topic)
+        if future and not future.done():
+            future.set_result(event.data)
 
     async def request(self, source: str, target_id: str, topic: str, data: Any,
                       timeout: float = 30) -> Any:
@@ -157,27 +155,22 @@ class Scheduler:
         reply_topic = f'entity:reply:{correlation_id}'
         ev = Event(topic=topic, source=source, data=data, reply_to=reply_topic)
         _annotate(ev)
-        event_obj = asyncio.Event()
-        self._pending_requests[reply_topic] = event_obj
         entry = self._entities.get(target_id)
         if not entry:
-            self._pending_requests.pop(reply_topic, None)
             raise ValueError(f'Unknown target: {target_id}')
-        await entry[1].put(ev)
-        spawn = self._spawners.get(target_id)
-        if spawn:
-            spawn()
-        self._deliver_to_observers(ev)
+        future = asyncio.get_running_loop().create_future()
+        self._pending_futures[reply_topic] = future
         try:
-            await asyncio.wait_for(event_obj.wait(), timeout=timeout)
+            await entry[1].put(ev)
+            spawn = self._spawners.get(target_id)
+            if spawn:
+                spawn()
+            self._deliver_to_observers(ev)
+            return await asyncio.wait_for(future, timeout=timeout)
         except asyncio.TimeoutError:
-            self._pending_requests.pop(reply_topic, None)
             raise RequestTimeoutError(f'Timeout waiting for reply ({timeout}s)') from None
-        self._pending_requests.pop(reply_topic, None)
-        reply = self._pending_replies.pop(reply_topic, None)
-        if reply is None:
-            raise RequestTimeoutError(f'Timeout waiting for reply ({timeout}s)')
-        return reply
+        finally:
+            self._pending_futures.pop(reply_topic, None)
 
     async def reply(self, event: Event, data: Any, source: str = ''):
         if not event.reply_to:
@@ -199,8 +192,7 @@ class Scheduler:
         self._entities.clear()
         self._names.clear()
         self._observers.clear()
-        self._pending_requests.clear()
-        self._pending_replies.clear()
+        self._pending_futures.clear()
         self._logging_enabled.clear()
 
 
@@ -221,12 +213,20 @@ def _tokens(ev: Event, tag: str):
               f'prompt={usage.prompt_tokens} completion={usage.completion_tokens} total={usage.total_tokens}')
 
 
+def _on_client_start(ev: Event):
+    print(f'[{ev.source:<10}  {"client:start":>12}]')
+
+
 def _on_client_end(ev: Event):
+    print(f'[{ev.source:<10}  {"client:end":>12}]')
+
+
+def _on_client_tokens(ev: Event):
     _tokens(ev, 'client:tokens')
 
 
 def _on_tool_start(ev: Event):
-    print(f'[{ev.source:<10}  {"tool:start":>12}] {ev.data.get("name","")}')
+    print(f'[{ev.source:<10}  {"tool:start":>12}]')
 
 
 def _on_tool_step(ev: Event):
@@ -236,7 +236,7 @@ def _on_tool_step(ev: Event):
 def _on_tool_end(ev: Event):
     result = ev.data.get('result')
     result = '' if result is None else str(result)[:120]
-    print(f'[{ev.source:<10}  {"tool:end":>12}] {ev.data.get("name","")} -> {result}')
+    print(f'[{ev.source:<10}  {"tool:end":>12}] {result}')
 
 
 def _on_tool_error(ev: Event):
@@ -248,16 +248,20 @@ def _on_agent_start(ev: Event):
 
 
 def _on_agent_step(ev: Event):
-    tcs = ev.data.get('tool_calls', [])
-    if tcs:
-        names = [tc['name'] for tc in tcs]
-        arys = [tc.get('arguments', '') for tc in tcs]
-        print(f'[{ev.source:<10}  {"agent:step":>12}] {names} {arys}')
+    if tcs := ev.data.get('tool_calls', []):
+        print(f'[{ev.source:<10}  {"agent:step":>12}] {tcs}')
 
 
 def _on_agent_end(ev: Event):
     print(f'[{ev.source:<10}  {"agent:end":>12}] {ev.data.get("content","")}')
+
+
+def _on_agent_tokens(ev: Event):
     _tokens(ev, 'agent:tokens')
+
+
+def _on_team_tokens(ev: Event):
+    _tokens(ev, 'team:tokens')
 
 
 def _on_agent_error(ev: Event):
@@ -266,9 +270,11 @@ def _on_agent_error(ev: Event):
 
 _LOG_HANDLERS = {
     'client': [
+        ('lifecycle:client:start', _on_client_start),
         ('lifecycle:client:error', _on_client_error),
         ('lifecycle:client:retry', _on_client_retry),
         ('lifecycle:client:end', _on_client_end),
+        ('lifecycle:client:tokens', _on_client_tokens),
     ],
     'tool': [
         ('lifecycle:tool:start', _on_tool_start),
@@ -281,12 +287,14 @@ _LOG_HANDLERS = {
         ('lifecycle:agent:step', _on_agent_step),
         ('lifecycle:agent:end', _on_agent_end),
         ('lifecycle:agent:error', _on_agent_error),
+        ('lifecycle:agent:tokens', _on_agent_tokens),
     ],
     'team': [
         ('lifecycle:team:start', _on_agent_start),
         ('lifecycle:team:step', _on_agent_step),
         ('lifecycle:team:end', _on_agent_end),
         ('lifecycle:team:error', _on_agent_error),
+        ('lifecycle:team:tokens', _on_team_tokens),
     ],
 }
 
