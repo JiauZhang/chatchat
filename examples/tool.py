@@ -1,10 +1,10 @@
 import argparse, random
 from chatchat.tool import Tool, Tools
-from chatchat.client import Client
+from chatchat.client import ClientConfig, create_client
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--provider', type=str, default='deepseek')
-parser.add_argument('--model', type=str, default='deepseek-v4-flash')
+parser.add_argument('--provider', type=str, default='agnes')
+parser.add_argument('--model', type=str, default='agnes-2.5-flash')
 parser.add_argument('--timeout', type=int, default=30)
 args = parser.parse_args()
 
@@ -15,7 +15,7 @@ def search_impl(query):
 
 search = Tool(
     name='search', description='search the web',
-    tool=search_impl,
+    func=search_impl,
     parameters={
         'type': 'object', 'properties': {
             'query': {'type': 'string', 'description': 'search keywords'},
@@ -24,16 +24,26 @@ search = Tool(
 )
 tools = Tools(search)
 
-print(search(query='AI news'))
 
-print()
+async def main():
+    print(await search(query='AI news'))
+    print()
 
-client = Client(provider=args.provider, model=args.model, http_options={'timeout': args.timeout})
-result = ''.join(
-    chunk.choices[0].delta.content or ''
-    for chunk in client.chat(
+    client = create_client(ClientConfig(
+        provider=args.provider, model=args.model,
+        http_options={'timeout': args.timeout},
+    ))
+    parts = []
+    async for chunk in client.chat(
         [{'role': 'user', 'content': 'search AI news'}],
         tools=tools,
-    )
-)
-print(f'agent with manual tool: {result[:80]}...')
+    ):
+        if chunk.choices:
+            parts.append(chunk.choices[0].delta.content or '')
+    await client.close()
+    print(f'agent with manual tool: {"".join(parts)[:80]}...')
+
+
+if __name__ == '__main__':
+    import asyncio
+    asyncio.run(main())

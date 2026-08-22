@@ -1,12 +1,12 @@
-import os, argparse, sys
+import os, argparse, sys, asyncio
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from chatchat.agent import Agent, AgentConfig, create_agent
 from chatchat.tool import tool
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--provider', type=str, default='deepseek')
-parser.add_argument('--model', type=str, default='deepseek-v4-flash')
+parser.add_argument('--provider', type=str, default='agnes')
+parser.add_argument('--model', type=str, default='agnes-2.5-flash')
 parser.add_argument('--timeout', type=int, default=30)
 args = parser.parse_args()
 
@@ -49,6 +49,12 @@ agent = create_agent(AgentConfig(
 ))
 write_file.on_interact(handle_interact)
 
-prompt = input('user> ')
-response = agent.chat(prompt)
-print(f'assistant> {response}')
+async def main():
+    prompt = input('user> ')
+    response = await agent.chat(prompt)
+    print(f'assistant> {response}')
+    await agent.stop()
+
+
+if __name__ == '__main__':
+    asyncio.run(main())

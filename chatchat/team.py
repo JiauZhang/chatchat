@@ -1,65 +1,58 @@
 from __future__ import annotations
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass, replace
 
-from chatchat.agent import AgentConfig, BaseAgentConfig, BaseAgent, create_agent
-from chatchat.agent_tools import create_agent_tool, send_message_tool, task_stop_tool
-from chatchat.message import Message
-from chatchat.runtime import get_runtime
+from chatchat.agent import Agent, AgentConfig
+from chatchat.agent_tools import (
+    create_agent_tool,
+    delegate_task,
+    send_message_tool,
+    task_stop_tool,
+)
+from chatchat.runtime import make_id
+from chatchat.tool import tool, ToolContext
 
 
 @dataclass
-class TeamConfig(BaseAgentConfig):
+class TeamConfig(AgentConfig):
     leader_tools: list | None = None
     agent_tools: list | None = None
 
 
 def create_team(config: TeamConfig) -> Team:
     team = Team(config)
-    runtime = get_runtime()
-    runtime.register(team)
     team.start()
     return team
 
 
-class Team(BaseAgent):
+@tool(
+    name='create_team',
+    description='Create a sub-team for delegated tasks. Returns the team name for communication.',
+    parameters={
+        'type': 'object',
+        'properties': {
+            'instruction': {'type': 'string', 'description': 'Task description for the sub-team'},
+        },
+        'required': ['instruction'],
+    },
+)
+async def create_team_tool(ctx: ToolContext, instruction: str) -> str:
+    team = ctx.agent
+    team_id = make_id()
+    cfg = replace(team.config, name=team_id, instruction=instruction,
+                  agent_tools=getattr(team.config, 'agent_tools', None), source='user')
+    sub_team = team.create_sub_team(cfg)
+    result = await delegate_task(team, sub_team, instruction)
+    return f'[Team "{team_id}" completed]\n{result}'
+
+
+class Team(Agent):
     def __init__(self, config: TeamConfig):
-        self.config = config
-        self.kind = 'team'
-        super().__init__(config.name)
-
-        leader_tools = list(config.leader_tools or []) + [
-            create_agent_tool(self, agent_tools=config.agent_tools),
-            send_message_tool(self),
-            task_stop_tool(self),
+        mgmt_tools = [
+            create_agent_tool,
+            create_team_tool,
+            send_message_tool,
+            task_stop_tool,
         ]
-        leader_config = AgentConfig(
-            name=config.name, description=config.description,
-            provider=config.provider, model=config.model,
-            instruction=config.instruction,
-            thinking=config.thinking, skills=config.skills,
-            http_options=config.http_options, max_turns=config.max_turns,
-            source=config.source, background=config.background,
-            tools=leader_tools,
-        )
-        self._leader = create_agent(leader_config)
-
-    @property
-    def name(self) -> str:
-        return self.id
-
-    @property
-    def leader(self):
-        return self._leader
-
-    def start(self):
-        super().start()
-
-    def stop(self, timeout: float = 2.0):
-        self._leader.stop(timeout=timeout)
-        super().stop(timeout=timeout)
-
-    def handle_message(self, msg: Message) -> Any:
-        if msg.type in ('text', 'request', 'signal'):
-            return self._leader.handle_message(msg)
-        return None
+        leader_tools = list(config.leader_tools or []) + mgmt_tools
+        config = replace(config, tools=list(config.tools or []) + leader_tools)
+        super().__init__(config, kind='team')

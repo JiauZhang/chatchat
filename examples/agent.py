@@ -1,4 +1,4 @@
-import os, sys, argparse, random, subprocess
+import os, sys, argparse, random, subprocess, asyncio
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from chatchat.agent import Agent, AgentConfig, create_agent
@@ -6,8 +6,8 @@ from chatchat.tool import Tool, tool
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--provider', type=str, default='deepseek')
-parser.add_argument('--model', type=str, default='deepseek-v4-flash')
+parser.add_argument('--provider', type=str, default='agnes')
+parser.add_argument('--model', type=str, default='agnes-2.5-flash')
 parser.add_argument('--timeout', type=int, default=None)
 parser.add_argument('--proxy', type=str, default=None)
 args = parser.parse_args()
@@ -96,15 +96,23 @@ agent = create_agent(AgentConfig(
 ))
 
 print('Enter /exit to quit, /clear to reset conversation.')
-while True:
-    prompt = input('user> ')
-    if prompt == '/exit':
-        break
-    if prompt == '/clear':
-        agent.clear()
-        print('Conversation cleared.\n')
-        continue
 
-    response = agent.chat(prompt)
-    print(f'assistant> {response}')
-    print()
+
+async def main():
+    while True:
+        prompt = input('user> ')
+        if prompt == '/exit':
+            break
+        if prompt == '/clear':
+            agent.clear()
+            print('Conversation cleared.\n')
+            continue
+
+        response = await agent.chat(prompt)
+        print(f'assistant> {response}')
+        print()
+    await agent.stop()
+
+
+if __name__ == '__main__':
+    asyncio.run(main())

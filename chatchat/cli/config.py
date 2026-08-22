@@ -1,9 +1,15 @@
 from chatchat.providers import __providers__
 from chatchat.config import save_config
 
+
 def parse_config(args):
     if args.list:
-        print(f'supported providers: {list(__providers__.keys())}')
+        import importlib
+        import pkgutil
+        import chatchat.providers as providers_pkg
+        for mod in pkgutil.iter_modules(providers_pkg.__path__):
+            importlib.import_module(f'chatchat.providers.{mod.name}')
+        print(f'supported providers: {sorted(__providers__.keys())}')
     elif args.cfgs:
         cfg = args.cfgs.split('=')
         provider_key = cfg[0].split('.')

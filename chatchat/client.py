@@ -1,22 +1,27 @@
+from __future__ import annotations
+
+import asyncio
 import json
 from pathlib import Path
 from dataclasses import dataclass
-
-import httpx
 from importlib import import_module
-from typing import Generator
+
+import aiohttp
 
 from chatchat.config import load_config
 from chatchat.providers import __providers__
 from chatchat.rate_limiter import get_rate_limiter
-from chatchat.runtime import get_runtime
+from chatchat.runtime import Event, get_runtime
 from chatchat.exceptions import ProviderError, APIError
 from chatchat.tool import Tools
+from chatchat.transport import Transport, _RetryableError
 from chatchat.types import (
     ChatCompletionChunk,
     ChunkChoice,
     Delta,
+    Message,
     ToolCall,
+    Usage,
 )
 
 
@@ -31,76 +36,61 @@ class ClientConfig:
 
 class BaseClient:
     base_url = ''
+    max_retries = 3
+    retry_backoff = 1.0
 
     def __init__(self, config: ClientConfig):
         self.config = config
         self.name = config.name
-        http_options = config.http_options or {}
-        http_options.setdefault('timeout', 60.0)
-        http_options.setdefault('follow_redirects', True)
+        self.provider = config.provider
         self._instruction = config.instruction
-        self.api_key = load_config(self.provider)
         self.model = config.model
-        self.client = httpx.Client(
-            base_url=self.base_url,
-            **http_options,
-            headers={
-                'Content-Type': 'application/json',
-                'Authorization': f'Bearer {self.api_key}',
-            },
-        )
-        self._messages = []
+        self.api_key = load_config(self.provider)
         self._rate_limiter = get_rate_limiter(self.provider)
+        self.messages = []
+        self.latest = None
+        self.latest_usage = None
+        opts = config.http_options or {}
+        self._transport = Transport(
+            name=self.name,
+            base_url=self.base_url,
+            api_key=self.api_key,
+            timeout=aiohttp.ClientTimeout(total=opts.get('timeout') or 60.0),
+            proxy=opts.get('proxy'),
+            notify_429=self._rate_limiter.notify_429,
+            emit=self._emit,
+        )
 
-    @property
-    def messages(self):
-        return self._messages
-
-    @messages.setter
-    def messages(self, value):
-        self._messages = value
+    async def close(self):
+        await self._transport.close()
 
     def clear(self):
-        self._messages = []
+        self.messages = []
+        self.latest = None
+        self.latest_usage = None
 
-    def _emit(self, topic: str, data: dict = None):
-        if data is not None and not isinstance(data, dict):
-            data = data.__dict__
-        get_runtime().emit(topic, data, name=self.name)
+    async def _emit(self, topic: str, data: dict = None):
+        await get_runtime().publish(Event(
+            topic=f'lifecycle:{topic}', source=self.name, data=data or {},
+        ))
 
-    def _to_provider_format(self, messages):
-        return messages
-
-    def _send_streaming(self, url, payload):
-        self._rate_limiter.acquire()
-        try:
-            with self.client.stream('POST', url, json=payload) as response:
-                if response.status_code == 429:
-                    self._rate_limiter.notify_429()
-                if response.status_code >= 400:
-                    response.read()
-                    self._emit('client:error', {
-                        'status_code': response.status_code,
-                        'error': response.text[:500],
-                    })
-                    raise APIError(
-                        f'API request failed: {response.status_code} '
-                        f'{response.text}'
-                    )
-                for line in response.iter_lines():
-                    if line.startswith('data: '):
-                        yield line[6:]
-                    elif line.startswith('data:'):
-                        yield line[5:]
-        except httpx.RequestError as e:
-            self._emit('client:error', {'error': str(e)})
-            raise APIError(f'API request failed: {e}')
-        finally:
-            self._rate_limiter.release()
-
-    def _to_provider_format(self, messages):
-        """Convert messages to provider-specific format. Override in subclasses."""
-        return messages
+    async def _send_streaming(self, url, payload):
+        retries = 0
+        started = False
+        while True:
+            try:
+                async for line in self._transport.stream(url, payload):
+                    started = True
+                    yield line
+                return
+            except (aiohttp.ClientError, asyncio.TimeoutError, _RetryableError) as e:
+                msg = f'{type(e).__name__}: {e}'
+                if started or retries >= self.max_retries:
+                    await self._emit('client:error', {'error': msg})
+                    raise APIError(f'API request failed: {msg}') from e
+                retries += 1
+                await self._emit('client:retry', {'retry': retries, 'error': msg})
+                await asyncio.sleep(min(self.retry_backoff * 2 ** retries, 8))
 
     def _build_request_body(self, model, messages, thinking, tools, **kwargs):
         if self._instruction:
@@ -121,6 +111,14 @@ class BaseClient:
         payload.update(kwargs)
         return payload
 
+    @staticmethod
+    def _to_usage(data: dict) -> Usage:
+        return Usage(
+            prompt_tokens=data.get('prompt_tokens', 0),
+            completion_tokens=data.get('completion_tokens', 0),
+            total_tokens=data.get('total_tokens', 0),
+        )
+
     def _to_tool_call(self, data: dict) -> ToolCall:
         func = data.get('function', {})
         return ToolCall(
@@ -133,6 +131,7 @@ class BaseClient:
     def _to_delta(self, data: dict) -> Delta:
         return Delta(
             content=data.get('content', ''),
+            reasoning_content=data.get('reasoning_content', ''),
             tool_calls=[self._to_tool_call(tc) for tc in (data.get('tool_calls') or [])],
         )
 
@@ -150,54 +149,43 @@ class BaseClient:
             created=data.get('created', 0),
             model=data.get('model', ''),
             choices=[self._to_chunk_choice(c) for c in (data.get('choices') or [])],
+            usage=self._to_usage(data.get('usage') or {}),
         )
 
-    def chat(self, messages, *, model=None, thinking=False, tools=None, **kwargs):
-        converted = self._to_provider_format(messages)
-        full = self.messages + converted
+    async def chat(self, messages, *, model=None, thinking=False, tools=None, **kwargs):
+        self.latest = None
+        self.latest_usage = None
+        full = self.messages + messages
         payload = self._build_request_body(
             model=model, messages=full, thinking=thinking, tools=tools, **kwargs,
         )
         url = '/chat/completions'
-        self._emit('client:start', {'payload': payload})
-        return self._chat_stream(url, payload, full)
-
-    def _chat_stream(self, url, payload, messages):
-        response_msg = {'role': 'assistant', 'content': ''}
-        for line in self._send_streaming(url, payload):
-            if line.strip() == '[DONE]':
-                self._messages = messages + [response_msg]
-                self._emit('client:end')
-                return
-            try:
-                data = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            chunk = self._to_chat_completion_chunk(data)
-            delta = chunk.choices[0].delta if chunk.choices else None
-            if delta:
-                if delta.content:
-                    response_msg['content'] += delta.content
-                if delta.tool_calls:
-                    self._accumulate_tool_calls(response_msg, delta.tool_calls)
-            self._emit('client:step', chunk)
-            yield chunk
-
-    def _accumulate_tool_calls(self, response_msg: dict, tool_calls: list):
-        if 'tool_calls' not in response_msg:
-            response_msg['tool_calls'] = []
-        for tc in tool_calls:
-            while len(response_msg['tool_calls']) <= tc.index:
-                response_msg['tool_calls'].append(
-                    {'id': '', 'type': 'function', 'function': {'name': '', 'arguments': ''}}
-                )
-            entry = response_msg['tool_calls'][tc.index]
-            if tc.id:
-                entry['id'] = tc.id
-            if tc.name:
-                entry['function']['name'] = tc.name
-            if tc.arguments:
-                entry['function']['arguments'] += tc.arguments
+        await self._emit('client:start', {'payload': payload})
+        response_msg = Message()
+        total_tokens = 0
+        await self._rate_limiter.acquire()
+        try:
+            async for line in self._send_streaming(url, payload):
+                if line.strip() == '[DONE]':
+                    self.latest = response_msg
+                    self.messages = full + [response_msg.to_dict()]
+                    await self._emit('client:end', {'usage': self.latest_usage})
+                    return
+                try:
+                    data = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                chunk = self._to_chat_completion_chunk(data)
+                if chunk.usage.total_tokens:
+                    total_tokens = chunk.usage.total_tokens
+                    self.latest_usage = chunk.usage
+                delta = chunk.choices[0].delta if chunk.choices else None
+                if delta:
+                    response_msg.accumulate(delta)
+                await self._emit('client:step', chunk)
+                yield chunk
+        finally:
+            await self._rate_limiter.release(total_tokens)
 
 
 _supported_providers = sorted(
@@ -217,31 +205,6 @@ def dynamic_import_client(provider):
     )
 
 
-class Client:
-    def __init__(self, provider, model, instruction=None, name=None, http_options=None):
-        config = ClientConfig(
-            provider=provider, model=model,
-            instruction=instruction or '',
-            name=name or 'unknown',
-            http_options=http_options,
-        )
-        client_class = dynamic_import_client(config.provider)
-        self.client: BaseClient = client_class(config)
-
-    @property
-    def messages(self):
-        return self.client.messages
-
-    @messages.setter
-    def messages(self, value):
-        self.client.messages = value
-
-    def clear(self):
-        self.client.clear()
-
-    def chat(self, messages, *, model=None, thinking=False, tools=None, **kwargs):
-        return self.client.chat(
-            messages,
-            model=model, thinking=thinking, tools=tools,
-            **kwargs,
-        )
+def create_client(config: ClientConfig) -> BaseClient:
+    client_class = dynamic_import_client(config.provider)
+    return client_class(config)

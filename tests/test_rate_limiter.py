@@ -1,7 +1,7 @@
-import time
-import threading
+import asyncio
 import pytest
 
+from chatchat import rate_limiter
 from chatchat.rate_limiter import (
     RateLimiterState,
     set_rate_limits,
@@ -11,124 +11,124 @@ from chatchat.rate_limiter import (
 
 def _fast_forward(monkeypatch):
     t = [0.0]
-    monkeypatch.setattr(time, 'time', lambda: t[0])
-    monkeypatch.setattr(time, 'sleep', lambda s: t.__setitem__(0, t[0] + s))
+    monkeypatch.setattr(rate_limiter, '_now', lambda: t[0])
+
+    async def fake_sleep(dt):
+        t[0] += dt
+
+    monkeypatch.setattr(rate_limiter, '_sleep', fake_sleep)
     return t
 
 
 class TestRateLimiterState:
-    def test_rpm_limits_requests(self, monkeypatch):
+    async def test_rpm_limits_requests(self, monkeypatch):
         _fast_forward(monkeypatch)
         limiter = RateLimiterState(rpm=5)
         for _ in range(5):
-            limiter.acquire()
-            limiter.release()
-        t0 = time.time()
-        limiter.acquire()
-        limiter.release()
-        elapsed = time.time() - t0
+            await limiter.acquire()
+            await limiter.release()
+        t0 = _fast_time()
+        await limiter.acquire()
+        await limiter.release()
+        elapsed = _fast_time() - t0
         assert elapsed >= 0.1
 
-    def test_rpm_no_limit_when_zero(self):
+    async def test_rpm_no_limit_when_zero(self):
         limiter = RateLimiterState(rpm=0)
-        t0 = time.time()
+        t0 = _fast_time()
         for _ in range(100):
-            limiter.acquire()
-            limiter.release()
-        elapsed = time.time() - t0
+            await limiter.acquire()
+            await limiter.release()
+        elapsed = _fast_time() - t0
         assert elapsed < 0.5
 
-    def test_tpm_limits_tokens(self, monkeypatch):
+    async def test_tpm_limits_tokens(self, monkeypatch):
         _fast_forward(monkeypatch)
         limiter = RateLimiterState(tpm=100)
         for _ in range(3):
-            limiter.acquire()
-            limiter.release(actual_tokens=20)
-        t0 = time.time()
+            await limiter.acquire()
+            await limiter.release(actual_tokens=20)
+        t0 = _fast_time()
         for _ in range(3):
-            limiter.acquire()
-            limiter.release(actual_tokens=20)
-        elapsed = time.time() - t0
+            await limiter.acquire()
+            await limiter.release(actual_tokens=20)
+        elapsed = _fast_time() - t0
         assert elapsed >= 0.1
 
-    def test_tpm_no_limit_when_zero(self):
+    async def test_tpm_no_limit_when_zero(self):
         limiter = RateLimiterState(tpm=0)
-        t0 = time.time()
+        t0 = _fast_time()
         for _ in range(100):
-            limiter.acquire()
-            limiter.release(actual_tokens=10000)
-        elapsed = time.time() - t0
+            await limiter.acquire()
+            await limiter.release(actual_tokens=10000)
+        elapsed = _fast_time() - t0
         assert elapsed < 0.5
 
-    def test_max_concurrent_limits_parallel(self):
+    async def test_max_concurrent_limits_parallel(self):
         limiter = RateLimiterState(max_concurrent=3)
-        acquired = [False] * 6
+        running = 0
+        peak = 0
         results = []
+        lock = asyncio.Lock()
 
-        def worker(i):
-            limiter.acquire()
-            acquired[i] = True
-            time.sleep(0.2)
+        async def worker(i):
+            nonlocal running, peak
+            await limiter.acquire()
+            async with lock:
+                running += 1
+                peak = max(peak, running)
+            await asyncio.sleep(0.05)
+            async with lock:
+                running -= 1
             results.append(i)
-            limiter.release()
+            await limiter.release()
 
-        threads = [threading.Thread(target=worker, args=(i,)) for i in range(6)]
-        for t in threads:
-            t.start()
-        time.sleep(0.05)
-        concurrent = sum(acquired)
-        assert concurrent <= 3
-        for t in threads:
-            t.join()
+        await asyncio.gather(*(worker(i) for i in range(6)))
+        assert peak <= 3
+        assert len(results) == 6
 
-    def test_max_concurrent_no_limit_when_zero(self):
+    async def test_max_concurrent_no_limit_when_zero(self):
         limiter = RateLimiterState(max_concurrent=0)
-        barrier = threading.Barrier(10)
 
-        def worker():
-            barrier.wait()
-            limiter.acquire()
-            limiter.release()
+        async def worker():
+            await limiter.acquire()
+            await limiter.release()
 
-        threads = [threading.Thread(target=worker) for _ in range(10)]
-        t0 = time.time()
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
-        elapsed = time.time() - t0
+        t0 = _fast_time()
+        await asyncio.gather(*(worker() for _ in range(10)))
+        elapsed = _fast_time() - t0
         assert elapsed < 0.5
 
-    def test_notify_429_slows_down_subsequent_requests(self, monkeypatch):
+    async def test_notify_429_slows_down_subsequent_requests(self, monkeypatch):
         _fast_forward(monkeypatch)
         limiter = RateLimiterState(rpm=10)
         for _ in range(10):
-            limiter.acquire()
-            limiter.release()
-        limiter.notify_429()
-        t0 = time.time()
-        limiter.acquire()
-        limiter.release()
-        elapsed = time.time() - t0
+            await limiter.acquire()
+            await limiter.release()
+        await limiter.notify_429()
+        t0 = _fast_time()
+        await limiter.acquire()
+        await limiter.release()
+        elapsed = _fast_time() - t0
         assert elapsed >= 0.1
 
-    def test_notify_429_no_rpm_means_noop(self):
+    async def test_notify_429_no_rpm_means_noop(self):
         limiter = RateLimiterState(rpm=0)
-        limiter.notify_429()
-        limiter.acquire()
-        limiter.release()
+        await limiter.notify_429()
+        await limiter.acquire()
+        await limiter.release()
 
-    def test_notify_429_sets_penalty_until(self, monkeypatch):
+    async def test_notify_429_sets_penalty_until(self, monkeypatch):
         _fast_forward(monkeypatch)
         limiter = RateLimiterState(rpm=10)
         for _ in range(10):
-            limiter.acquire()
-            limiter.release()
-        limiter.notify_429()
-        t0 = time.time()
-        limiter.acquire()
-        limiter.release()
-        elapsed = time.time() - t0
+            await limiter.acquire()
+            await limiter.release()
+        await limiter.notify_429()
+        t0 = _fast_time()
+        await limiter.acquire()
+        await limiter.release()
+        elapsed = _fast_time() - t0
         assert elapsed >= 0.5
 
 
@@ -146,13 +146,13 @@ class TestSetRateLimits:
         assert limiter2.rpm == 10000
         assert limiter2.tpm == 0
 
-    def test_unconfigured_provider_returns_null(self):
+    async def test_unconfigured_provider_returns_null(self):
         set_rate_limits([])
         limiter = get_rate_limiter('nonexistent')
-        limiter.acquire()
-        limiter.release()
-        limiter.acquire(estimated_tokens=100)
-        limiter.release(actual_tokens=50)
+        await limiter.acquire()
+        await limiter.release()
+        await limiter.acquire(estimated_tokens=100)
+        await limiter.release(actual_tokens=50)
 
     def test_reconfigure_overwrites(self):
         set_rate_limits([{'provider': 'x', 'rpm': 10}])
@@ -168,3 +168,7 @@ class TestSetRateLimits:
         set_rate_limits([{'provider': 'c', 'rpm': 30}])
         assert get_rate_limiter('a').rpm == 0
         assert get_rate_limiter('c').rpm == 30
+
+
+def _fast_time():
+    return rate_limiter._now()

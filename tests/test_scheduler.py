@@ -1,152 +1,163 @@
-import threading
-from queue import Queue, Empty
-from chatchat.scheduler import Scheduler, TimeoutError
-from chatchat.message import Message, make_id
+import asyncio
+import pytest
+from chatchat.runtime import Scheduler, Event, RequestTimeoutError, make_id, parse_topic
 
 
-class EchoEntity:
+class AsyncEcho:
     def __init__(self, name, scheduler=None):
         self.id = name
         self.kind = 'agent'
-        self._mailbox = Queue()
+        self.mailbox: asyncio.Queue = asyncio.Queue()
         self._scheduler = scheduler
-        self._stop_event = threading.Event()
-        self._thread: threading.Thread | None = None
+        self._stop = asyncio.Event()
+        self._task = None
 
-    def handle_message(self, msg):
-        if msg.type == 'request':
-            if msg.subtype == 'ping':
-                return 'pong'
-            if msg.subtype == 'echo':
-                return msg.payload
-        return msg.payload
+    async def start(self):
+        self._stop.clear()
+        self._task = asyncio.create_task(self._process_loop())
 
-    def start(self):
-        self._stop_event.clear()
-        self._thread = threading.Thread(target=self._process_loop, daemon=True)
-        self._thread.start()
+    async def stop(self):
+        self._stop.set()
+        if self._task:
+            self._task.cancel()
 
-    def stop(self):
-        self._stop_event.set()
-        if self._thread:
-            self._thread.join(timeout=1)
-
-    def _process_loop(self):
-        while not self._stop_event.is_set():
+    async def _process_loop(self):
+        while not self._stop.is_set():
             try:
-                msg = self._mailbox.get(timeout=0.1)
-                result = self.handle_message(msg)
-                if result is not None and self._scheduler:
-                    self._scheduler.reply(msg, result)
-            except Empty:
+                ev = await asyncio.wait_for(self.mailbox.get(), timeout=0.05)
+            except asyncio.TimeoutError:
                 continue
+            _, _, msg_type, subtype = parse_topic(ev.topic)
+            if msg_type == 'request':
+                if subtype == 'ping':
+                    result = 'pong'
+                elif subtype == 'echo':
+                    result = ev.data
+                else:
+                    result = ev.data
+                if ev.reply_to and self._scheduler:
+                    await self._scheduler.reply(ev, result)
 
 
 class TestRegister:
     def test_register_entity(self):
-        s = Scheduler()
-        e = EchoEntity('alice')
-        s.register(e)
-        assert s.lookup(e.id).id == 'alice'
+        eb = Scheduler()
+        q = asyncio.Queue()
+        eb.register_entity('alice', 'agent', q)
+        assert eb.list_entities() == ['alice']
 
     def test_unregister_entity(self):
-        s = Scheduler()
-        e = EchoEntity('alice')
-        s.register(e)
-        s.unregister(e.id)
-        assert s.lookup(e.id) is None
+        eb = Scheduler()
+        q = asyncio.Queue()
+        eb.register_entity('alice', 'agent', q)
+        eb.unregister_entity('alice')
+        assert eb.list_entities() == []
+
+    def test_duplicate_entity_id_raises(self):
+        eb = Scheduler()
+        q = asyncio.Queue()
+        eb.register_entity('dup', 'agent', q)
+        with pytest.raises(ValueError, match='Duplicate entity id'):
+            eb.register_entity('dup', 'agent', q)
+
+    def test_register_entity_with_name(self):
+        eb = Scheduler()
+        q = asyncio.Queue()
+        eb.register_entity('e1', 'agent', q, name='friendly')
+        eid, entry = eb.lookup('friendly')
+        assert eid == 'e1'
+        assert entry[1] is q
 
 
 class TestSend:
-    def test_send_message(self):
-        s = Scheduler()
-        e = EchoEntity('bob')
-        s.register(e)
-        s.send(Message(sender=make_id(), recipient=e.id, type='text', payload='hello'))
-        msg = e._mailbox.get(timeout=1)
-        assert msg.payload == 'hello'
+    async def test_send_event(self):
+        eb = Scheduler()
+        q = asyncio.Queue()
+        eb.register_entity('bob', 'agent', q)
+        await eb.publish(Event(
+            topic='entity:agent:bob:text', source=make_id(), data='hello',
+        ))
+        ev = await asyncio.wait_for(q.get(), timeout=1)
+        assert ev.data == 'hello'
 
 
 class TestRequest:
-    def test_request_reply(self):
-        s = Scheduler()
-        e = EchoEntity('bob', scheduler=s)
-        s.register(e)
-        e.start()
-        reply = s.request(
-            Message(sender=make_id(), recipient=e.id, type='request', subtype='ping'),
+    async def test_request_reply(self):
+        eb = Scheduler()
+        e = AsyncEcho('bob', scheduler=eb)
+        eb.register_entity('bob', 'agent', e.mailbox)
+        await e.start()
+        reply = await eb.request(
+            source=make_id(), target_id='bob',
+            topic='entity:agent:bob:request:ping', data='',
             timeout=5,
         )
-        assert reply.payload == 'pong'
+        assert reply == 'pong'
+        await e.stop()
 
-    def test_request_unknown_recipient(self):
-        s = Scheduler()
-        import pytest
-        with pytest.raises(ValueError):
-            s.request(Message(sender=make_id(), recipient='nobody', type='request', subtype='ping'))
+    async def test_request_unknown_recipient(self):
+        eb = Scheduler()
+        with pytest.raises(ValueError, match='Unknown target'):
+            await eb.request(
+                source=make_id(), target_id='nobody',
+                topic='entity:agent:nobody:request:ping', data='',
+                timeout=0.01,
+            )
 
-    def test_request_timeout(self):
-        s = Scheduler()
-        e = EchoEntity('slow')
-        s.register(e)
-        import pytest
-        with pytest.raises(TimeoutError):
-            s.request(
-                Message(sender=make_id(), recipient=e.id, type='request', subtype='echo', payload='hi'),
+    async def test_request_timeout(self):
+        eb = Scheduler()
+        q = asyncio.Queue()
+        eb.register_entity('slow', 'agent', q)
+        with pytest.raises(RequestTimeoutError):
+            await eb.request(
+                source=make_id(), target_id='slow',
+                topic='entity:agent:slow:request:echo', data='hi',
                 timeout=0.01,
             )
 
 
 class TestReply:
-    def test_reply_resolves_pending_request(self):
-        s = Scheduler()
-        e = EchoEntity('helper', scheduler=s)
-        s.register(e)
-        e.start()
-        reply = s.request(
-            Message(sender=make_id(), recipient=e.id, type='request', subtype='echo', payload='hello'),
+    async def test_reply_resolves_pending_request(self):
+        eb = Scheduler()
+        e = AsyncEcho('helper', scheduler=eb)
+        eb.register_entity('helper', 'agent', e.mailbox)
+        await e.start()
+        reply = await eb.request(
+            source=make_id(), target_id='helper',
+            topic='entity:agent:helper:request:echo', data='hello',
             timeout=5,
         )
-        assert reply.payload == 'hello'
-        e.stop()
+        assert reply == 'hello'
+        await e.stop()
 
 
 class TestLookup:
     def test_lookup_by_name(self):
-        s = Scheduler()
-        e = EchoEntity('charlie')
-        s.register(e)
-        assert s.lookup_by_name('charlie') is e
-        assert s.lookup_by_name('nobody') is None
+        eb = Scheduler()
+        q = asyncio.Queue()
+        eb.register_entity('charlie', 'agent', q)
+        eid, entry = eb.lookup('charlie')
+        assert eid == 'charlie'
+        assert entry[1] is q
+        eid, entry = eb.lookup('nobody')
+        assert eid is None
+        assert entry is None
 
 
 class TestListEntities:
     def test_list_entities_with_kind(self):
-        s = Scheduler()
-        e = EchoEntity('dave')
-        s.register(e)
-        ids = s.list_entities(kind='agent')
+        eb = Scheduler()
+        q = asyncio.Queue()
+        eb.register_entity('dave', 'agent', q)
+        ids = eb.list_entities(kind='agent')
         assert len(ids) >= 1
         assert 'dave' in ids
 
 
-class TestStop:
-    def test_stop_entity(self):
-        s = Scheduler()
-        from chatchat.agent import Agent, AgentConfig
-        agent = Agent(AgentConfig(name='killme', provider='deepseek', model='deepseek-chat', http_options={'timeout': 10}))
-        s.register(agent)
-        agent.start()
-        assert agent.is_running
-        agent.stop()
-        s.unregister(agent.id)
-        assert not agent.is_running
-
-
 class TestShutdown:
     def test_shutdown_clears_all(self):
-        s = Scheduler()
-        e = EchoEntity('dead')
-        s.register(e)
-        s.shutdown()
-        assert s.list_entities() == []
+        eb = Scheduler()
+        q = asyncio.Queue()
+        eb.register_entity('dead', 'agent', q)
+        eb.shutdown()
+        assert eb.list_entities() == []

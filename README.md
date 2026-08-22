@@ -1,6 +1,6 @@
 # chatchat — Agent Framework
 
-Python agent framework with LLM tool calling, multi-agent orchestration, and event-driven architecture.
+Python agent framework with LLM tool calling, multi-agent orchestration, and a scheduler-based event-driven architecture.
 
 ## Install
 
@@ -13,96 +13,126 @@ pip install chatchat
 ### Single Agent
 
 ```python
-from chatchat.agent import Agent
-from chatchat.event import EventBus
+import asyncio
+from chatchat.agent import AgentConfig, create_agent
 from chatchat.tool import tool
-
-bus = EventBus()
-bus.start()
-bus.subscribe('agent:*', lambda e: print(f'[{e.topic}] {e.source}: {e.data}'))
 
 @tool(
     name='get_weather', description='get weather for a city',
     parameters={
         'type': 'object',
         'properties': {
-            'city': {
-                'type': 'string',
-                'description': 'the city name, e.g., Shanghai',
-            }
+            'city': {'type': 'string', 'description': 'the city name, e.g., Shanghai'},
         },
         'required': ['city'],
-    }
+    },
 )
 def get_weather(city):
     return f'{city} is Sunny.'
 
-agent = Agent(
+agent = create_agent(AgentConfig(
     name='assistant',
-    provider='deepseek', model='deepseek-v4-flash',
-    event_bus=bus, tools=[get_weather],
-)
-agent.chat('How is the weather in Shanghai?')
-bus.stop()
+    provider='agnes', model='agnes-2.5-flash',
+    instruction='You are a helpful assistant.',
+    tools=[get_weather],
+))
+
+async def main():
+    result = await agent.chat('How is the weather in Shanghai?')
+    print(result)
+    await agent.stop()
+
+asyncio.run(main())
 ```
 
 ### Multi-Agent Team
 
-```python
-from chatchat.agent import Agent
-from chatchat.event import EventBus
-from chatchat.team import Team
-
-bus = EventBus()
-bus.start()
-
-worker = Agent(name='worker', provider='deepseek', model='deepseek-v4-flash' event_bus=bus)
-leader = Agent(name='leader', provider='deepseek', model='deepseek-v4-flash', event_bus=bus)
-
-team = Team(name='my_team', leader=leader, event_bus=bus)
-team.add_member(worker)
-result = team.chat('Complete the task')
-```
-
-### Pipeline
+Teams inherit from Agent and carry management tools (`create_agent`, `create_team`, `send_message`, `task_stop`). Sub-agents are created on demand by the leader and communicate through the scheduler via `runtime.request` / `reply`.
 
 ```python
-team = Team(name='pipeline', leader=agent_a, event_bus=bus)
-team.add_member(agent_b)
-team.add_member(agent_c)
-result = team.pipeline('Process this')
+import asyncio
+from chatchat.team import TeamConfig, create_team
+from chatchat.runtime import get_runtime, make_id
+
+team = create_team(TeamConfig(
+    name='lead',
+    provider='agnes', model='agnes-2.5-flash',
+    instruction='You are a tech lead. Use create_agent to delegate tasks to sub-agents.',
+    agent_tools=[],
+))
+
+async def main():
+    reply = await get_runtime().request(
+        source=make_id(), target_id=team.id,
+        topic=f'entity:team:{team.id}:text',
+        data='write a tutorial to output.md', timeout=300,
+    )
+    print(reply)
+    await team.stop()
+    get_runtime().shutdown()
+
+asyncio.run(main())
 ```
 
-### Parallel
+### Tools
+
+Tools are registered with the `@tool` decorator. They run inside the AgentLoop; the LLM's tool calls are accumulated by index, executed, and fed back for further turns.
 
 ```python
-tasks = {'worker_a': 'Task for A', 'worker_b': 'Task for B'}
-results = team.parallel(tasks)
+from chatchat.tool import tool
+
+@tool(
+    name='add', description='add two numbers',
+    parameters={
+        'type': 'object',
+        'properties': {
+            'a': {'type': 'integer'},
+            'b': {'type': 'integer'},
+        },
+        'required': ['a', 'b'],
+    },
+)
+def add(a, b):
+    return a + b
 ```
 
-## EventBus
+### Skills
 
-Event-driven architecture. All agent, tool, and team events are emitted through a shared EventBus:
+Skills are directories containing a `SKILL.md`. Their instruction block is injected into the agent's system prompt.
 
-| Topic | Source | Description |
-|-------|--------|-------------|
-| `agent:start` | agent name | Agent receives a message |
-| `agent:step` | agent name | Agent executes tool calls |
-| `agent:end` | agent name | Agent completes response |
-| `agent:error` | agent name | Agent encountered error |
-| `tool:start` | agent name | Tool begins execution |
-| `tool:end` | agent name | Tool completes execution |
-| `tool:error` | agent name | Tool encountered error |
-| `client:step` | agent name | LLM streaming chunk |
-| `team:start` | team name | Team receives a task |
-| `team:step` | team name | Team delegates to member |
-| `team:end` | team name | Team completes task |
+```python
+agent = create_agent(AgentConfig(
+    name='skilled',
+    provider='agnes', model='agnes-2.5-flash',
+    instruction='You are a helpful assistant.',
+    skills=['/path/to/skill_dir'],
+))
+```
+
+## Architecture
+
+- **Scheduler / Runtime** — core message router. Agent-to-Agent and delegation communication go through the scheduler using topic-based addressing (`entity:<kind>:<id>:<type>`), with blocking request/reply and fire-and-forget publish. Calling `agent.chat()` runs the agent loop directly in the caller.
+- **Agent** — wraps an LLM client, a tool set, and the AgentLoop (streaming, tool-call accumulation, lifecycle hooks `start`/`step`/`end`/`error`).
+- **Team** — an Agent with management tools; `leader_tools` configure the leader's tools, `agent_tools` configure tools given to created sub-agents.
+- **Client / providers** — async streaming LLM clients (aiohttp) for `agnes`, `deepseek`, `openrouter`, `google`, `alibaba`, `baidu`, `zhipu`, `tencent`, `xunfei`, etc.
+
+Observe runtime activity with `get_runtime().enable_logging('agent', 'team', 'client', 'tool')`. Lifecycle topics: `lifecycle:agent:start/step/end/error`, `lifecycle:client:start/step/end/error`, `lifecycle:tool:start/step/end/error`.
 
 ## Configuration
 
 ```shell
-chatchat config <provider>.api_key=YOUR_API_KEY
 chatchat config --list
+chatchat config <provider>.api_key=YOUR_API_KEY
+chatchat run --provider agnes --model agnes-2.5-flash --thinking
+```
+
+Rate limits can be set programmatically:
+
+```python
+from chatchat.rate_limiter import set_rate_limits
+set_rate_limits([
+    {'provider': 'agnes', 'rpm': 20, 'tpm': 0, 'max_concurrent': 0},
+])
 ```
 
 ## Examples
@@ -110,9 +140,9 @@ chatchat config --list
 See [examples](./examples) for complete usage:
 
 - `agent.py` — Interactive terminal chat with tool calling
-- `team.py` — Supervisor, pipeline, and parallel orchestration modes
-- `tool.py` — Custom tool with progress reporting
-- `client.py` — Raw LLM client usage
+- `team.py` — Leader team delegating tasks to dynamically created sub-agents
+- `tool.py` — Raw client with tool calling
+- `client.py` — Raw LLM client streaming usage
 - `state.py` — Agent state serialization and restoration
 - `interact.py` — Interactive tool confirmation
 - `progress.py` — Streaming progress with custom tools

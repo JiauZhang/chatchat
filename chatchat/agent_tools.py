@@ -1,90 +1,101 @@
 from __future__ import annotations
+from dataclasses import replace
 
-from chatchat.agent import AgentConfig
-from chatchat.message import Message, make_id
-from chatchat.tool import tool, Tool
+from chatchat.exceptions import SubAgentError
+from chatchat.runtime import Event, make_id
+from chatchat.tool import tool, ToolContext
 
 
-def create_agent_tool(agent, agent_tools=None) -> Tool:
-    @tool(
-        name='create_agent',
-        description='Create a sub-agent for delegated tasks. Use this when a task is independent enough to run separately, or when you need parallel work.',
-        parameters={
-            'type': 'object',
-            'properties': {
-                'instruction': {'type': 'string', 'description': 'Task description for the sub-agent'},
-            },
-            'required': ['instruction'],
-        },
-    )
-    def _(instruction: str) -> str:
-        agent_id = make_id()
-        cfg = AgentConfig(
-            name=agent_id, instruction=instruction,
-            provider=agent.config.provider, model=agent.config.model,
-            thinking=agent.config.thinking,
-            http_options=agent.config.http_options,
-            max_turns=agent.config.max_turns,
-            source='user', tools=agent_tools,
+async def delegate_task(agent, target, message: str, timeout: float = 300):
+    try:
+        reply = await agent._runtime.request(
+            source=agent.id, target_id=target.id,
+            topic=f'entity:{target.kind}:{target.id}:text',
+            data=message, timeout=timeout,
         )
-        sub = agent.create_sub_agent(cfg)
-        sub.add_tool(send_message_tool(sub))
-        result = sub.chat(instruction)
-        return f'[Agent "{agent_id}" completed]\n{result}'
-    return _
+    except SubAgentError:
+        raise
+    except Exception as e:
+        raise SubAgentError(f'{target.kind} "{target.id}" failed: {e}') from e
+    if isinstance(reply, Exception):
+        raise SubAgentError(f'{target.kind} "{target.id}" failed: {reply}') from reply
+    return reply
 
 
-def send_message_tool(agent) -> Tool:
-    @tool(
-        name='send_message',
-        description='Send a message to a sub-agent and optionally wait for reply.',
-        parameters={
-            'type': 'object',
-            'properties': {
-                'to': {'type': 'string', 'description': 'Target agent name'},
-                'message': {'type': 'string', 'description': 'Message content'},
-                'blocking': {'type': 'boolean', 'description': 'Wait for reply (default false)'},
-            },
-            'required': ['to', 'message'],
+@tool(
+    name='create_agent',
+    description='Create a sub-agent for delegated tasks. Use this when a task is independent enough to run separately, or when you need parallel work.',
+    parameters={
+        'type': 'object',
+        'properties': {
+            'instruction': {'type': 'string', 'description': 'Task description for the sub-agent'},
         },
-    )
-    def _(to: str, message: str, blocking: bool = False) -> str:
-        target = agent._runtime.lookup_by_name(to)
-        if not target:
-            return f'error: unknown agent "{to}"'
-        msg = Message(
-            sender=agent.id, recipient=target.id,
-            type='text', payload=message,
-        )
-        if blocking:
-            try:
-                reply = agent._runtime.request(msg, timeout=60)
-                return f'reply from {to}: {reply.payload}'
-            except Exception as e:
-                return f'error waiting for reply: {e}'
-        agent._runtime.send(msg)
-        return f'message sent to {to}'
-    return _
+        'required': ['instruction'],
+    },
+)
+async def create_agent_tool(ctx: ToolContext, instruction: str) -> str:
+    agent = ctx.agent
+    agent_id = make_id()
+    agent_tools = getattr(agent.config, 'agent_tools', None)
+    cfg = replace(agent.config, name=agent_id, instruction=instruction,
+                  tools=agent_tools, source='user')
+    sub = agent.create_sub_agent(cfg)
+    sub.add_tool(send_message_tool)
+    result = await delegate_task(agent, sub, instruction)
+    return f'[Agent "{agent_id}" completed]\n{result}'
 
 
-def task_stop_tool(agent) -> Tool:
-    @tool(
-        name='task_stop',
-        description='Stop a running sub-agent.',
-        parameters={
-            'type': 'object',
-            'properties': {
-                'name': {'type': 'string', 'description': 'Name of the sub-agent to stop'},
-            },
-            'required': ['name'],
+@tool(
+    name='send_message',
+    description='Send a message to a sub-agent and optionally wait for reply.',
+    parameters={
+        'type': 'object',
+        'properties': {
+            'to': {'type': 'string', 'description': 'Target agent name'},
+            'message': {'type': 'string', 'description': 'Message content'},
+            'blocking': {'type': 'boolean', 'description': 'Wait for reply (default false)'},
         },
-    )
-    def _(name: str) -> str:
-        if name not in agent._sub_agents:
-            return f'error: unknown sub-agent "{name}"'
-        sub = agent._sub_agents[name]
-        sub.stop()
-        agent._runtime.unregister(sub.id)
-        del agent._sub_agents[name]
-        return f'agent "{name}" stopped'
-    return _
+        'required': ['to', 'message'],
+    },
+)
+async def send_message_tool(ctx: ToolContext, to: str, message: str, blocking: bool = False) -> str:
+    agent = ctx.agent
+    target_id, entry = agent._runtime.lookup(to)
+    if not entry:
+        return f'error: unknown agent "{to}"'
+    kind = entry[0]
+    topic = f'entity:{kind}:{target_id}:text'
+    if blocking:
+        try:
+            reply = await agent._runtime.request(
+                source=agent.id, target_id=target_id, topic=topic, data=message, timeout=60,
+            )
+        except Exception as e:
+            return f'error waiting for reply: {e}'
+        if isinstance(reply, Exception):
+            return f'error from {to}: {reply}'
+        return f'reply from {to}: {reply}'
+    await agent._runtime.publish(Event(topic=topic, source=agent.id, data=message))
+    return f'message sent to {to}'
+
+
+@tool(
+    name='task_stop',
+    description='Stop a running sub-agent.',
+    parameters={
+        'type': 'object',
+        'properties': {
+            'name': {'type': 'string', 'description': 'Name of the sub-agent to stop'},
+        },
+        'required': ['name'],
+    },
+)
+async def task_stop_tool(ctx: ToolContext, name: str) -> str:
+    agent = ctx.agent
+    if name not in agent._sub_agents:
+        return f'error: unknown sub-agent "{name}"'
+    sub = agent._sub_agents[name]
+    await sub.stop()
+    agent._runtime.unregister_entity(sub.id)
+    del agent._sub_agents[name]
+    return f'agent "{name}" stopped'

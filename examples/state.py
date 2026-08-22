@@ -1,12 +1,12 @@
-import json, argparse, random, sys, os
+import json, argparse, random, sys, os, asyncio
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from chatchat.agent import Agent, AgentConfig, create_agent
 from chatchat.tool import tool
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--provider', type=str, default='deepseek')
-parser.add_argument('--model', type=str, default='deepseek-v4-flash')
+parser.add_argument('--provider', type=str, default='agnes')
+parser.add_argument('--model', type=str, default='agnes-2.5-flash')
 parser.add_argument('--timeout', type=int, default=120)
 args = parser.parse_args()
 
@@ -58,19 +58,26 @@ agent = create_agent(AgentConfig(
     tools=[query_stock, query_news],
 ))
 
-result = agent.chat('What is the current price of AAPL and TSLA?')
-print(f'\nanalyst result: {result}\n')
+async def main():
+    result = await agent.chat('What is the current price of AAPL and TSLA?')
+    print(f'\nanalyst result: {result}\n')
 
-state = agent.state_dict()
-with open('_agent_state.json', 'w', encoding='utf-8') as f:
-    json.dump(state, f, ensure_ascii=False, indent=2)
+    state = agent.state_dict()
+    with open('_agent_state.json', 'w', encoding='utf-8') as f:
+        json.dump(state, f, ensure_ascii=False, indent=2)
 
-with open('_agent_state.json', 'r', encoding='utf-8') as f:
-    restored_state = json.load(f)
+    with open('_agent_state.json', 'r', encoding='utf-8') as f:
+        restored_state = json.load(f)
 
-new_agent = Agent.from_state_dict(restored_state, tools=[query_stock, query_news])
+    new_agent = Agent.from_state_dict(restored_state, tools=[query_stock, query_news])
 
-result = new_agent.chat('What about GOOG?')
-print(f'\nrestored agent result: {result}\n')
+    result = await new_agent.chat('What about GOOG?')
+    print(f'\nrestored agent result: {result}\n')
 
-os.remove('_agent_state.json')
+    await agent.stop()
+    await new_agent.stop()
+    os.remove('_agent_state.json')
+
+
+if __name__ == '__main__':
+    asyncio.run(main())

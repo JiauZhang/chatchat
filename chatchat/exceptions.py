@@ -12,3 +12,11 @@ class ProviderError(ChatChatError):
 
 class APIError(ChatChatError):
     pass
+
+
+class SubAgentError(ChatChatError):
+    pass
+
+
+class MaxStepsError(ChatChatError):
+    pass

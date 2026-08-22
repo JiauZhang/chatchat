@@ -1,4 +1,5 @@
 import argparse
+import asyncio
 from chatchat import __version__
 from chatchat.cli.config import cli_config
 from chatchat.cli.chat import cli_chat
@@ -15,13 +16,17 @@ subparser = parser.add_subparsers()
 cli_config(subparser)
 cli_chat(subparser)
 
-args = parser.parse_args()
 
 def main():
+    args = parser.parse_args()
     if args.parser:
-        args.parser(args)
+        if asyncio.iscoroutinefunction(args.parser):
+            asyncio.run(args.parser(args))
+        else:
+            args.parser(args)
     else:
         parser.print_help()
+
 
 if __name__ == '__main__':
     main()

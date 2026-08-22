@@ -50,6 +50,19 @@ class Message:
                 if tc.arguments:
                     target.arguments += tc.arguments
 
+    def to_dict(self) -> dict:
+        d = {'role': self.role, 'content': self.content}
+        if self.tool_calls:
+            d['tool_calls'] = [
+                {
+                    'id': tc.id,
+                    'type': 'function',
+                    'function': {'name': tc.name, 'arguments': tc.arguments},
+                }
+                for tc in self.tool_calls
+            ]
+        return d
+
 
 @dataclass
 class Choice:
@@ -90,5 +103,6 @@ class ChatCompletionChunk:
     created: int = 0
     model: str = ''
     choices: list[ChunkChoice] = field(default_factory=list)
+    usage: Usage = field(default_factory=Usage)
 
 

@@ -1,36 +1,23 @@
-import contextvars
+import inspect
+from dataclasses import dataclass
+from typing import Any
 
-from chatchat.runtime import get_runtime
+from chatchat.exceptions import SubAgentError
+from chatchat.runtime import Event, get_runtime
 
-_current_tool_caller = contextvars.ContextVar('_current_tool_caller', default='')
+
+@dataclass
+class ToolContext:
+    agent: Any
 
 
 class Tool:
-    def __init__(self, *, tool, name, description, parameters=None,
-                 name_source='unknown'):
+    def __init__(self, *, func, name, description, parameters=None):
+        self.func = func
         self.name = name
         self.description = description
         self.parameters = parameters
-        self.tool = tool
-        self._name = name_source
         self._interact_handlers = []
-
-    def _emit(self, topic: str, data: dict = None):
-        get_runtime().emit(topic, data, name=self._name)
-
-    def __call__(self, **kwargs):
-        token = _current_tool_caller.set(self._name)
-        try:
-            self._emit('tool:start', {'name': self.name, 'arguments': kwargs})
-            try:
-                result = self.tool(**kwargs)
-            except Exception as e:
-                self._emit('tool:error', {'name': self.name, 'error': str(e), 'arguments': kwargs})
-                return f'Error calling tool {self.name}: {e}'
-            self._emit('tool:end', {'name': self.name, 'result': result})
-            return result
-        finally:
-            _current_tool_caller.reset(token)
 
     def on_interact(self, handler):
         self._interact_handlers.append(handler)
@@ -49,28 +36,64 @@ class Tool:
             'function': {
                 'name': self.name,
                 'description': self.description,
-                'parameters': self.parameters or {'type': 'object', 'properties': {}},
-            }
+                'parameters': self.parameters,
+            },
         }
+
+    async def __call__(self, ctx: ToolContext = None, **kwargs):
+        source = ctx.agent.name if ctx else self.name
+        await get_runtime().publish(Event(
+            topic='lifecycle:tool:start', source=source,
+            data={'name': self.name, 'arguments': kwargs},
+        ))
+        try:
+            result = self._run(ctx, **kwargs)
+            if inspect.isawaitable(result):
+                result = await result
+        except SubAgentError:
+            raise
+        except Exception as e:
+            await get_runtime().publish(Event(
+                topic='lifecycle:tool:error', source=source,
+                data={'name': self.name, 'error': str(e), 'arguments': kwargs},
+            ))
+            return f'Error calling tool {self.name}: {e}'
+        await get_runtime().publish(Event(
+            topic='lifecycle:tool:end', source=source,
+            data={'name': self.name, 'result': result},
+        ))
+        return result
+
+    def step(self, ctx=None, content: str = ''):
+        source = ctx.agent.name if ctx else self.name
+        get_runtime().publish_sync(Event(
+            topic='lifecycle:tool:step', source=source,
+            data={'name': self.name, 'content': content},
+        ))
+
+    def _run(self, ctx: ToolContext | None, **kwargs):
+        if ctx is not None and 'ctx' in inspect.signature(self.func).parameters:
+            kwargs = {'ctx': ctx, **kwargs}
+        return self.func(**kwargs)
 
 
 def tool(*, name, description, parameters=None):
     def decorator(func):
         return Tool(
-            tool=func, name=name, description=description,
+            func=func, name=name, description=description,
             parameters=parameters,
         )
     return decorator
 
 
 class Tools:
-    def __init__(self, *tools: Tool):
+    def __init__(self, *tools):
         self.tools = list(tools)
         self.name_to_tool = {}
         for tool in self.tools:
             self.name_to_tool[tool.name] = tool
 
-    def add(self, tool: Tool):
+    def add(self, tool):
         self.tools.append(tool)
         self.name_to_tool[tool.name] = tool
 
