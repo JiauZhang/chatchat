@@ -71,6 +71,8 @@ class Actor:
                 result = await self.handle_message(ev)
                 if result is not None and ev.reply_to:
                     await self._runtime.reply(ev, result, source=self.id)
+                elif result is not None and not ev.reply_to:
+                    await self._on_unrouted_result(result)
             except asyncio.CancelledError:
                 self.state = 'idle'
                 raise
@@ -82,3 +84,13 @@ class Actor:
 
     async def handle_message(self, ev: Event):
         raise NotImplementedError
+
+    async def _on_unrouted_result(self, result):
+        if self._parent:
+            entry = self._runtime.lookup_entity(self._parent)
+            kind = entry[0] if entry else self.kind
+            await self._runtime.publish(Event(
+                topic=f'entity:{kind}:{self._parent}:notification',
+                source=self.id,
+                data={'content': result, 'agent_name': self.name},
+            ))

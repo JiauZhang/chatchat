@@ -4,7 +4,6 @@ from unittest.mock import patch
 
 from chatchat import get_runtime, set_runtime, Scheduler
 from chatchat.agent import Agent, AgentConfig, create_agent
-from chatchat.agent_tools import send_message_tool, task_stop_tool
 from chatchat.client import BaseClient
 from chatchat.exceptions import SubAgentError
 from chatchat.runtime import Event, make_id
@@ -33,9 +32,11 @@ class TestAgentCreation:
 
     def test_with_tools(self):
         t = Tool(name='ping', description='ping', func=lambda: 'pong')
+        from chatchat.tool import get_registry
+        get_registry().register(t)
         agent = Agent(AgentConfig(
             name='test', provider='agnes', model='agnes-2.5-flash',
-            tools=[t], http_options={'timeout': 10},
+            tools=['ping'], http_options={'timeout': 10},
         ))
         assert agent.tools is not None
         assert 'ping' in agent.tools
@@ -168,7 +169,7 @@ class TestManagementTools:
         agent = Agent(AgentConfig(
             name='test', provider='agnes', model='agnes-2.5-flash',
             http_options={'timeout': 10},
-            tools=[send_message_tool, task_stop_tool],
+            tools=['send_message', 'task_stop'],
         ))
         assert 'send_message' in agent.tools
         assert 'task_stop' in agent.tools
@@ -177,7 +178,7 @@ class TestManagementTools:
         agent = Agent(AgentConfig(
             name='alice', provider='agnes', model='agnes-2.5-flash',
             http_options={'timeout': 10},
-            tools=[send_message_tool],
+            tools=['send_message'],
         ))
         tool = agent.tools['send_message']
         result = await tool(ctx=ToolContext(agent=agent), to='nobody', message='hi')
@@ -189,7 +190,7 @@ class TestManagementTools:
         agent = create_agent(AgentConfig(
             name='alice', provider='agnes', model='agnes-2.5-flash',
             http_options={'timeout': 10},
-            tools=[send_message_tool],
+            tools=['send_message'],
         ))
         target = Agent(AgentConfig(
             name='bob', provider='agnes', model='agnes-2.5-flash',
@@ -207,7 +208,7 @@ class TestManagementTools:
         agent = Agent(AgentConfig(
             name='alice', provider='agnes', model='agnes-2.5-flash',
             http_options={'timeout': 10},
-            tools=[task_stop_tool],
+            tools=['task_stop'],
         ))
         tool = agent.tools['task_stop']
         result = await tool(ctx=ToolContext(agent=agent), name='nobody')
@@ -240,7 +241,7 @@ class TestSkillsInjection:
 
 
 class TestDelegation:
-    async def test_create_agent_tool_delegates_via_scheduler(self):
+    async def test_create_agent_tool_spawns_sub_agent_fire_and_forget(self):
         runtime = Scheduler()
         set_runtime(runtime)
         team = create_team(TeamConfig(
@@ -252,23 +253,19 @@ class TestDelegation:
         )
 
         async def fake_chat(*args, **kwargs):
-            msg = Message()
-            if chunk.choices:
-                msg.accumulate(chunk.choices[0].delta)
-            for sub in team._sub_agents.values():
-                sub.client.latest = msg
             yield chunk
 
         with patch.object(BaseClient, 'chat', side_effect=fake_chat):
             result = await asyncio.wait_for(
                 team.tools['create_agent'](ctx=ToolContext(agent=team), instruction='hello'), timeout=5,
             )
-        assert '[Agent' in result
-        assert 'completed' in result
-        assert 'done' in result
+        # fire-and-forget: the tool returns immediately after spawning, it does
+        # NOT block on the sub-agent's result.
+        assert 'spawned' in result
+        assert team._sub_agents, 'a sub-agent should have been spawned'
         await team.stop()
 
-    async def test_create_agent_tool_reports_sub_error(self):
+    async def test_create_agent_tool_does_not_block_on_sub_error(self):
         runtime = Scheduler()
         set_runtime(runtime)
         team = create_team(TeamConfig(
@@ -282,11 +279,14 @@ class TestDelegation:
                 yield
             return gen()
 
+        # The sub-agent's failure must NOT propagate as a synchronous error
+        # from create_agent_tool: it is reported back asynchronously via a
+        # notification instead.
         with patch.object(BaseClient, 'chat', side_effect=raise_chat):
-            with pytest.raises(SubAgentError):
-                await asyncio.wait_for(
-                    team.tools['create_agent'](ctx=ToolContext(agent=team), instruction='hello'), timeout=5,
-                )
+            result = await asyncio.wait_for(
+                team.tools['create_agent'](ctx=ToolContext(agent=team), instruction='hello'), timeout=5,
+            )
+        assert 'spawned' in result
         await team.stop()
 
     async def test_create_sub_team_max_depth(self):

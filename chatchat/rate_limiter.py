@@ -1,26 +1,27 @@
+from __future__ import annotations
+
 import asyncio
 import time
 from collections import deque
+from dataclasses import dataclass, field
 
 _sleep = asyncio.sleep
 _now = time.time
 
 
-class _NullRateLimiter:
-    rpm = 0
-    tpm = 0
-
-    async def acquire(self, estimated_tokens: int = 0):
-        pass
-
-    async def release(self, actual_tokens: int = 0):
-        pass
-
-    async def notify_429(self):
-        pass
+@dataclass
+class RateLimit:
+    """Per-provider rate limit config. 0 means unlimited."""
+    rpm: int = 0
+    tpm: int = 0
+    max_concurrency: int = 0
 
 
 class RateLimiterState:
+    """Sliding-window (per-minute) limiter for requests and tokens, plus a
+    concurrency Semaphore. Owned per-provider by a ProviderLimiter; not a
+    global registry anymore."""
+
     def __init__(self, rpm: int = 0, tpm: int = 0, max_concurrent: int = 0):
         self.rpm = rpm
         self.tpm = tpm
@@ -95,18 +96,34 @@ class RateLimiterState:
             self._semaphore.release()
 
 
-_store: dict[str, RateLimiterState] = {}
-_null = _NullRateLimiter()
+class ProviderLimiter:
+    """Per-provider limiter wrapper. Owned by a provider client; used as a
+    context manager around the request. TPM is accounted from the real
+    response usage via `account(used_tokens)`."""
 
+    def __init__(self, cfg: RateLimit | None = None):
+        cfg = cfg or RateLimit()
+        self._state = RateLimiterState(cfg.rpm, cfg.tpm, cfg.max_concurrency)
 
-def set_rate_limits(limits: list[dict]):
-    global _store
-    _store = {}
-    for item in limits:
-        item = dict(item)
-        provider = item.pop('provider')
-        _store[provider] = RateLimiterState(**item)
+    @property
+    def state(self) -> RateLimiterState:
+        return self._state
 
+    async def __aenter__(self) -> "ProviderLimiter":
+        await self._state.acquire()
+        return self
 
-def get_rate_limiter(provider: str):
-    return _store.get(provider, _null)
+    async def __aexit__(self, *exc) -> None:
+        # Semaphore release happens in account()/release() after usage is known.
+        pass
+
+    async def acquire(self):
+        await self._state.acquire()
+
+    async def release(self, actual_tokens: int = 0):
+        await self._state.release(actual_tokens)
+
+    def account(self, used_tokens: int):
+        """Record real token usage for TPM after the response returns."""
+        if used_tokens > 0:
+            asyncio.create_task(self._state.release(used_tokens))

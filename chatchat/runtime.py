@@ -8,6 +8,9 @@ import traceback
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from chatchat.tool import get_registry
+from chatchat.transport import close_transport
+
 
 def make_id():
     chars = string.ascii_lowercase + string.digits
@@ -188,12 +191,120 @@ class Scheduler:
             for pattern, handler in _LOG_HANDLERS.get(cat, []):
                 self.subscribe(pattern, handler)
 
-    def shutdown(self):
+    async def shutdown(self):
+        stop_tool_handler()
+        await close_transport()
         self._entities.clear()
         self._names.clear()
         self._observers.clear()
         self._pending_futures.clear()
         self._logging_enabled.clear()
+
+
+TOOLS_ENTITY_ID = '__tools__'
+
+_tool_handler: 'ToolHandler | None' = None
+
+
+class ToolHandler:
+    """Owns tool execution for the whole framework. Tool calls arrive as
+    'tool:call' events on the runtime bus; each call is run concurrently in its
+    own task so multiple parallel tool calls from an agent loop stay parallel.
+    The resolved tool instance comes from the shared ToolRegistry."""
+
+    def __init__(self, runtime: Scheduler):
+        self._runtime = runtime
+        self._mailbox: asyncio.Queue = asyncio.Queue()
+        self._stop = asyncio.Event()
+        self._task: asyncio.Task | None = None
+
+    def start(self):
+        self._stop.clear()
+        loop = current_loop()
+        if loop is not None:
+            self._task = loop.create_task(self._process_loop())
+
+    async def stop(self, timeout: float = 2.0):
+        self._stop.set()
+        task = self._task
+        self._task = None
+        if task:
+            try:
+                await asyncio.wait_for(task, timeout)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                task.cancel()
+
+    async def _process_loop(self):
+        while not self._stop.is_set():
+            try:
+                ev = await asyncio.wait_for(self._mailbox.get(), timeout=0.1)
+            except asyncio.TimeoutError:
+                continue
+            if ev.type == 'tool' and ev.subtype == 'call':
+                asyncio.create_task(self._run_and_reply(ev))
+
+    async def _run_and_reply(self, ev: Event):
+        data = ev.data or {}
+        name = data.get('name')
+        allowed = set(data.get('tools', []))
+        tool = get_registry().resolve(name) if name else None
+        if tool is None or (allowed and name not in allowed):
+            await self._runtime.reply(ev, {
+                'role': 'tool',
+                'content': f'Error: unknown or disallowed tool "{name}"',
+                'tool_call_id': data.get('tool_call_id'),
+            }, source=TOOLS_ENTITY_ID)
+            return
+        try:
+            result = await tool(ctx=data.get('ctx'), **data.get('arguments', {}))
+        except Exception as e:
+            result = f'Error calling tool "{name}": {e}'
+        await self._runtime.reply(ev, {
+            'role': 'tool',
+            'content': str(result),
+            'tool_call_id': data.get('tool_call_id'),
+        }, source=TOOLS_ENTITY_ID)
+
+
+def ensure_builtin_tools():
+    registry = get_registry()
+    from chatchat.agent_tools import (
+        create_agent_tool, send_message_tool, task_stop_tool,
+    )
+    from chatchat.team import create_team_tool
+    for t in (create_agent_tool, create_team_tool, send_message_tool, task_stop_tool):
+        if registry.resolve(t.name) is None:
+            registry.register(t)
+
+
+def start_tool_handler():
+    global _tool_handler
+    runtime = get_runtime()
+    if TOOLS_ENTITY_ID in runtime._entities:
+        return
+    handler = ToolHandler(runtime)
+    runtime.register_entity(TOOLS_ENTITY_ID, 'tool', handler._mailbox)
+    runtime.register_spawn(TOOLS_ENTITY_ID, handler.start)
+    handler.start()
+    _tool_handler = handler
+    ensure_builtin_tools()
+
+
+def stop_tool_handler():
+    global _tool_handler
+    handler = _tool_handler
+    _tool_handler = None
+    if handler is not None:
+        runtime = handler._runtime
+        runtime.unregister_entity(TOOLS_ENTITY_ID)
+        loop = current_loop()
+        if loop is not None:
+            loop.create_task(handler.stop())
+
+
+def _tool_handler_clear():
+    global _tool_handler
+    _tool_handler = None
 
 
 def _on_client_error(ev: Event):
@@ -306,6 +417,7 @@ def get_runtime() -> Scheduler:
     global _default_scheduler
     if _default_scheduler is None:
         _default_scheduler = Scheduler()
+        start_tool_handler()
     return _default_scheduler
 
 

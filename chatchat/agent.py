@@ -6,7 +6,8 @@ from typing import Any, Callable
 
 from chatchat.actor import Actor
 from chatchat.runtime import Event
-from chatchat.tool import Tools
+from chatchat.tool import Tools, get_registry
+from chatchat.runtime import ensure_builtin_tools
 from chatchat.skill import Skills
 from chatchat.agent_loop import AgentLoop
 from chatchat.client import ClientConfig, create_client
@@ -43,7 +44,7 @@ class Agent(Actor):
         self._usage = Usage()
         self._loop = AgentLoop(
             self.client, self.tools, config.max_steps, config.thinking, self.name,
-            agent=self,
+            agent=self, allowed_tools=self.allowed_tools,
         )
 
     @property
@@ -55,12 +56,17 @@ class Agent(Actor):
         return self.config.model
 
     def _setup_tools(self):
-        self.tools = None
-        if tools := self._build_tools():
-            self.tools = Tools(*tools)
+        ensure_builtin_tools()
+        self.tool_names: set[str] = set(self.config.tools or [])
+        resolved = [t for t in (get_registry().resolve(n) for n in self.tool_names) if t]
+        unknown = self.tool_names - {t.name for t in resolved}
+        if unknown:
+            raise ValueError(f'Agent "{self.name}" references unknown tools: {sorted(unknown)}')
+        self.tools = Tools(*resolved) if resolved else None
 
-    def _build_tools(self):
-        return self.config.tools
+    @property
+    def allowed_tools(self) -> set[str]:
+        return self.tool_names
 
     def _setup_skills(self):
         self.skills = Skills(self.config.skills) if self.config.skills else None
@@ -75,7 +81,13 @@ class Agent(Actor):
         self.client = None
         if self.config.provider and self.config.model:
             client_config = replace(self.config, instruction=self.instruction)
+            client_config.emit = self._emit_client
             self.client = create_client(client_config)
+
+    async def _emit_client(self, topic: str, data: dict):
+        await self._runtime.publish(Event(
+            topic=f'lifecycle:{topic}', source=self.name, data=data or {},
+        ))
 
     async def stop(self, timeout: float = 2.0):
         await super().stop(timeout=timeout)

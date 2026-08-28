@@ -155,9 +155,9 @@ class TestListEntities:
 
 
 class TestShutdown:
-    def test_shutdown_clears_all(self):
+    async def test_shutdown_clears_all(self):
         eb = Scheduler()
         q = asyncio.Queue()
         eb.register_entity('dead', 'agent', q)
-        eb.shutdown()
+        await eb.shutdown()
         assert eb.list_entities() == []

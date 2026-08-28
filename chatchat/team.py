@@ -2,13 +2,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from chatchat.agent import Agent, AgentConfig, BaseAgentConfig, create_agent
-from chatchat.agent_tools import (
-    delegate_task,
-    send_message_tool,
-    task_stop_tool,
-)
 from chatchat.exceptions import SubAgentError
-from chatchat.runtime import make_id
+from chatchat.runtime import ensure_builtin_tools
+from chatchat.tool import Tools, get_registry
+from chatchat.runtime import Event, make_id
 from chatchat.tool import tool, ToolContext
 
 
@@ -31,28 +28,6 @@ def create_team(config: TeamConfig) -> Team:
 
 
 @tool(
-    name='create_agent',
-    description='Create a sub-agent for delegated tasks. Use this when a task is independent enough to run separately, or when you need parallel work.',
-    parameters={
-        'type': 'object',
-        'properties': {
-            'instruction': {'type': 'string', 'description': 'Task description for the sub-agent'},
-        },
-        'required': ['instruction'],
-    },
-)
-async def create_agent_tool(ctx: ToolContext, instruction: str) -> str:
-    team = ctx.agent
-    agent_id = make_id()
-    tools = list(team.agent_tools or []) + [send_message_tool]
-    cfg = AgentConfig(**_inherit(team.config, name=agent_id, instruction=instruction,
-                                 tools=tools, source='user'))
-    sub = team.create_sub_agent(cfg)
-    result = await delegate_task(team, sub, instruction)
-    return f'[Agent "{agent_id}" completed]\n{result}'
-
-
-@tool(
     name='create_team',
     description='Create a sub-team for delegated tasks. Returns the team name for communication.',
     parameters={
@@ -69,22 +44,30 @@ async def create_team_tool(ctx: ToolContext, instruction: str) -> str:
     cfg = TeamConfig(**_inherit(team.config, name=team_id, instruction=instruction,
                                 leader_tools=None, agent_tools=team.agent_tools, source='user'))
     sub_team = team.create_sub_team(cfg)
-    result = await delegate_task(team, sub_team, instruction)
-    return f'[Team "{team_id}" completed]\n{result}'
+    # Fire-and-forget: the sub-team reports back via notification.
+    await team._runtime.publish(Event(
+        topic=f'entity:team:{sub_team.id}:text',
+        source=team.id, data=instruction,
+    ))
+    return f'[Team "{team_id}" spawned; it will report back when done]'
 
 
 class Team(Agent):
     def __init__(self, config: TeamConfig):
         super().__init__(config, kind='team')
 
+    def _setup_tools(self):
+        ensure_builtin_tools()
+        self.tool_names: set[str] = set(self._build_tools())
+        resolved = [t for t in (get_registry().resolve(n) for n in self.tool_names) if t]
+        unknown = self.tool_names - {t.name for t in resolved}
+        if unknown:
+            raise ValueError(f'Team "{self.name}" references unknown tools: {sorted(unknown)}')
+        self.tools = Tools(*resolved) if resolved else None
+
     def _build_tools(self):
-        mgmt_tools = [
-            create_agent_tool,
-            create_team_tool,
-            send_message_tool,
-            task_stop_tool,
-        ]
-        return list(self.config.leader_tools or []) + mgmt_tools
+        mgmt_tool_names = ['create_agent', 'create_team', 'send_message', 'task_stop']
+        return list(self.config.leader_tools or []) + mgmt_tool_names
 
     @property
     def agent_tools(self):

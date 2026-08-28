@@ -10,8 +10,15 @@ __config_file__ = str(__chatchat_home__ / 'chatchat.json')
 
 
 def _ensure_file_permissions():
-    if os.path.exists(__config_file__):
-        os.chmod(__config_file__, stat.S_IRUSR | stat.S_IWUSR)
+    if not os.path.exists(__config_file__):
+        return
+    target = stat.S_IRUSR | stat.S_IWUSR
+    if os.stat(__config_file__).st_mode & 0o777 == target:
+        return
+    try:
+        os.chmod(__config_file__, target)
+    except OSError:
+        pass
 
 
 def load_config(provider: str, key: str = 'api_key') -> str:

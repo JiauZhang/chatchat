@@ -4,8 +4,8 @@ import pytest
 from chatchat import rate_limiter
 from chatchat.rate_limiter import (
     RateLimiterState,
-    set_rate_limits,
-    get_rate_limiter,
+    RateLimit,
+    ProviderLimiter,
 )
 
 
@@ -18,6 +18,10 @@ def _fast_forward(monkeypatch):
 
     monkeypatch.setattr(rate_limiter, '_sleep', fake_sleep)
     return t
+
+
+def _fast_time():
+    return rate_limiter._now()
 
 
 class TestRateLimiterState:
@@ -132,43 +136,30 @@ class TestRateLimiterState:
         assert elapsed >= 0.5
 
 
-class TestSetRateLimits:
-    def test_set_rate_limits_stores_by_provider(self):
-        set_rate_limits([
-            {'provider': 'agnes', 'rpm': 50, 'tpm': 200000},
-            {'provider': 'openai', 'rpm': 10000},
-        ])
-        limiter = get_rate_limiter('agnes')
-        assert limiter.rpm == 50
-        assert limiter.tpm == 200000
+class TestProviderLimiter:
+    """Per-provider limiter owned by a client; context-manager admission +
+    account() records real token usage for TPM."""
+    async def test_context_manager_admits_within_rpm(self):
+        limiter = ProviderLimiter(RateLimit(rpm=5, max_concurrency=2))
+        async with limiter:
+            pass  # no error, admitted
 
-        limiter2 = get_rate_limiter('openai')
-        assert limiter2.rpm == 10000
-        assert limiter2.tpm == 0
+    async def test_account_records_real_usage(self, monkeypatch):
+        _fast_forward(monkeypatch)
+        state = RateLimiterState(tpm=10)
+        limiter = ProviderLimiter.__new__(ProviderLimiter)
+        limiter._state = state
+        limiter.account(7)            # real usage, not estimated
+        await asyncio.sleep(0)
+        assert len(state._token_records) == 1
+        assert state._token_records[0][1] == 7
 
-    async def test_unconfigured_provider_returns_null(self):
-        set_rate_limits([])
-        limiter = get_rate_limiter('nonexistent')
-        await limiter.acquire()
-        await limiter.release()
-        await limiter.acquire(estimated_tokens=100)
-        await limiter.release(actual_tokens=50)
-
-    def test_reconfigure_overwrites(self):
-        set_rate_limits([{'provider': 'x', 'rpm': 10}])
-        set_rate_limits([{'provider': 'x', 'rpm': 20}])
-        limiter = get_rate_limiter('x')
-        assert limiter.rpm == 20
-
-    def test_set_rate_limits_clear_others(self):
-        set_rate_limits([
-            {'provider': 'a', 'rpm': 10},
-            {'provider': 'b', 'rpm': 20},
-        ])
-        set_rate_limits([{'provider': 'c', 'rpm': 30}])
-        assert get_rate_limiter('a').rpm == 0
-        assert get_rate_limiter('c').rpm == 30
-
-
-def _fast_time():
-    return rate_limiter._now()
+    async def test_separate_providers_are_isolated(self):
+        a = ProviderLimiter(RateLimit(max_concurrency=1))
+        b = ProviderLimiter(RateLimit(max_concurrency=1))
+        assert a.state is not b.state
+        # each holds its own semaphore
+        async with a:
+            # b independent
+            async with b:
+                pass

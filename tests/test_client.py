@@ -1,3 +1,5 @@
+import asyncio
+
 from chatchat.client import BaseClient, ClientConfig, _RetryableError
 from chatchat.exceptions import APIError
 from chatchat.types import Message, ToolCall, Delta
@@ -17,27 +19,26 @@ class TestUsage:
         assert chunk.usage.total_tokens == 15
         assert chunk.usage.prompt_tokens == 10
 
-    def test_chat_releases_real_usage(self):
-        import asyncio
+    def test_chat_accounts_real_usage(self):
         client = _client()
 
         class Limiter:
             def __init__(self):
                 self.tokens = 0
 
-            async def acquire(self):
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
                 pass
 
-            async def release(self, tokens=0):
+            def account(self, tokens=0):
                 self.tokens = tokens
 
-            async def notify_429(self):
-                pass
-
         limiter = Limiter()
-        client._rate_limiter = limiter
+        client._limiter = limiter
 
-        async def fake_post_stream(url, payload):
+        async def fake_post_stream(url, payload, headers):
             yield '{"id":"c","usage":{"prompt_tokens":2,"completion_tokens":3,"total_tokens":5},"choices":[]}'
             yield '[DONE]'
 
@@ -48,9 +49,20 @@ class TestUsage:
                 pass
 
         asyncio.run(run())
+        # account() is called with the REAL total_tokens, not an estimate
         assert limiter.tokens == 5
         assert client.latest is not None
         assert len(client.messages) == 2
+
+    def test_build_url_appends_chat_completions(self):
+        client = _client()
+        client.base_url = 'https://example.com/v1'
+        assert client._build_url() == 'https://example.com/v1/chat/completions'
+
+    def test_build_headers_uses_bearer(self):
+        client = _client()
+        client.api_key = 'k'
+        assert client._build_headers() == {'Authorization': 'Bearer k'}
 
 
 class TestToDelta:
@@ -112,12 +124,11 @@ class TestMessageAccumulate:
 
 class TestSendStreamingRetry:
     def test_retries_transient_then_succeeds(self):
-        import asyncio
         client = _client()
         client.retry_backoff = 0.01
         calls = {'n': 0}
 
-        async def fake_post_stream(url, payload):
+        async def fake_post_stream(url, payload, headers):
             calls['n'] += 1
             if calls['n'] < 3:
                 raise _RetryableError('boom')
@@ -127,7 +138,7 @@ class TestSendStreamingRetry:
 
         async def run():
             out = []
-            async for line in client._send_streaming('/chat/completions', {}):
+            async for line in client._send_streaming('/chat/completions', {}, {}):
                 out.append(line)
             return out
 
@@ -135,11 +146,10 @@ class TestSendStreamingRetry:
         assert calls['n'] == 3
 
     def test_no_retry_after_stream_started(self):
-        import asyncio
         client = _client()
         calls = {'n': 0}
 
-        async def fake_post_stream(url, payload):
+        async def fake_post_stream(url, payload, headers):
             calls['n'] += 1
             yield 'data: {"id":"1"}'
             raise _RetryableError('boom')
@@ -147,7 +157,7 @@ class TestSendStreamingRetry:
         client._transport.stream = fake_post_stream
 
         async def run():
-            async for _ in client._send_streaming('/chat/completions', {}):
+            async for _ in client._send_streaming('/chat/completions', {}, {}):
                 pass
 
         try:
@@ -158,13 +168,12 @@ class TestSendStreamingRetry:
         assert calls['n'] == 1
 
     def test_exhausts_retries_raises_api_error(self):
-        import asyncio
         client = _client()
         client.max_retries = 2
         client.retry_backoff = 0.01
         calls = {'n': 0}
 
-        async def fake_post_stream(url, payload):
+        async def fake_post_stream(url, payload, headers):
             calls['n'] += 1
             if False:
                 yield ''
@@ -173,7 +182,7 @@ class TestSendStreamingRetry:
         client._transport.stream = fake_post_stream
 
         async def run():
-            async for _ in client._send_streaming('/chat/completions', {}):
+            async for _ in client._send_streaming('/chat/completions', {}, {}):
                 pass
 
         try:

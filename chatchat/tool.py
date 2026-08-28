@@ -3,7 +3,6 @@ from dataclasses import dataclass
 from typing import Any
 
 from chatchat.exceptions import SubAgentError
-from chatchat.runtime import Event, get_runtime
 
 
 @dataclass
@@ -40,6 +39,7 @@ class Tool:
         return {'type': 'function', 'function': function}
 
     async def __call__(self, ctx: ToolContext = None, **kwargs):
+        from chatchat.runtime import Event, get_runtime
         source = ctx.agent.name if ctx else self.name
         await get_runtime().publish(Event(
             topic='lifecycle:tool:start', source=source,
@@ -64,6 +64,7 @@ class Tool:
         return result
 
     def step(self, ctx=None, content: str = ''):
+        from chatchat.runtime import Event, get_runtime
         source = ctx.agent.name if ctx else self.name
         get_runtime().publish_sync(Event(
             topic='lifecycle:tool:step', source=source,
@@ -76,13 +77,53 @@ class Tool:
         return self.func(**kwargs)
 
 
-def tool(*, name, description, parameters=None):
+def tool(*, name, description, parameters=None, auto_register=False):
     def decorator(func):
-        return Tool(
+        t = Tool(
             func=func, name=name, description=description,
             parameters=parameters,
         )
+        if auto_register:
+            get_registry().register(t)
+        return t
     return decorator
+
+
+class ToolRegistry:
+    """Process-wide registry of every tool the framework knows about.
+    Built-in tools and user-registered tools share the same register()
+    entry point; built-ins are simply registered at runtime bootstrap."""
+
+    def __init__(self):
+        self._tools: dict[str, Tool] = {}
+
+    def register(self, tool: Tool) -> Tool:
+        self._tools[tool.name] = tool
+        return tool
+
+    def resolve(self, name: str) -> Tool | None:
+        return self._tools.get(name)
+
+    def names(self) -> list[str]:
+        return list(self._tools)
+
+    def list(self) -> list[Tool]:
+        return list(self._tools.values())
+
+
+_registry: ToolRegistry | None = None
+
+
+def get_registry() -> ToolRegistry:
+    global _registry
+    if _registry is None:
+        _registry = ToolRegistry()
+    return _registry
+
+
+def reset_registry():
+    global _registry
+    _registry = None
 
 
 class Tools:

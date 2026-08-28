@@ -126,13 +126,18 @@ chatchat config <provider>.api_key=YOUR_API_KEY
 chatchat run --provider agnes --model agnes-2.5-flash --thinking
 ```
 
-Rate limits can be set programmatically:
+Rate limits are configured per-provider on the client config (no global
+registry). The shared aiohttp session is global and managed by the runtime via
+`init_transport()` / `close_transport()`.
 
 ```python
-from chatchat.rate_limiter import set_rate_limits
-set_rate_limits([
-    {'provider': 'agnes', 'rpm': 20, 'tpm': 0, 'max_concurrent': 0},
-])
+from chatchat.rate_limiter import RateLimit
+from chatchat.client import ClientConfig
+
+config = ClientConfig(
+    provider='agnes', model='agnes-2.5-flash', name='my-client',
+    rate_limit=RateLimit(rpm=20, tpm=0, max_concurrency=0),
+)
 ```
 
 ## Examples
@@ -140,7 +145,7 @@ set_rate_limits([
 See [examples](./examples) for complete usage:
 
 - `agent.py` — Interactive terminal chat with tool calling
-- `team.py` — Leader team delegating tasks to dynamically created sub-agents
+- `team.py` — Autonomous dice knockout: the leader spawns players and runs the bracket itself using create_agent / send_message / task_stop
 - `tool.py` — Raw client with tool calling
 - `client.py` — Raw LLM client streaming usage
 - `state.py` — Agent state serialization and restoration
