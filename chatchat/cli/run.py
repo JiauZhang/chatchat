@@ -1,7 +1,7 @@
-from chatchat.client import ClientConfig, create_client
+from chatchat.providers.client import ClientConfig, create_client
 
 
-async def parse_config(args):
+async def run_handler(args):
     if args.params:
         provider, model = args.params
         llm = create_client(ClientConfig(
@@ -25,10 +25,10 @@ async def parse_config(args):
             await llm.close()
 
 
-def cli_chat(subparser):
+def register(subparser):
     config_parser = subparser.add_parser('run', help='Chat with LLM')
     config_parser.add_argument('params', type=str, nargs=2)
     config_parser.add_argument('--proxy', type=str, default=None)
     config_parser.add_argument('--timeout', type=float, default=None)
     config_parser.add_argument('--thinking', action='store_true')
-    config_parser.set_defaults(parser=parse_config)
+    config_parser.set_defaults(handler=run_handler)

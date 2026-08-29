@@ -3,10 +3,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from chatchat.tool import Tool, Tools, tool, ToolContext, get_registry
-from chatchat.agent_loop import AgentLoop
-from chatchat.exceptions import MaxStepsError
-from chatchat.types import ChatCompletionChunk, ChunkChoice, Delta, Message, ToolCall
+from chatchat.tools.base import Tool, tool, ToolContext
+from chatchat.tools.registry import Tools
+from chatchat.agents.loop import AgentLoop
+from chatchat.core.exceptions import MaxStepsError
+from chatchat.core.runtime import Runtime
+from chatchat.providers.protocol import ChatCompletionChunk, ChunkChoice, Delta, Message, ToolCall
 
 
 async def test_tool_decorator():
@@ -138,18 +140,19 @@ async def test_loop_injects_ctx_into_shared_tool():
 
     @tool(name='roll_dice', description='roll')
     def roll_dice(ctx=None):
-        seen[ctx.agent.name] = True
+        seen[ctx.agent.id] = True
         return str(6)
 
-    from chatchat.tool import get_registry, reset_registry
-    reset_registry()
-    get_registry().register(roll_dice)
+    rt = Runtime()
+    rt.start()
+    rt.registry.register(roll_dice)
     tools = Tools(roll_dice)
     loop = AgentLoop(_MockClient(), tools, max_steps=2, thinking=False, name='player7',
-                    allowed_tools={'roll_dice'})
+                    allowed_tools={'roll_dice'}, runtime=rt)
     result = await loop.run('roll a six-sided die using roll_dice')
     assert seen == {'player7': True}
     assert result == '3'
+    await rt.shutdown()
 
 
 async def test_loop_raises_when_exceeding_max_steps():
@@ -157,9 +160,12 @@ async def test_loop_raises_when_exceeding_max_steps():
     def roll_dice(ctx=None):
         return str(6)
 
+    rt = Runtime()
+    rt.start()
     tools = Tools(roll_dice)
-    get_registry().register(roll_dice)
+    rt.registry.register(roll_dice)
     loop = AgentLoop(_MockClient(), tools, max_steps=1, thinking=False, name='player7',
-                    allowed_tools={'roll_dice'})
+                    allowed_tools={'roll_dice'}, runtime=rt)
     with pytest.raises(MaxStepsError):
         await loop.run('roll a six-sided die using roll_dice')
+    await rt.shutdown()

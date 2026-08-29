@@ -1,4 +1,4 @@
-from chatchat.client import BaseClient, dynamic_import_client
+from chatchat.providers.client import BaseClient, dynamic_import_client
 from chatchat.providers import register_provider, __providers__
 
 

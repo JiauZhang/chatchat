@@ -2,7 +2,7 @@ import os
 import stat
 from pathlib import Path
 from conippets import json
-from chatchat.exceptions import ConfigError
+from chatchat.core.exceptions import ConfigError
 
 __chatchat_home__ = Path(os.environ.get('CHATCHAT_HOME', str(Path.home() / '.chatchat')))
 __chatchat_home__.mkdir(parents=True, exist_ok=True)

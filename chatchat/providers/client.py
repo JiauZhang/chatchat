@@ -8,14 +8,13 @@ from importlib import import_module
 
 import aiohttp
 
-from chatchat.config import load_config
+from chatchat.core.config import load_config
+from chatchat.core.rate_limiter import RateLimit, ProviderLimiter
+from chatchat.core.exceptions import ProviderError, APIError
 from chatchat.providers import __providers__
-from chatchat.rate_limiter import RateLimit, ProviderLimiter
-from chatchat.runtime import Event, get_runtime
-from chatchat.exceptions import ProviderError, APIError
-from chatchat.tool import Tools
-from chatchat.transport import Transport, _RetryableError
-from chatchat.types import (
+from chatchat.tools.registry import Tools
+from chatchat.core.transport import Transport, _RetryableError
+from chatchat.providers.protocol import (
     ChatCompletionChunk,
     ChunkChoice,
     Delta,
@@ -33,6 +32,7 @@ class ClientConfig:
     instruction: str = ''
     http_options: dict | None = None
     rate_limit: RateLimit = field(default_factory=RateLimit)
+    emit: Callable | None = None
 
 
 class BaseClient:
@@ -55,6 +55,7 @@ class BaseClient:
         self.messages = []
         self.latest = None
         self.latest_usage = None
+        self._emit_cb = config.emit
         self._transport = Transport(name=self.name, emit=self._emit)
 
     async def close(self):
@@ -66,9 +67,8 @@ class BaseClient:
         self.latest_usage = None
 
     async def _emit(self, topic: str, data: dict = None):
-        await get_runtime().publish(Event(
-            topic=f'lifecycle:{topic}', source=self.name, data=data or {},
-        ))
+        if self._emit_cb is not None:
+            await self._emit_cb(topic, data or {})
 
     # ----- hooks (overridden by provider subclasses) -----------------------
     def _build_url(self) -> str:
@@ -194,9 +194,10 @@ class BaseClient:
                 await self._emit('client:tokens', {'usage': self.latest_usage})
 
 
+_provider_dir = Path(__file__).resolve().parent
 _supported_providers = sorted(
-    p.stem for p in Path(__file__).parent.joinpath('providers').glob('*.py')
-    if p.stem != '__init__'
+    p.stem for p in _provider_dir.glob('*.py')
+    if p.stem not in ('__init__', 'client', 'protocol')
 )
 
 

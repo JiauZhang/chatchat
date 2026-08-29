@@ -1,9 +1,9 @@
 import argparse, random, sys, os, asyncio
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from chatchat.agent import Agent, AgentConfig, create_agent
-from chatchat.tool import tool, ToolContext
-from chatchat import get_runtime
+from chatchat.agents.agent import Agent, AgentConfig, create_agent
+from chatchat.core.runtime import Runtime
+from chatchat.tools.base import tool, ToolContext
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--provider', type=str, default='agnes')
@@ -91,28 +91,38 @@ def handle_event(ev):
         print(f'[{topic:<22} {name:>10}] error: {data.get("error", "")}')
 
 
-runtime = get_runtime()
+runtime = Runtime()
+for t in (search_web, summarize, save_file):
+    runtime.registry.register(t)
 
 for topic in ['lifecycle:agent:start', 'lifecycle:agent:step', 'lifecycle:agent:end', 'lifecycle:agent:error',
               'lifecycle:tool:start', 'lifecycle:tool:step', 'lifecycle:tool:end', 'lifecycle:tool:error']:
     runtime.subscribe(topic, handle_event)
 
 agent = create_agent(AgentConfig(
-    name='supervisor',
     provider=args.provider, model=args.model,
     http_options=http_options,
     instruction=(
         'You are a supervisor. Search, summarize, and save to a file.'
     ),
-    tools=[search_web, summarize, save_file],
-))
+    tools=['search_web', 'summarize', 'save_file'],
+), runtime=runtime)
+
+
+async def _ask(agent, text):
+    from chatchat.core.ids import make_id
+    return await runtime.request(
+        source=make_id(), target_id=agent.id,
+        topic=f'entity:{agent.kind}:{agent.id}:text', data=text,
+        timeout=args.timeout,
+    )
 
 
 async def main():
-    result = await agent.chat('search AI news and summarize')
+    result = await _ask(agent, 'search AI news and summarize')
     print(f'\nsupervisor result: {result[:100]}')
     await agent.stop()
-    runtime.shutdown()
+    await runtime.shutdown()
     print('Done.')
 
 

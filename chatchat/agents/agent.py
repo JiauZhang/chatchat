@@ -4,19 +4,18 @@ import asyncio
 from dataclasses import dataclass, replace
 from typing import Any, Callable
 
-from chatchat.actor import Actor
-from chatchat.runtime import Event
-from chatchat.tool import Tools, get_registry
-from chatchat.runtime import ensure_builtin_tools
-from chatchat.skill import Skills
-from chatchat.agent_loop import AgentLoop
-from chatchat.client import ClientConfig, create_client
-from chatchat.types import Usage
+from chatchat.agents.actor import Actor
+from chatchat.agents.loop import AgentLoop
+from chatchat.core.event import Event
+from chatchat.providers.client import ClientConfig, create_client
+from chatchat.providers.protocol import Usage
+from chatchat.tools.registry import Tools
+from chatchat.tools.skills import Skills
 
 
 @dataclass
 class BaseAgentConfig(ClientConfig):
-    name: str
+    id: str | None = None
     description: str = ''
     thinking: bool = False
     skills: list | None = None
@@ -32,19 +31,20 @@ class AgentConfig(BaseAgentConfig):
 
 
 class Agent(Actor):
-    def __init__(self, config: AgentConfig, kind: str = 'agent'):
+    def __init__(self, config: AgentConfig, kind: str = 'agent', runtime=None):
         self.config = config
         self.description = config.description
-        super().__init__(config.name, kind)
+        super().__init__(kind, ident=config.id, runtime=runtime)
+        if config.id is None:
+            config.id = self.id
         self._setup_tools()
         self._setup_skills()
         self._setup_client()
         self._notifications: list[dict] = []
-        self._lock = asyncio.Lock()
         self._usage = Usage()
         self._loop = AgentLoop(
-            self.client, self.tools, config.max_steps, config.thinking, self.name,
-            agent=self, allowed_tools=self.allowed_tools,
+            self.client, self.tools, config.max_steps, config.thinking, self.id,
+            agent=self, allowed_tools=self.allowed_tools, runtime=self._runtime,
         )
 
     @property
@@ -56,12 +56,11 @@ class Agent(Actor):
         return self.config.model
 
     def _setup_tools(self):
-        ensure_builtin_tools()
         self.tool_names: set[str] = set(self.config.tools or [])
-        resolved = [t for t in (get_registry().resolve(n) for n in self.tool_names) if t]
+        resolved = [t for t in (self._runtime.registry.resolve(n) for n in self.tool_names) if t]
         unknown = self.tool_names - {t.name for t in resolved}
         if unknown:
-            raise ValueError(f'Agent "{self.name}" references unknown tools: {sorted(unknown)}')
+            raise ValueError(f'Agent "{self.id}" references unknown tools: {sorted(unknown)}')
         self.tools = Tools(*resolved) if resolved else None
 
     @property
@@ -86,7 +85,7 @@ class Agent(Actor):
 
     async def _emit_client(self, topic: str, data: dict):
         await self._runtime.publish(Event(
-            topic=f'lifecycle:{topic}', source=self.name, data=data or {},
+            topic=f'lifecycle:{topic}', source=self.id, data=data or {},
         ))
 
     async def stop(self, timeout: float = 2.0):
@@ -96,9 +95,15 @@ class Agent(Actor):
 
     async def handle_message(self, ev: Event) -> Any:
         if ev.type == 'text':
-            return await self._handle_chat_locked(ev.data)
+            return await self._handle_chat(ev.data)
         if ev.type == 'notification':
             self._notifications.append(ev.data)
+            if ev.source in self._pending_reply:
+                count, deadline = self._pending_reply[ev.source]
+                if count - 1 <= 0:
+                    del self._pending_reply[ev.source]
+                else:
+                    self._pending_reply[ev.source] = (count - 1, deadline)
             return None
         if ev.type == 'signal':
             return await self._handle_signal(ev.subtype)
@@ -119,7 +124,7 @@ class Agent(Actor):
             return 'pong'
         if subtype == 'status':
             return {
-                'name': self.name,
+                'id': self.id,
                 'running': self.is_running,
                 'state': self.state,
                 'has_client': self.client is not None,
@@ -140,13 +145,10 @@ class Agent(Actor):
             return
         await asyncio.wait(waits, timeout=timeout)
 
-    async def chat(self, message: str) -> str:
-        return await self._handle_chat_locked(message)
-
     def on(self, event: str, handler: Callable):
         self._runtime.subscribe(
             f'lifecycle:{self.kind}:{event}',
-            lambda ev: handler(self, **ev.data),
+            lambda ev: handler(self, ev.data),
         )
         return self
 
@@ -158,27 +160,11 @@ class Agent(Actor):
     def _drain_notifications(self):
         context = []
         for n in self._notifications:
-            source = n.get('agent_name') or n.get('name') or 'notice'
+            source = n.get('agent_id') or n.get('id') or 'notice'
             content = n.get('content') or n.get('error') or ''
             context.append({'role': 'system', 'content': f'[{source}] {content}'})
         self._notifications.clear()
         return context or None
-
-    async def _notify_parent(self, result: str):
-        if not self._parent:
-            return
-        entry = self._runtime.lookup_entity(self._parent)
-        kind = entry[0] if entry else self.kind
-        await self._runtime.publish(Event(
-            topic=f'entity:{kind}:{self._parent}:notification',
-            source=self.id,
-            data={
-                'content': result,
-                'agent_name': self.name,
-                'description': self.description,
-                'subtype': 'task_complete',
-            },
-        ))
 
     @property
     def total_usage(self) -> Usage:
@@ -191,11 +177,7 @@ class Agent(Actor):
             total += sub.total_usage
         return total
 
-    async def _handle_chat_locked(self, message: str) -> str:
-        async with self._lock:
-            return await self._handle_chat_inner(message)
-
-    async def _handle_chat_inner(self, message: str) -> str:
+    async def _handle_chat(self, message: str) -> str:
         self._task_completed.clear()
         await self._emit('start', {'message': message})
         if not self.client:
@@ -209,8 +191,6 @@ class Agent(Actor):
                 self._usage += self._loop.usage
             await self._emit('end', {'content': result})
             await self._emit('tokens', {'usage': self.total_usage})
-            if self.config.background:
-                await self._notify_parent(result)
             return result
         except Exception as e:
             await self._emit('error', {'error': str(e)})
@@ -220,7 +200,7 @@ class Agent(Actor):
 
     def state_dict(self) -> dict:
         return {
-            'name': self.name,
+            'id': self.config.id or self.id,
             'instruction': self.instruction,
             'messages': self.client.messages if self.client else [],
             'config': {
@@ -229,6 +209,9 @@ class Agent(Actor):
                 'thinking': self.config.thinking,
                 'http_options': self.config.http_options,
                 'max_steps': self.config.max_steps,
+                'background': self.config.background,
+                'description': self.config.description,
+                'skills': self.config.skills,
             },
         }
 
@@ -241,24 +224,27 @@ class Agent(Actor):
         cls,
         state: dict,
         tools: list | None = None,
+        runtime=None,
     ) -> 'Agent':
         config = AgentConfig(
-            name=state['name'],
+            id=state.get('id'),
             instruction=state.get('instruction', ''),
             provider=state['config']['provider'],
             model=state['config']['model'],
             thinking=state['config'].get('thinking', False),
             http_options=state['config'].get('http_options', {}),
             max_steps=state['config'].get('max_steps', 10),
+            background=state['config'].get('background', False),
+            description=state['config'].get('description', ''),
+            skills=state['config'].get('skills'),
             tools=tools,
         )
-        agent = Agent(config)
+        agent = Agent(config, runtime=runtime)
         agent.load_state_dict(state)
         return agent
 
 
-def create_agent(config: AgentConfig) -> 'Agent':
-    agent = Agent(config)
-    if not config.background:
-        agent.start()
+def create_agent(config: AgentConfig, runtime=None) -> 'Agent':
+    agent = Agent(config, runtime=runtime)
+    agent.start()
     return agent

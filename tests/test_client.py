@@ -1,8 +1,8 @@
 import asyncio
 
-from chatchat.client import BaseClient, ClientConfig, _RetryableError
-from chatchat.exceptions import APIError
-from chatchat.types import Message, ToolCall, Delta
+from chatchat.providers.client import BaseClient, ClientConfig, _RetryableError
+from chatchat.core.exceptions import APIError
+from chatchat.providers.protocol import Message, ToolCall, Delta
 
 
 def _client():

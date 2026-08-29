@@ -14,8 +14,10 @@ pip install chatchat
 
 ```python
 import asyncio
-from chatchat.agent import AgentConfig, create_agent
-from chatchat.tool import tool
+from chatchat.agents.agent import AgentConfig, create_agent
+from chatchat.core.runtime import Runtime
+from chatchat.core.ids import make_id
+from chatchat.tools.base import tool
 
 @tool(
     name='get_weather', description='get weather for a city',
@@ -30,56 +32,67 @@ from chatchat.tool import tool
 def get_weather(city):
     return f'{city} is Sunny.'
 
+rt = Runtime()
+rt.registry.register(get_weather)
+
 agent = create_agent(AgentConfig(
-    name='assistant',
     provider='agnes', model='agnes-2.5-flash',
     instruction='You are a helpful assistant.',
-    tools=[get_weather],
-))
+    tools=['get_weather'],
+), runtime=rt)
 
 async def main():
-    result = await agent.chat('How is the weather in Shanghai?')
-    print(result)
+    reply = await rt.request(
+        source=make_id(), target_id=agent.id,
+        topic=f'entity:{agent.kind}:{agent.id}:text',
+        data='How is the weather in Shanghai?', timeout=300,
+    )
+    print(reply)
     await agent.stop()
+    await rt.shutdown()
 
 asyncio.run(main())
 ```
 
+> Every Runtime is self-contained (its own message router, tool table and tool handler) and must be created explicitly. Every interaction goes through it as an async event: `request` delivers a text message into the agent's mailbox, its process loop consumes it, and the reply resolves the pending future.
+
 ### Multi-Agent Team
 
-Teams inherit from Agent and carry management tools (`create_agent`, `create_team`, `send_message`, `task_stop`). Sub-agents are created on demand by the leader and communicate through the scheduler via `runtime.request` / `reply`.
+Teams inherit from Agent and carry management tools (`create_agent`, `create_team`, `send_message`, `task_stop`). Sub-agents are created on demand by the leader and communicate through the Runtime via `request` / `publish`.
 
 ```python
 import asyncio
-from chatchat.team import TeamConfig, create_team
-from chatchat.runtime import get_runtime, make_id
+from chatchat.agents.team import TeamConfig, create_team
+from chatchat.core.runtime import Runtime
+from chatchat.core.ids import make_id
+
+rt = Runtime()
 
 team = create_team(TeamConfig(
-    name='lead',
     provider='agnes', model='agnes-2.5-flash',
     instruction='You are a tech lead. Use create_agent to delegate tasks to sub-agents.',
     agent_tools=[],
-))
+), runtime=rt)
 
 async def main():
-    reply = await get_runtime().request(
+    reply = await rt.request(
         source=make_id(), target_id=team.id,
         topic=f'entity:team:{team.id}:text',
         data='write a tutorial to output.md', timeout=300,
     )
     print(reply)
     await team.stop()
-    get_runtime().shutdown()
+    await rt.shutdown()
 
 asyncio.run(main())
 ```
 
 ### Tools
 
-Tools are registered with the `@tool` decorator. They run inside the AgentLoop; the LLM's tool calls are accumulated by index, executed, and fed back for further turns.
+Tools are independent objects built with the `@tool` decorator, then mounted into a Runtime via `rt.registry.register(tool)`. Agent configs reference tools by name; the Runtime resolves them and runs calls inside the AgentLoop&ToolHandler.
 
 ```python
-from chatchat.tool import tool
+from chatchat.tools.base import tool
 
 @tool(
     name='add', description='add two numbers',
@@ -94,6 +107,14 @@ from chatchat.tool import tool
 )
 def add(a, b):
     return a + b
+
+rt = Runtime()
+rt.registry.register(add)
+agent = create_agent(AgentConfig(
+    provider='agnes', model='agnes-2.5-flash',
+    instruction='You are a helpful assistant.',
+    tools=['add'],
+), runtime=rt)
 ```
 
 ### Skills
@@ -111,12 +132,12 @@ agent = create_agent(AgentConfig(
 
 ## Architecture
 
-- **Scheduler / Runtime** — core message router. Agent-to-Agent and delegation communication go through the scheduler using topic-based addressing (`entity:<kind>:<id>:<type>`), with blocking request/reply and fire-and-forget publish. Calling `agent.chat()` runs the agent loop directly in the caller.
+- **Runtime** — one self-contained environment per application: message router, tool table (`registry`), tool executor and lifecycle. Every agent/team must be created with an explicit Runtime; there is no global default.
 - **Agent** — wraps an LLM client, a tool set, and the AgentLoop (streaming, tool-call accumulation, lifecycle hooks `start`/`step`/`end`/`error`).
 - **Team** — an Agent with management tools; `leader_tools` configure the leader's tools, `agent_tools` configure tools given to created sub-agents.
 - **Client / providers** — async streaming LLM clients (aiohttp) for `agnes`, `deepseek`, `openrouter`, `google`, `alibaba`, `baidu`, `zhipu`, `tencent`, `xunfei`, etc.
 
-Observe runtime activity with `get_runtime().enable_logging('agent', 'team', 'client', 'tool')`. Lifecycle topics: `lifecycle:agent:start/step/end/error`, `lifecycle:client:start/step/end/error`, `lifecycle:tool:start/step/end/error`.
+Observe runtime activity with `rt.enable_logging('agent', 'team', 'client', 'tool')`. Lifecycle topics: `lifecycle:agent:start/step/end/error`, `lifecycle:client:start/step/end/error`, `lifecycle:tool:start/step/end/error`. Replies are routed by event source: `reply_to` resolves a pending request; otherwise a message sent with `expect_reply` gets a notification back to its sender.
 
 ## Configuration
 
@@ -131,8 +152,8 @@ registry). The shared aiohttp session is global and managed by the runtime via
 `init_transport()` / `close_transport()`.
 
 ```python
-from chatchat.rate_limiter import RateLimit
-from chatchat.client import ClientConfig
+from chatchat.core.rate_limiter import RateLimit
+from chatchat.providers.client import ClientConfig
 
 config = ClientConfig(
     provider='agnes', model='agnes-2.5-flash', name='my-client',

@@ -2,58 +2,50 @@ import asyncio
 
 import pytest
 
-from chatchat.runtime import (
-    Scheduler, get_runtime, set_runtime, start_tool_handler,
-    TOOLS_ENTITY_ID, stop_tool_handler,
-)
-from chatchat.tool import (
-    Tool, ToolContext, get_registry, reset_registry, tool,
-)
-from chatchat.agent_tools import create_agent_tool, send_message_tool, task_stop_tool
-from chatchat.team import create_team_tool
+from chatchat.core.runtime import Runtime
+from chatchat.core.tool_handler import TOOLS_ENTITY_ID
+from chatchat.tools.base import Tool, tool
 
 
-@pytest.fixture(autouse=True)
-def _fresh_runtime():
-    from chatchat.runtime import Scheduler, set_runtime, stop_tool_handler
-    reset_registry()
-    set_runtime(Scheduler())
-    yield
-    stop_tool_handler()
-    reset_registry()
+def _runtime():
+    rt = Runtime()
+    rt.start()
+    return rt
 
 
 def test_register_and_resolve():
-    reg = get_registry()
+    rt = Runtime()
     t = Tool(name='ping', description='ping', func=lambda: 'pong')
-    reg.register(t)
-    assert reg.resolve('ping') is t
-    assert reg.resolve('missing') is None
-    assert 'ping' in reg.names()
-    assert t in reg.list()
+    rt.registry.register(t)
+    assert rt.registry.resolve('ping') is t
+    assert rt.registry.resolve('missing') is None
+    assert 'ping' in rt.registry.names()
+    assert t in rt.registry.list()
 
 
-def test_auto_register_decorator():
-    @tool(name='auto', description='d', auto_register=True)
-    def auto(ctx: ToolContext = None):
+def test_tool_decorator_constructs_independent():
+    # @tool only builds a Tool, it does not self-register
+    @tool(name='auto', description='d')
+    def auto(ctx=None):
         return 'ok'
-    assert get_registry().resolve('auto') is not None
+    assert isinstance(auto, Tool)
+    rt = Runtime()
+    assert rt.registry.resolve('auto') is None
+    rt.registry.register(auto)
+    assert rt.registry.resolve('auto') is auto
 
 
 def test_bootstrap_registers_builtins():
-    start_tool_handler()
-    names = set(get_registry().names())
+    rt = Runtime()
+    names = set(rt.registry.names())
     assert {'create_agent', 'create_team', 'send_message', 'task_stop'} <= names
 
 
 async def test_tool_call_event_executes_and_replies():
-    runtime = Scheduler()
-    set_runtime(runtime)
-    start_tool_handler()
-    reg = get_registry()
-    reg.register(Tool(name='add', description='add', func=lambda a, b: str(int(a) + int(b))))
+    rt = _runtime()
+    rt.registry.register(Tool(name='add', description='add', func=lambda a, b: str(int(a) + int(b))))
 
-    result = await runtime.request(
+    result = await rt.request(
         source='caller', target_id=TOOLS_ENTITY_ID,
         topic=f'entity:{TOOLS_ENTITY_ID}:request:tool:call',
         data={'name': 'add', 'arguments': {'a': 2, 'b': 3}, 'ctx': None,
@@ -63,17 +55,14 @@ async def test_tool_call_event_executes_and_replies():
     assert result['role'] == 'tool'
     assert result['content'] == '5'
     assert result['tool_call_id'] == 'c1'
+    await rt.shutdown()
 
 
 async def test_tool_call_unknown_or_disallowed_returns_error():
-    runtime = Scheduler()
-    set_runtime(runtime)
-    start_tool_handler()
-    reg = get_registry()
-    reg.register(Tool(name='add', description='add', func=lambda a, b: str(int(a) + int(b))))
+    rt = _runtime()
+    rt.registry.register(Tool(name='add', description='add', func=lambda a, b: str(int(a) + int(b))))
 
-    # unknown tool
-    res = await runtime.request(
+    res = await rt.request(
         source='caller', target_id=TOOLS_ENTITY_ID,
         topic=f'entity:{TOOLS_ENTITY_ID}:request:tool:call',
         data={'name': 'nope', 'arguments': {}, 'ctx': None,
@@ -82,8 +71,7 @@ async def test_tool_call_unknown_or_disallowed_returns_error():
     )
     assert 'unknown or disallowed' in res['content']
 
-    # disallowed tool (not in the caller's allowed set)
-    res = await runtime.request(
+    res = await rt.request(
         source='caller', target_id=TOOLS_ENTITY_ID,
         topic=f'entity:{TOOLS_ENTITY_ID}:request:tool:call',
         data={'name': 'add', 'arguments': {'a': 1, 'b': 1}, 'ctx': None,
@@ -91,26 +79,23 @@ async def test_tool_call_unknown_or_disallowed_returns_error():
         timeout=5,
     )
     assert 'unknown or disallowed' in res['content']
+    await rt.shutdown()
 
 
 async def test_parallel_tool_calls_run_concurrently():
-    runtime = Scheduler()
-    set_runtime(runtime)
-    start_tool_handler()
-
-    reg = get_registry()
+    rt = _runtime()
 
     async def slow_tool(ctx=None):
         await asyncio.sleep(0.1)
         return 'slow-done'
-    reg.register(Tool(name='slow', description='slow', func=slow_tool))
+    rt.registry.register(Tool(name='slow', description='slow', func=slow_tool))
 
     async def fast_tool(ctx=None):
         return 'fast-done'
-    reg.register(Tool(name='fast', description='fast', func=fast_tool))
+    rt.registry.register(Tool(name='fast', description='fast', func=fast_tool))
 
     async def call(name):
-        return await runtime.request(
+        return await rt.request(
             source='caller', target_id=TOOLS_ENTITY_ID,
             topic=f'entity:{TOOLS_ENTITY_ID}:request:tool:call',
             data={'name': name, 'arguments': {}, 'ctx': None,
@@ -118,11 +103,10 @@ async def test_parallel_tool_calls_run_concurrently():
             timeout=5,
         )
 
-    start = asyncio.get_event_loop().time()
+    start = asyncio.get_running_loop().time()
     results = await asyncio.gather(call('slow'), call('fast'))
-    elapsed = asyncio.get_event_loop().time() - start
-    # Both ran; total time is bounded by the slowest single call (~0.1s),
-    # proving the two calls executed in parallel rather than serially (~0.2s).
+    elapsed = asyncio.get_running_loop().time() - start
     assert elapsed < 0.18
     contents = {r['content'] for r in results}
     assert contents == {'slow-done', 'fast-done'}
+    await rt.shutdown()

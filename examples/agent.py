@@ -1,8 +1,9 @@
 import os, sys, argparse, random, subprocess, asyncio
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from chatchat.agent import Agent, AgentConfig, create_agent
-from chatchat.tool import Tool, tool
+from chatchat.agents.agent import Agent, AgentConfig, create_agent
+from chatchat.core.runtime import Runtime
+from chatchat.tools.base import Tool, tool
 
 
 parser = argparse.ArgumentParser()
@@ -88,14 +89,26 @@ def execute_shell_command(command):
         return 'command timed out after 30s'
 
 
+rt = Runtime()
+for t in (query_train_ticket, query_ticket_price, read_file, write_file, execute_shell_command):
+    rt.registry.register(t)
+
 agent = create_agent(AgentConfig(
-    name='assistant',
     provider=args.provider, model=args.model, http_options=http_options,
     instruction='You are a helpful assistant with tools for tickets, files, and shell commands.',
-    tools=[query_train_ticket, query_ticket_price, read_file, write_file, execute_shell_command],
-))
+    tools=['query_train_ticket', 'query_ticket_price', 'read_file', 'write_file', 'execute_shell_command'],
+), runtime=rt)
 
 print('Enter /exit to quit, /clear to reset conversation.')
+
+
+async def _ask(agent, text):
+    from chatchat.core.ids import make_id
+    return await rt.request(
+        source=make_id(), target_id=agent.id,
+        topic=f'entity:{agent.kind}:{agent.id}:text', data=text,
+        timeout=args.timeout or 300,
+    )
 
 
 async def main():
@@ -108,10 +121,11 @@ async def main():
             print('Conversation cleared.\n')
             continue
 
-        response = await agent.chat(prompt)
+        response = await _ask(agent, prompt)
         print(f'assistant> {response}')
         print()
     await agent.stop()
+    await rt.shutdown()
 
 
 if __name__ == '__main__':

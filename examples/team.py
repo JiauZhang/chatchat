@@ -1,10 +1,10 @@
 import os, sys, argparse, random
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from chatchat.team import TeamConfig, create_team
-from chatchat.runtime import get_runtime
-from chatchat.rate_limiter import RateLimit
-from chatchat.tool import tool, ToolContext, get_registry
+from chatchat.agents.team import TeamConfig, create_team
+from chatchat.core.runtime import Runtime
+from chatchat.core.rate_limiter import RateLimit
+from chatchat.tools.base import tool, ToolContext
 
 
 parser = argparse.ArgumentParser()
@@ -35,12 +35,11 @@ def _roll_dice(ctx: ToolContext = None):
     return str(random.randint(1, 6))
 
 
-get_registry().register(_roll_dice)
-
-get_runtime().enable_logging('client', 'tool', 'agent', 'team')
+rt = Runtime()
+rt.registry.register(_roll_dice)
+rt.enable_logging('client', 'tool', 'agent', 'team')
 
 team = create_team(TeamConfig(
-    name='lead',
     provider=args.provider, model=args.model,
     instruction=(
         f'You are the referee of a {args.players}-player dice knockout tournament. '
@@ -54,7 +53,15 @@ team = create_team(TeamConfig(
     max_steps=args.max_steps,
     rate_limit=rate_limit,
     agent_tools=['roll_dice'],
-))
+), runtime=rt)
+
+
+async def _ask(agent, text):
+    from chatchat.core.ids import make_id
+    return await rt.request(
+        source=make_id(), target_id=agent.id,
+        topic=f'entity:{agent.kind}:{agent.id}:text', data=text, timeout=600,
+    )
 
 
 async def main():
@@ -62,11 +69,11 @@ async def main():
     print(f'Team demo: 1 referee (team) + {args.players} autonomous dice players')
     print('=' * 60)
     try:
-        r = await team.chat('start the dice contest')
+        r = await _ask(team, 'start the dice contest')
         print(f'\n\nTeam result: {r if r else "empty"}')
     finally:
         await team.stop()
-        await get_runtime().shutdown()
+        await rt.shutdown()
 
 
 if __name__ == '__main__':

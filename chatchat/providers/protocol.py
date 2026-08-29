@@ -137,5 +137,3 @@ class ChatCompletionChunk:
     model: str = ''
     choices: list[ChunkChoice] = field(default_factory=list)
     usage: Usage = field(default_factory=Usage)
-
-

@@ -1,6 +1,8 @@
 import asyncio
 import pytest
-from chatchat.runtime import Scheduler, Event, RequestTimeoutError, make_id, parse_topic
+from chatchat.core.event import Event, parse_topic
+from chatchat.core.ids import make_id
+from chatchat.core.runtime import Runtime, RequestTimeoutError
 
 
 class AsyncEcho:
@@ -41,37 +43,29 @@ class AsyncEcho:
 
 class TestRegister:
     def test_register_entity(self):
-        eb = Scheduler()
+        eb = Runtime()
         q = asyncio.Queue()
         eb.register_entity('alice', 'agent', q)
-        assert eb.list_entities() == ['alice']
+        assert 'alice' in eb.list_entities()
 
     def test_unregister_entity(self):
-        eb = Scheduler()
+        eb = Runtime()
         q = asyncio.Queue()
         eb.register_entity('alice', 'agent', q)
         eb.unregister_entity('alice')
-        assert eb.list_entities() == []
+        assert 'alice' not in eb.list_entities()
 
     def test_duplicate_entity_id_raises(self):
-        eb = Scheduler()
+        eb = Runtime()
         q = asyncio.Queue()
         eb.register_entity('dup', 'agent', q)
         with pytest.raises(ValueError, match='Duplicate entity id'):
             eb.register_entity('dup', 'agent', q)
 
-    def test_register_entity_with_name(self):
-        eb = Scheduler()
-        q = asyncio.Queue()
-        eb.register_entity('e1', 'agent', q, name='friendly')
-        eid, entry = eb.lookup('friendly')
-        assert eid == 'e1'
-        assert entry[1] is q
-
 
 class TestSend:
     async def test_send_event(self):
-        eb = Scheduler()
+        eb = Runtime()
         q = asyncio.Queue()
         eb.register_entity('bob', 'agent', q)
         await eb.publish(Event(
@@ -83,7 +77,7 @@ class TestSend:
 
 class TestRequest:
     async def test_request_reply(self):
-        eb = Scheduler()
+        eb = Runtime()
         e = AsyncEcho('bob', scheduler=eb)
         eb.register_entity('bob', 'agent', e.mailbox)
         await e.start()
@@ -96,7 +90,7 @@ class TestRequest:
         await e.stop()
 
     async def test_request_unknown_recipient(self):
-        eb = Scheduler()
+        eb = Runtime()
         with pytest.raises(ValueError, match='Unknown target'):
             await eb.request(
                 source=make_id(), target_id='nobody',
@@ -105,7 +99,7 @@ class TestRequest:
             )
 
     async def test_request_timeout(self):
-        eb = Scheduler()
+        eb = Runtime()
         q = asyncio.Queue()
         eb.register_entity('slow', 'agent', q)
         with pytest.raises(RequestTimeoutError):
@@ -118,7 +112,7 @@ class TestRequest:
 
 class TestReply:
     async def test_reply_resolves_pending_request(self):
-        eb = Scheduler()
+        eb = Runtime()
         e = AsyncEcho('helper', scheduler=eb)
         eb.register_entity('helper', 'agent', e.mailbox)
         await e.start()
@@ -133,7 +127,7 @@ class TestReply:
 
 class TestLookup:
     def test_lookup_by_name(self):
-        eb = Scheduler()
+        eb = Runtime()
         q = asyncio.Queue()
         eb.register_entity('charlie', 'agent', q)
         eid, entry = eb.lookup('charlie')
@@ -146,7 +140,7 @@ class TestLookup:
 
 class TestListEntities:
     def test_list_entities_with_kind(self):
-        eb = Scheduler()
+        eb = Runtime()
         q = asyncio.Queue()
         eb.register_entity('dave', 'agent', q)
         ids = eb.list_entities(kind='agent')
@@ -156,7 +150,7 @@ class TestListEntities:
 
 class TestShutdown:
     async def test_shutdown_clears_all(self):
-        eb = Scheduler()
+        eb = Runtime()
         q = asyncio.Queue()
         eb.register_entity('dead', 'agent', q)
         await eb.shutdown()

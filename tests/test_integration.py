@@ -2,61 +2,57 @@ import asyncio
 import pytest
 from unittest.mock import patch
 
-from chatchat import get_runtime, set_runtime, Scheduler
-from chatchat.agent import Agent, AgentConfig, create_agent
-from chatchat.team import Team, TeamConfig, create_team
-from chatchat.runtime import Event, make_id
-from chatchat.types import ChatCompletionChunk, ChunkChoice, Delta, Message
+from chatchat.core.runtime import Runtime
+from chatchat.agents.agent import Agent, AgentConfig, create_agent
+from chatchat.agents.team import TeamConfig, create_team
+from chatchat.core.event import Event
+from chatchat.core.ids import make_id
+from chatchat.providers.protocol import ChatCompletionChunk, ChunkChoice, Delta, Message
 
 
 class TestIntegration:
     async def test_agent_ping_pong(self):
-        rt = Scheduler()
-        set_runtime(rt)
-        agent = create_agent(AgentConfig(name='test', provider='agnes', model='agnes-2.5-flash', http_options={'timeout': 10}))
+        rt = Runtime()
+        agent = create_agent(AgentConfig(provider='agnes', model='agnes-2.5-flash', http_options={'timeout': 10}), runtime=rt)
         reply = await rt.request(source=make_id(), target_id=agent.id, topic=f'entity:agent:{agent.id}:request:ping', data='', timeout=5)
         assert reply == 'pong'
         await agent.stop()
+        await rt.shutdown()
 
     async def test_agent_status(self):
-        rt = Scheduler()
-        set_runtime(rt)
-        agent = create_agent(AgentConfig(name='test', provider='agnes', model='agnes-2.5-flash', http_options={'timeout': 10}))
+        rt = Runtime()
+        agent = create_agent(AgentConfig(provider='agnes', model='agnes-2.5-flash', http_options={'timeout': 10}), runtime=rt)
         reply = await rt.request(source=make_id(), target_id=agent.id, topic=f'entity:agent:{agent.id}:request:status', data='', timeout=5)
-        assert reply['name'] == 'test'
+        assert reply['id'] == agent.config.id
         assert reply['running'] is True
         await agent.stop()
+        await rt.shutdown()
 
     async def test_agent_signal_stop(self):
-        rt = Scheduler()
-        set_runtime(rt)
-        agent = create_agent(AgentConfig(name='test', provider='agnes', model='agnes-2.5-flash', http_options={'timeout': 10}))
+        rt = Runtime()
+        agent = create_agent(AgentConfig(provider='agnes', model='agnes-2.5-flash', http_options={'timeout': 10}), runtime=rt)
         await rt.publish(Event(topic=f'entity:agent:{agent.id}:signal:stop', source=make_id()))
         await asyncio.sleep(0.2)
         assert not agent.is_running
+        await rt.shutdown()
 
     async def test_team_status(self):
-        rt = Scheduler()
-        set_runtime(rt)
-        team = create_team(TeamConfig(name='lead', provider='agnes', model='agnes-2.5-flash'))
+        rt = Runtime()
+        team = create_team(TeamConfig(provider='agnes', model='agnes-2.5-flash'), runtime=rt)
         reply = await rt.request(source=make_id(), target_id=team.id, topic=f'entity:team:{team.id}:request:status', data='', timeout=5)
-        assert reply['name'] == 'lead'
+        assert reply['id'] == team.config.id
         await team.stop()
+        await rt.shutdown()
 
     async def test_team_chat_mocked(self):
-        rt = Scheduler()
-        set_runtime(rt)
-        team = create_team(TeamConfig(name='lead', provider='agnes', model='agnes-2.5-flash'))
-        chunk = ChatCompletionChunk(
-            choices=[ChunkChoice(delta=Delta(content='done'), finish_reason='stop')],
-        )
+        rt = Runtime()
+        team = create_team(TeamConfig(provider='agnes', model='agnes-2.5-flash'), runtime=rt)
 
         async def fake_chat(*a, **k):
             msg = Message()
-            if chunk.choices:
-                msg.accumulate(chunk.choices[0].delta)
+            msg.accumulate(Delta(content='done'))
             team.client.latest = msg
-            yield chunk
+            yield ChatCompletionChunk(choices=[ChunkChoice(delta=Delta(content='done'))])
 
         with patch.object(team.client, 'chat', side_effect=fake_chat):
             reply = await rt.request(
@@ -65,37 +61,40 @@ class TestIntegration:
             )
             assert reply == 'done'
         await team.stop()
+        await rt.shutdown()
 
     async def test_observer_subscription(self):
-        rt = Scheduler()
-        set_runtime(rt)
+        rt = Runtime()
         events = []
 
         def handler(ev):
             events.append(ev)
 
         rt.subscribe('lifecycle:*', handler)
-        agent = create_agent(AgentConfig(name='test', provider='agnes', model='agnes-2.5-flash', http_options={'timeout': 10}))
+        agent = create_agent(AgentConfig(provider='agnes', model='agnes-2.5-flash', http_options={'timeout': 10}), runtime=rt)
         await agent._emit('start', {'message': 'hello'})
         assert len(events) > 0
         assert events[0].topic == 'lifecycle:agent:start'
         await agent.stop()
+        await rt.shutdown()
 
     async def test_eventbus_request_unknown_target(self):
-        eb = Scheduler()
+        eb = Runtime()
         with pytest.raises(ValueError, match='Unknown target'):
             await eb.request(source=make_id(), target_id='nobody', topic='entity:agent:nobody:text', data='hi', timeout=0.01)
+        await eb.shutdown()
 
     async def test_eventbus_publish_fire_and_forget(self):
-        eb = Scheduler()
+        eb = Runtime()
         q = asyncio.Queue()
         eb.register_entity('bob', 'agent', q)
         await eb.publish(Event(topic='entity:agent:bob:text', source=make_id(), data='hello'))
         ev = await asyncio.wait_for(q.get(), timeout=1)
         assert ev.data == 'hello'
+        await eb.shutdown()
 
     async def test_eventbus_subscribe_wildcard(self):
-        eb = Scheduler()
+        eb = Runtime()
         events = []
 
         def handler(ev):
@@ -105,3 +104,4 @@ class TestIntegration:
         await eb.publish(Event(topic='lifecycle:test:event', source='test', data={'key': 'val'}))
         assert len(events) == 1
         assert events[0].topic == 'lifecycle:test:event'
+        await eb.shutdown()

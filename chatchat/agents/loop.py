@@ -3,23 +3,25 @@ import asyncio
 import json
 from types import SimpleNamespace
 
-from chatchat.runtime import Event, get_runtime, TOOLS_ENTITY_ID, start_tool_handler
+from chatchat.core.event import Event
+from chatchat.core.exceptions import MaxStepsError
+from chatchat.core.tool_handler import TOOLS_ENTITY_ID
+from chatchat.tools.base import ToolContext
 
 _TOOL_CALL_TIMEOUT = 60
-from chatchat.tool import ToolContext
-from chatchat.exceptions import MaxStepsError
 
 
 class AgentLoop:
     def __init__(self, client, tools, max_steps: int, thinking: bool, name: str = '',
-                 agent=None, allowed_tools: set[str] | None = None):
+                 agent=None, allowed_tools: set[str] | None = None, runtime=None):
         self.client = client
         self.tools = tools
         self.max_steps = max_steps
         self.thinking = thinking
         self._name = name
-        self._agent = agent if agent is not None else SimpleNamespace(name=name)
+        self._agent = agent if agent is not None else SimpleNamespace(id=name)
         self._allowed = set(allowed_tools or [])
+        self._runtime = runtime
         self._turn = 0
         self.usage = None
 
@@ -63,8 +65,7 @@ class AgentLoop:
         }
         await self._emit('agent:step', data)
 
-        runtime = get_runtime()
-        start_tool_handler()
+        runtime = self._runtime
 
         async def run_one(tc):
             try:
@@ -82,19 +83,29 @@ class AgentLoop:
                 'tools': self._allowed,
                 'tool_call_id': tc.id,
             }
-            result = await runtime.request(
-                source=self._name,
-                target_id=TOOLS_ENTITY_ID,
-                topic=f'entity:{TOOLS_ENTITY_ID}:request:tool:call',
-                data=payload,
-                timeout=_TOOL_CALL_TIMEOUT,
-            )
+            try:
+                result = await runtime.request(
+                    source=self._name,
+                    target_id=TOOLS_ENTITY_ID,
+                    topic=f'entity:{TOOLS_ENTITY_ID}:request:tool:call',
+                    data=payload,
+                    timeout=_TOOL_CALL_TIMEOUT,
+                )
+            except Exception as e:
+                # Isolate a single tool failure: timeout/dead tool must not
+                # take down the rest of the round via asyncio.gather. Return a
+                # well-formed tool message so the LLM can react and continue.
+                result = {
+                    'role': 'tool',
+                    'content': f'Error calling tool "{tc.name}": {type(e).__name__}: {e}',
+                    'tool_call_id': tc.id,
+                }
             result.setdefault('tool_call_id', tc.id)
             return result
 
         return await asyncio.gather(*(run_one(tc) for tc in tool_calls))
 
     async def _emit(self, topic: str, data: dict = None):
-        await get_runtime().publish(Event(
+        await self._runtime.publish(Event(
             topic=f'lifecycle:{topic}', source=self._name, data=data or {},
         ))

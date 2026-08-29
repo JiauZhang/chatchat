@@ -1,4 +1,4 @@
-from chatchat.client import BaseClient
+from chatchat.providers.client import BaseClient
 from chatchat.providers import register_provider
 
 

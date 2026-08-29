@@ -1,8 +1,8 @@
 from chatchat.providers import __providers__
-from chatchat.config import save_config
+from chatchat.core.config import save_config
 
 
-def parse_config(args):
+def config_handler(args):
     if args.list:
         import importlib
         import pkgutil
@@ -21,8 +21,9 @@ def parse_config(args):
         (provider, key), value = provider_key, cfg[1]
         save_config(provider, key, value)
 
-def cli_config(subparser):
+
+def register(subparser):
     config_parser = subparser.add_parser('config', help='config provider secret key')
     config_parser.add_argument('cfgs', type=str, nargs='?')
     config_parser.add_argument('--list', action='store_true')
-    config_parser.set_defaults(parser=parse_config)
+    config_parser.set_defaults(handler=config_handler)

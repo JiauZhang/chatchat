@@ -1,9 +1,8 @@
 import asyncio
 
-from chatchat.agent_loop import AgentLoop
-from chatchat.tool import Tools
-from chatchat.types import Message, ToolCall, Delta
-from chatchat.runtime import set_runtime
+from chatchat.agents.loop import AgentLoop
+from chatchat.tools.registry import Tools
+from chatchat.providers.protocol import Message, ToolCall, Delta
 
 
 class _FakeClient:
@@ -47,17 +46,10 @@ class _ToolRuntime:
 
 
 async def _run(replies):
-    import chatchat.agent_loop as al
     client = _FakeClient(replies)
     loop = AgentLoop(client, Tools(), max_steps=5, thinking=False, name='a',
-                     agent=None, allowed_tools={'roll'})
-    original_rt, original_start = al.get_runtime, al.start_tool_handler
-    al.get_runtime = lambda: _ToolRuntime()
-    al.start_tool_handler = lambda: None
-    try:
-        result = await loop.run('start', context=[])
-    finally:
-        al.get_runtime, al.start_tool_handler = original_rt, original_start
+                     agent=None, allowed_tools={'roll'}, runtime=_ToolRuntime())
+    result = await loop.run('start', context=[])
     return result, client
 
 
@@ -85,7 +77,6 @@ class TestAgentLoopMessageAssembly:
             {'role': 'tool', 'content': 'ok', 'tool_call_id': 'call_0'},
         ]
         assert _assert_valid_tool_pairs(client._payloads[1])
-        set_runtime(None)
 
     def test_multi_turn_no_duplicate_history(self):
         result, client = asyncio.run(
@@ -99,7 +90,6 @@ class TestAgentLoopMessageAssembly:
             'user', 'assistant', 'tool', 'assistant', 'tool',
         ]
         assert _assert_valid_tool_pairs(client._payloads[2])
-        set_runtime(None)
 
     def test_parallel_tool_calls_all_get_results(self):
         result, client = asyncio.run(
@@ -111,4 +101,3 @@ class TestAgentLoopMessageAssembly:
             'user', 'assistant', 'tool', 'tool',
         ]
         assert _assert_valid_tool_pairs(client._payloads[1])
-        set_runtime(None)

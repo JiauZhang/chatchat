@@ -2,15 +2,8 @@ from __future__ import annotations
 
 import aiohttp
 
-from chatchat.exceptions import APIError
+from chatchat.core.exceptions import APIError
 
-
-# ---------------------------------------------------------------------------
-# Global singleton transport. The whole process owns exactly one aiohttp
-# session / TCP connector; every provider shares it. Per-request params
-# (full url, timeout, proxy, api_key-as-header) are passed at call time, so
-# the session never caches base_url / key / timeout.
-# ---------------------------------------------------------------------------
 
 _session: aiohttp.ClientSession | None = None
 

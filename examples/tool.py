@@ -1,6 +1,7 @@
 import argparse, random
-from chatchat.tool import Tool, Tools
-from chatchat.client import ClientConfig, create_client
+from chatchat.tools.base import Tool
+from chatchat.tools.registry import Tools
+from chatchat.providers.client import ClientConfig, create_client
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--provider', type=str, default='agnes')

@@ -1,8 +1,8 @@
 import asyncio
 import pytest
 
-from chatchat import rate_limiter
-from chatchat.rate_limiter import (
+import chatchat.core.rate_limiter as rate_limiter
+from chatchat.core.rate_limiter import (
     RateLimiterState,
     RateLimit,
     ProviderLimiter,

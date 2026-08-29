@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from chatchat import transport
+import chatchat.core.transport as transport
 
 
 @pytest.fixture
@@ -51,12 +51,12 @@ async def test_get_session_is_lazy_and_singleton():
 
 
 async def test_shutdown_closes_lazy_session():
-    from chatchat.runtime import get_runtime
-    get_runtime()  # no-op if already created, ensures runtime exists
+    from chatchat.core.runtime import Runtime
+    rt = Runtime()
     # session is lazily created on first use
     session = transport.get_session()
     assert session is not None
-    await transport.close_transport()
+    await rt.shutdown()
     assert transport._session is None
 
 
@@ -91,8 +91,8 @@ async def test_stream_forwards_full_url_headers_and_proxy_once(fake_session):
 
 
 async def test_stream_raises_api_error_on_4xx(fake_session):
-    from chatchat.exceptions import APIError
-    import chatchat.transport as tr
+    from chatchat.core.exceptions import APIError
+    import chatchat.core.transport as tr
 
     resp = MagicMock()
     resp.status = 400

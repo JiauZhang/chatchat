@@ -1,8 +1,9 @@
 import json, argparse, random, sys, os, asyncio
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from chatchat.agent import Agent, AgentConfig, create_agent
-from chatchat.tool import tool
+from chatchat.agents.agent import Agent, AgentConfig, create_agent
+from chatchat.core.runtime import Runtime
+from chatchat.tools.base import tool
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--provider', type=str, default='agnes')
@@ -47,19 +48,31 @@ def query_news(topic):
     return '\n'.join(headlines)
 
 
+rt = Runtime()
+rt.registry.register(query_stock)
+rt.registry.register(query_news)
+
 agent = create_agent(AgentConfig(
-    name='analyst',
     provider=args.provider, model=args.model,
     http_options=http_options,
     instruction=(
         'You are a financial analyst. You have stock query and news query tools. '
         'For complex research tasks, delegate to sub-agents.'
     ),
-    tools=[query_stock, query_news],
-))
+    tools=['query_stock', 'query_news'],
+), runtime=rt)
+
+async def _ask(agent, text):
+    from chatchat.core.ids import make_id
+    return await rt.request(
+        source=make_id(), target_id=agent.id,
+        topic=f'entity:{agent.kind}:{agent.id}:text', data=text,
+        timeout=args.timeout,
+    )
+
 
 async def main():
-    result = await agent.chat('What is the current price of AAPL and TSLA?')
+    result = await _ask(agent, 'What is the current price of AAPL and TSLA?')
     print(f'\nanalyst result: {result}\n')
 
     state = agent.state_dict()
@@ -69,13 +82,15 @@ async def main():
     with open('_agent_state.json', 'r', encoding='utf-8') as f:
         restored_state = json.load(f)
 
-    new_agent = Agent.from_state_dict(restored_state, tools=[query_stock, query_news])
+    new_agent = Agent.from_state_dict(restored_state, tools=['query_stock', 'query_news'], runtime=rt)
+    new_agent.start()
 
-    result = await new_agent.chat('What about GOOG?')
+    result = await _ask(new_agent, 'What about GOOG?')
     print(f'\nrestored agent result: {result}\n')
 
     await agent.stop()
     await new_agent.stop()
+    await rt.shutdown()
     os.remove('_agent_state.json')
 
 
