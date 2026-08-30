@@ -2,6 +2,7 @@ import os, sys, argparse, random, subprocess, asyncio
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from chatchat.agents.agent import Agent, AgentConfig, create_agent
+from chatchat.agents.user import User
 from chatchat.core.runtime import Runtime
 from chatchat.tools.base import Tool, tool
 
@@ -95,23 +96,17 @@ for t in (query_train_ticket, query_ticket_price, read_file, write_file, execute
 
 agent = create_agent(AgentConfig(
     provider=args.provider, model=args.model, http_options=http_options,
-    instruction='You are a helpful assistant with tools for tickets, files, and shell commands.',
-    tools=['query_train_ticket', 'query_ticket_price', 'read_file', 'write_file', 'execute_shell_command'],
+    instruction=('You are a helpful assistant with tools for tickets, files, and shell commands. '
+                 'The user reaches you as "message from <id>:". Reply to that user id via '
+                 'send_message(to=<id>, message=...) once you have your answer.'),
+    tools=['query_train_ticket', 'query_ticket_price', 'read_file', 'write_file', 'execute_shell_command', 'send_message'],
 ), runtime=rt)
 
 print('Enter /exit to quit, /clear to reset conversation.')
 
 
-async def _ask(agent, text):
-    from chatchat.core.ids import make_id
-    return await rt.request(
-        source=make_id(), target_id=agent.id,
-        topic=f'entity:{agent.kind}:{agent.id}:text', data=text,
-        timeout=args.timeout or 300,
-    )
-
-
 async def main():
+    user = User(rt)
     while True:
         prompt = input('user> ')
         if prompt == '/exit':
@@ -121,7 +116,8 @@ async def main():
             print('Conversation cleared.\n')
             continue
 
-        response = await _ask(agent, prompt)
+        await user.send(agent.id, prompt)
+        response = await user.receive(timeout=args.timeout or 300)
         print(f'assistant> {response}')
         print()
     await agent.stop()

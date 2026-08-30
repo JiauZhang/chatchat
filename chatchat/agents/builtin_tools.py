@@ -81,29 +81,22 @@ async def create_team_tool(ctx: ToolContext, instruction: str) -> str:
         'properties': {
             'to': {'type': 'string', 'description': 'Target entity id'},
             'message': {'type': 'string', 'description': 'Message content'},
-            'expect_reply': {'type': 'boolean', 'description': 'Whether a reply is required'},
         },
-        'required': ['to', 'message', 'expect_reply'],
+        'required': ['to', 'message'],
     },
 )
-async def send_message_tool(ctx: ToolContext, to: str, message: str, expect_reply: bool) -> str:
-    return await _send_one(ctx.agent, to, message, expect_reply)
+async def send_message_tool(ctx: ToolContext, to: str, message: str) -> str:
+    return await _send_one(ctx.agent, to, message)
 
 
-async def _send_one(agent, to_id: str, message: str, expect_reply: bool) -> str:
-    import time
+async def _send_one(agent, to_id: str, message: str) -> str:
     entry = agent._runtime.lookup_entity(to_id)
     if not entry:
         return f'error: unknown agent id "{to_id}"'
-    if expect_reply:
-        now = time.time()
-        deadline = now + getattr(agent._runtime, 'reply_ttl', 120.0)
-        count, _ = agent._pending_reply.get(to_id, (0, 0.0))
-        agent._pending_reply[to_id] = (count + 1, deadline)
     kind = entry[0]
     await agent._runtime.publish(Event(
         topic=f'entity:{kind}:{to_id}:text',
-        source=agent.id, data=message, expect_reply=expect_reply,
+        source=agent.id, data=message,
     ))
     return f'message sent to {to_id}'
 

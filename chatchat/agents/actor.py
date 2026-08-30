@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import time
 
 from chatchat.core.event import Event
 from chatchat.core.ids import current_loop, make_id
@@ -17,32 +16,16 @@ class Actor:
         self._mailbox = asyncio.Queue()
         self._runtime.register_entity(self.id, self.kind, self._mailbox)
         self._runtime.register_spawn(self.id, self._ensure_loop_task)
-        self._runtime._scanned.add(self)
         self._stop_event = asyncio.Event()
         self._task_completed = asyncio.Event()
         self._task: asyncio.Task | None = None
         self._sub_agents: dict[str, Actor] = {}
         self._depth = 0
-        self._pending_reply: dict[str, tuple[int, float]] = {}
         self.state = 'idle'
 
     @property
     def is_running(self) -> bool:
         return self._task is not None and not self._task.done()
-
-    @property
-    def has_open_replies(self) -> bool:
-        return bool(self._pending_reply)
-
-    def _expire_replies(self):
-        now = time.time()
-        expired = [rid for rid, (_, deadline) in self._pending_reply.items()
-                   if deadline <= now]
-        for rid in expired:
-            del self._pending_reply[rid]
-            asyncio.create_task(self._emit(
-                'reply_timeout', {'target': rid}))
-        return expired
 
     @property
     def sub_agents(self) -> dict[str, 'Actor']:
@@ -72,7 +55,6 @@ class Actor:
             except (asyncio.TimeoutError, asyncio.CancelledError):
                 task.cancel()
         self._runtime.unregister_entity(self.id)
-        self._runtime._scanned.discard(self)
 
     async def _emit(self, topic: str, data=None):
         await self._runtime.publish(Event(

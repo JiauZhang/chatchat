@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass, replace
 from typing import Any, Callable
 
@@ -40,7 +39,6 @@ class Agent(Actor):
         self._setup_tools()
         self._setup_skills()
         self._setup_client()
-        self._notifications: list[dict] = []
         self._usage = Usage()
         self._loop = AgentLoop(
             self.client, self.tools, config.max_steps, config.thinking, self.id,
@@ -95,43 +93,13 @@ class Agent(Actor):
 
     async def handle_message(self, ev: Event) -> Any:
         if ev.type == 'text':
-            # 用户直接消息走 request/reply_to 通道；send_message 的对端口信不带
-            # reply_to，凭 ev.source（发送方 id）构造信封，与用户消息区分开。
-            if ev.reply_to:
-                return await self._handle_chat(ev.data)
-            self._settle_reply(ev.source)
+            # 任何跨实体消息统一带信封：sender = ev.source（用户和其它 agent 都如此）。
             return await self._handle_chat(f'message from {ev.source}:\n{ev.data}')
-        if ev.type == 'notification':
-            self._notifications.append(ev.data)
-            self._settle_reply(ev.source)
-            return None
         if ev.type == 'signal':
             return await self._handle_signal(ev.subtype)
         if ev.type == 'request':
             return await self._handle_request(ev.subtype)
         return None
-
-    def _settle_reply(self, sender: str):
-        """expect_reply 账本由框架管理：收到对端某次的回复即自动兑现对应 pending，
-        agent 全程不感知、不判定。严格一处记账，不出现双发/双结算。"""
-        if sender in self._pending_reply:
-            count, _ = self._pending_reply[sender]
-            if count - 1 <= 0:
-                del self._pending_reply[sender]
-            else:
-                self._pending_reply[sender] = (count - 1, _)
-
-    def _accept_incoming(self, ev: Event):
-        """等到回复期间收到消息时的分流入口：仅结算 expect_reply 账本并把回复
-        内容暂存给下一轮 pass 消费，绝不递归进入 _handle_chat（避免等待期内
-        被对端消息嵌套开新对话）。"""
-        if ev.type == 'text' and not ev.reply_to:
-            self._settle_reply(ev.source)
-            self._notifications.append({'content': ev.data, 'agent_id': ev.source})
-            return
-        if ev.type == 'notification':
-            self._notifications.append(ev.data)
-            self._settle_reply(ev.source)
 
     async def _handle_signal(self, subtype: str) -> str:
         if subtype == 'stop':
@@ -158,15 +126,6 @@ class Agent(Actor):
             }
         return None
 
-    async def _wait_for_background(self, timeout: float = None):
-        waits = [
-            a._task_completed.wait() for a in self._sub_agents.values()
-            if a.config.background and a._task is not None and not a._task.done()
-        ]
-        if not waits:
-            return
-        await asyncio.wait(waits, timeout=timeout)
-
     def on(self, event: str, handler: Callable):
         self._runtime.subscribe(
             f'lifecycle:{self.kind}:{event}',
@@ -175,19 +134,8 @@ class Agent(Actor):
         return self
 
     def clear(self):
-        self._notifications.clear()
         if self.client:
             self.client.clear()
-
-    def _drain_notifications(self):
-        context = []
-        for n in self._notifications:
-            source = n.get('agent_id') or n.get('id') or 'notice'
-            content = n.get('content') or n.get('error') or ''
-            context.append({'role': 'user',
-                            'content': f'reply from {source}: {content}'})
-        self._notifications.clear()
-        return context or None
 
     @property
     def total_usage(self) -> Usage:
@@ -208,25 +156,9 @@ class Agent(Actor):
             self._task_completed.set()
             return 'Error: No LLM client configured'
         try:
-            result = await self._loop.run(message, context=self._drain_notifications())
-            # A round stays open while we still owe replies (expect_reply=True).
-            # A reply is settled and reacted to as it arrives, WITHOUT waiting
-            # for others; a 'continue' pass may itself send more messages, so
-            # keep looping until the pending ledger is fully settled. The short
-            # bounded wait re-reads the ledger in case another consumer (the
-            # actor pump) handled a reply, and the TTL scavenger bounds total wait.
-            while True:
-                ctx = self._drain_notifications()
-                if ctx:
-                    result = await self._loop.run('continue', context=ctx)
-                if not self._pending_reply:
-                    break
-                try:
-                    ev = await asyncio.wait_for(self._mailbox.get(), timeout=0.5)
-                except asyncio.TimeoutError:
-                    continue
-                self._accept_incoming(ev)
-            await self._wait_for_background()
+            # 每个实体是常驻消息循环：来一条消息就处理一趟（该消息引发的 send_message
+            # 推理都在本次 loop 内完成）。不等待也不阻塞；后续消息自会再次进入 handle。
+            result = await self._loop.run(message)
             if self._loop.usage:
                 self._usage += self._loop.usage
             await self._emit('end', {'content': result})

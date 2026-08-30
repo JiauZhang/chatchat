@@ -1,4 +1,5 @@
 import asyncio
+import json
 import pytest
 from unittest.mock import patch
 
@@ -220,7 +221,7 @@ class TestAutonomousSubAgents:
             assert len(subs) == 2
             a, b = subs[0].id, subs[1].id
             out = await send_message_tool(
-                ctx=ToolContext(agent=team), to=a, message='roll', expect_reply=False,
+                ctx=ToolContext(agent=team), to=a, message='roll',
             )
             assert 'message sent' in out
             assert a in out and b is not None
@@ -256,10 +257,78 @@ class TestAutonomousSubAgents:
             sub_id = next(iter(team._sub_agents))
             assert sub_id in team._sub_agents
             out = await send_message_tool(
-                ctx=ToolContext(agent=team), message='roll', to=sub_id, expect_reply=False,
+                ctx=ToolContext(agent=team), message='roll', to=sub_id,
             )
             assert 'message sent' in out
         finally:
             patcher.stop()
             await team.stop()
+            await rt.shutdown()
+
+    async def test_leader_receives_sub_reply_and_reports_to_user(self):
+        from chatchat.agents.user import User
+        from chatchat.agents.builtin_tools import create_agent_tool, send_message_tool
+        from chatchat.providers.protocol import ToolCall
+
+        holder = {'uid': None}
+
+        class LeaderFake:
+            latest = None
+            latest_usage = None
+            async def chat(self, messages, tools=None, thinking=False):
+                m = messages[-1]['content'] or ''
+                msg = Message()
+                if 'start' in m:
+                    msg.tool_calls = [
+                        ToolCall(name='create_agent',
+                                 arguments='{"instruction":"roll"}', id='t1')]
+                elif 'message from' in m:
+                    msg.tool_calls = [
+                        ToolCall(name='send_message',
+                                 arguments=json.dumps(
+                                     {'to': holder['uid'], 'message': 'champion A'}),
+                                 id='t2')]
+                self.latest = msg
+                yield ChatCompletionChunk(choices=[
+                    ChunkChoice(delta=Delta(content=''), finish_reason='stop')])
+            async def close(self):
+                return None
+
+        class PlayerFake:
+            latest = None
+            latest_usage = None
+            async def chat(self, messages, tools=None, thinking=False):
+                self.latest = Message(content='')
+                yield ChatCompletionChunk(choices=[
+                    ChunkChoice(delta=Delta(content=''), finish_reason='stop')])
+            async def close(self):
+                return None
+
+        calls = {'n': 0}
+        def factory(*a, **k):
+            calls['n'] += 1
+            return LeaderFake() if calls['n'] == 1 else PlayerFake()
+
+        patcher = patch('chatchat.agents.agent.create_client', side_effect=factory)
+        patcher.start()
+        try:
+            rt = _rt()
+            user = User(rt)
+            holder['uid'] = user.id
+            team = create_team(TeamConfig(
+                provider='agnes', model='agnes-2.5-flash', agent_tools=['roll_dice'],
+            ), runtime=rt)
+            await user.send(team.id, 'start')          # kick off: leader creates a player
+            # 等 leader 建出首个玩家
+            for _ in range(50):
+                if team._sub_agents:
+                    break
+                await asyncio.sleep(0.02)
+            sub = next(iter(team._sub_agents.values()))
+            # 玩家经 send_message 回复，走 leader 邮箱被 pump 处理，leader 再回传给 user
+            await send_message_tool(ctx=ToolContext(agent=sub), to=team.id, message='4')
+            res = await asyncio.wait_for(user.receive(timeout=5), timeout=6)
+            assert 'champion' in res
+        finally:
+            patcher.stop()
             await rt.shutdown()

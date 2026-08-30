@@ -9,7 +9,6 @@ class Event:
     source: str = ''
     data: Any = None
     reply_to: str = ''
-    expect_reply: bool = False
     type: str = ''
     subtype: str = ''
     timestamp: float = field(default_factory=time.time)

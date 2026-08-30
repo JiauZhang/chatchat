@@ -6,7 +6,7 @@ from chatchat.core.runtime import Runtime
 from chatchat.agents.agent import Agent, AgentConfig, create_agent
 from chatchat.providers.client import BaseClient
 from chatchat.core.exceptions import SubAgentError
-from chatchat.core.event import Event, annotate
+from chatchat.core.event import Event
 from chatchat.core.ids import make_id
 from chatchat.agents.team import Team, TeamConfig, create_team
 from chatchat.tools.base import Tool, ToolContext
@@ -209,7 +209,7 @@ class TestManagementTools:
         ), runtime=rt)
         tool = agent.tools['send_message']
         result = await tool(ctx=ToolContext(agent=agent), to='nobody',
-                            message='hi', expect_reply=False)
+                            message='hi')
         assert 'unknown agent' in result
         await rt.shutdown()
 
@@ -227,7 +227,7 @@ class TestManagementTools:
         target.start()
         tool = agent.tools['send_message']
         result = await tool(ctx=ToolContext(agent=agent), to=target.id,
-                            message='hello', expect_reply=False)
+                            message='hello')
         assert 'message sent' in result
         await agent.stop()
         await target.stop()
@@ -373,42 +373,19 @@ class TestAgentChat:
         await agent.stop()
         await rt.shutdown()
 
-    async def test_round_waits_for_expect_reply_before_replying(self):
+    async def test_handle_chat_runs_single_pass(self):
         rt = Runtime()
-        # 直接驱动 _handle_chat，用不启动泵的裸 Agent，避免与泵抢同一邮箱的竞态。
         agent = Agent(AgentConfig(
             provider='agnes', model='agnes-2.5-flash',
             http_options={'timeout': 10},
         ), runtime=rt)
-        peer = Agent(AgentConfig(provider='agnes', model='agnes-2.5-flash'), runtime=rt)
-
-        # We owe a reply to `peer`: the round must NOT end until that reply comes
-        # back. First pass returns 'sent tasks' with no tool_calls; the final pass
-        # (only reachable after the reply arrived) returns 'finished'.
-        import time as _t
-        deadline = _t.time() + 120
-        agent._pending_reply[peer.id] = (1, deadline)
 
         async def fake_chat(messages, tools=None, thinking=False):
-            text = messages[-1]['content'] if messages else ''
-            content = 'finished' if text.startswith('continue') else 'sent tasks'
-            agent.client.latest = Message(content=content)
-            yield ChatCompletionChunk(choices=[ChunkChoice(delta=Delta(content=content))])
-
-        async def deliver_reply():
-            await asyncio.sleep(0.05)
-            # 对端经 send_message 回信：不带 reply_to，发送方 = ev.source
-            ev = Event(topic=f'entity:agent:{agent.id}:text', source=peer.id, data='3')
-            annotate(ev)
-            await agent._mailbox.put(ev)
+            agent.client.latest = Message(content='done')
+            yield ChatCompletionChunk(choices=[ChunkChoice(delta=Delta(content='done'))])
 
         with patch.object(agent.client, 'chat', side_effect=fake_chat):
-            result, _ = await asyncio.gather(
-                agent._handle_chat('go'),
-                deliver_reply(),
-            )
-        assert result == 'finished'
-        assert peer.id not in agent._pending_reply
+            result = await agent._handle_chat('message from y2jxew39:\nhello')
+        assert result == 'done'
         await agent.stop()
-        await peer.stop()
         await rt.shutdown()

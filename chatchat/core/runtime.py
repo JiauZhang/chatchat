@@ -30,10 +30,6 @@ class Runtime:
         self.registry = ToolRegistry()
         ensure_builtin_tools(self.registry)
         self._handler = ToolHandler(self)
-        self._scanned: set = set()
-        self.reply_ttl = 120.0
-        self._scan_interval = 2.0
-        self._scavenger: asyncio.Task | None = None
         self._started = False
 
     @property
@@ -43,23 +39,7 @@ class Runtime:
     def start(self):
         if not self._started:
             self._handler.start()
-            self._start_scavenger()
             self._started = True
-
-    def _start_scavenger(self):
-        if self._scavenger is not None and not self._scavenger.done():
-            return
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            return
-        self._scavenger = loop.create_task(self._scavenge())
-
-    async def _scavenge(self):
-        while True:
-            await asyncio.sleep(self._scan_interval)
-            for actor in list(self._scanned):
-                actor._expire_replies()
 
     # ----- entity directory ------------------------------------------------
     def register_entity(self, entity_id: str, kind: str, mailbox: asyncio.Queue):
@@ -163,14 +143,10 @@ class Runtime:
 
     async def shutdown(self):
         await self._handler.stop()
-        if self._scavenger is not None:
-            self._scavenger.cancel()
-            self._scavenger = None
         await close_transport()
         self._entities.clear()
         self._spawners.clear()
         self._observers.clear()
         self._pending_futures.clear()
         self._logging_enabled.clear()
-        self._scanned.clear()
         self._started = False

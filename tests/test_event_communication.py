@@ -1,3 +1,5 @@
+import asyncio
+
 from chatchat.core.event import Event
 from chatchat.core.runtime import Runtime
 from chatchat.agents.agent import Agent, AgentConfig
@@ -51,7 +53,7 @@ async def test_send_message_publishes_event_only():
     sub = Agent(AgentConfig(provider='agnes', model='agnes-2.5-flash'), runtime=rt)
 
     out = await send_message_tool(
-        ctx=ToolContext(agent=lead), to=sub.id, message='hi', expect_reply=False,
+        ctx=ToolContext(agent=lead), to=sub.id, message='hi',
     )
     assert sub.id in out
     # exactly one text event published; sender is carried by the event source
@@ -62,17 +64,19 @@ async def test_send_message_publishes_event_only():
     await rt.shutdown()
 
 
-async def test_send_message_expect_reply_tracks_ledger():
+async def test_send_message_is_fire_and_forget():
     rt = Runtime()
     lead = _leader(rt)
     sub = Agent(AgentConfig(provider='agnes', model='agnes-2.5-flash'), runtime=rt)
 
     out = await send_message_tool(
-        ctx=ToolContext(agent=lead), to=sub.id, message='ping', expect_reply=True,
+        ctx=ToolContext(agent=lead), to=sub.id, message='ping',
     )
     assert 'message sent' in out
-    assert sub.id in lead._pending_reply
-    assert lead.has_open_replies
+    # 纯 fire-and-forget：无任何回复账本，事件直接落进目标邮箱
+    ev = await asyncio.wait_for(sub._mailbox.get(), timeout=1)
+    assert ev.data == 'ping'
+    assert ev.source == lead.id
     await rt.shutdown()
 
 
@@ -87,9 +91,9 @@ async def test_peer_reply_carries_sender_envelope():
         return await orig(ev)
     rt.publish = spy
 
-    # 对端用 send_message 回信：发送方 id 由事件 source 携带，收方据此区分“这是 agent 的话”。
+    # 对端用 send_message 回信：发送方 id 由事件 source 携带，收方据此识别“这是谁的话”。
     await send_message_tool(
-        ctx=ToolContext(agent=sub), to=lead.id, message='the answer is 42', expect_reply=False,
+        ctx=ToolContext(agent=sub), to=lead.id, message='the answer is 42',
     )
     assert any(e.topic.endswith(':text') and e.source == sub.id for e in published)
     await rt.shutdown()
