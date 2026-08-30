@@ -12,13 +12,25 @@ def ensure_builtin_tools(registry: ToolRegistry):
             registry.register(t)
 
 
+# 追加（而非替换）到每个可通信子实体的角色指令末尾：告知它与外界通信的正确姿势。
+# 否则子体会把「message from <id>:」当普通用户消息、用纯文本作答，而纯文本不会被转发。
+_COMMUNICATION_ADDENDUM = (
+    '\n\nCommunication rules:\n'
+    '- Other entities reach you as "message from <id>: ..." — that <id> is the sender.\n'
+    '- Your plain-text output is NOT forwarded to other entities; you are only heard '
+    'through the send_message tool.\n'
+    '- To reply to a sender, or talk to any other entity, you MUST call '
+    'send_message(to=<id>, ...).'
+)
+
+
 @tool(
     name='create_agent',
-    description='Create a sub-agent. The instruction is its system role and rulebook — define who it is and its boundaries, NOT a task; tasks go later via send_message(<id>, <task>). Returns the id of the newly created sub-agent.',
+    description='Create a sub-agent with the given system role. Returns the created sub-agent\'s id.',
     parameters={
         'type': 'object',
         'properties': {
-            'instruction': {'type': 'string', 'description': 'System role and constraints for the new sub-agent: who it is and how it should behave. Do NOT put a concrete task here.'},
+            'instruction': {'type': 'string', 'description': 'System role and rulebook for the new agent — who it is and how it should behave, NOT a concrete task.'},
         },
         'required': ['instruction'],
     },
@@ -30,7 +42,7 @@ async def create_agent_tool(ctx: ToolContext, instruction: str) -> str:
     cfg = AgentConfig(**{
         f: getattr(team.config, f)
         for f in ('provider', 'model', 'thinking', 'http_options', 'max_steps', 'max_depth', 'background', 'description', 'skills')
-    }, instruction=instruction, tools=tools, source='user')
+    }, instruction=instruction + _COMMUNICATION_ADDENDUM, tools=tools, source='user')
     sub = team.create_sub_agent(cfg)
     # Sub-agent starts idle, driven only by its system instruction. The caller
     # holds its id and dispatches concrete tasks later via send_message.
@@ -39,11 +51,11 @@ async def create_agent_tool(ctx: ToolContext, instruction: str) -> str:
 
 @tool(
     name='create_team',
-    description='Create a sub-team: a new leader entity that can itself create and orchestrate more entities. The instruction is the sub-team leader system role and rulebook — define who it is and its boundaries, NOT a task; tasks go later via send_message(<id>, <task>). Returns the id of the newly created sub-team.',
+    description='Create a sub-team: a new leader entity that can itself create and orchestrate more entities. Returns the created sub-team\'s id.',
     parameters={
         'type': 'object',
         'properties': {
-            'instruction': {'type': 'string', 'description': 'System role and constraints for the sub-team leader: who it is and how it should behave. Do NOT put a concrete task here.'},
+            'instruction': {'type': 'string', 'description': 'System role and rulebook for the sub-team leader — who it is and how it should behave, NOT a concrete task.'},
         },
         'required': ['instruction'],
     },
@@ -54,7 +66,7 @@ async def create_team_tool(ctx: ToolContext, instruction: str) -> str:
     team = ctx.agent
     data = {f: getattr(team.config, f)
             for f in BaseAgentConfig.__dataclass_fields__ if f != 'id'}
-    data.update(id=make_id(), instruction=instruction,
+    data.update(id=make_id(), instruction=instruction + _COMMUNICATION_ADDENDUM,
                 leader_tools=None, agent_tools=team.agent_tools, source='user')
     cfg = TeamConfig(**data)
     sub_team = team.create_sub_team(cfg)
@@ -63,13 +75,13 @@ async def create_team_tool(ctx: ToolContext, instruction: str) -> str:
 
 @tool(
     name='send_message',
-    description='Send a message to another entity by its id. This is the only way to communicate. Set expect_reply=True when you need the answer: it arrives later as a notification, not in the return value — after sending, do NOT send again or repeat the same task; rely on the reply. expect_reply=False is one-way (no answer will come).',
+    description='Send a message to another entity by its id.',
     parameters={
         'type': 'object',
         'properties': {
             'to': {'type': 'string', 'description': 'Target entity id'},
             'message': {'type': 'string', 'description': 'Message content'},
-            'expect_reply': {'type': 'boolean', 'description': 'Whether a reply is required. Omit nothing: you must decide True or False'},
+            'expect_reply': {'type': 'boolean', 'description': 'Whether a reply is required'},
         },
         'required': ['to', 'message', 'expect_reply'],
     },
@@ -93,12 +105,12 @@ async def _send_one(agent, to_id: str, message: str, expect_reply: bool) -> str:
         topic=f'entity:{kind}:{to_id}:text',
         source=agent.id, data=message, expect_reply=expect_reply,
     ))
-    return f'message sent to {to_id}; {to_id} will reply once done'
+    return f'message sent to {to_id}'
 
 
 @tool(
     name='task_stop',
-    description='Permanently stop your sub-entity by its id and release it. Use only to retire a failed, stuck, or no-longer-needed sub-entity. Nothing stops itself or non-sub entities.',
+    description='Permanently stop one of your own sub-entities by its id.',
     parameters={
         'type': 'object',
         'properties': {

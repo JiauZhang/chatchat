@@ -78,43 +78,6 @@ class Message:
 
 
 @dataclass
-class Choice:
-    index: int = 0
-    message: Message = field(default_factory=Message)
-    finish_reason: str = ''
-
-
-@dataclass
-class ChatCompletion:
-    id: str = ''
-    object: str = 'chat.completion'
-    created: int = 0
-    model: str = ''
-    choices: list[Choice] = field(default_factory=list)
-    usage: Usage = field(default_factory=Usage)
-
-    def accumulate(self, chunk: 'ChatCompletionChunk'):
-        if chunk.id:
-            self.id = chunk.id
-        if chunk.model:
-            self.model = chunk.model
-        if chunk.usage.total_tokens:
-            self.usage = chunk.usage
-        for ch in chunk.choices:
-            idx = ch.index
-            target = None
-            for existing in self.choices:
-                if existing.index == idx:
-                    target = existing
-                    break
-            if target is None:
-                target = Choice(index=idx)
-                self.choices.append(target)
-            target.finish_reason = ch.finish_reason or target.finish_reason
-            target.message.accumulate(ch.delta)
-
-
-@dataclass
 class Delta:
     role: str = ''
     content: str = ''

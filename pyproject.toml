@@ -24,6 +24,7 @@ dependencies = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+timeout = 15
 
 [project.urls]
 Homepage = "https://github.com/jiauzhang/chatchat"

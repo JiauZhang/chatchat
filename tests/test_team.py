@@ -176,7 +176,7 @@ class TestAutonomousSubAgents:
             )
         sub_id = next(iter(team._sub_agents))
         assert sub_id in result
-        assert team._sub_agents[sub_id].config.instruction == 'roll the die'
+        assert team._sub_agents[sub_id].config.instruction.startswith('roll the die')
         assert not any(e.topic.endswith(':text') for e in published)
         await team.stop()
         await rt.shutdown()
@@ -209,25 +209,6 @@ class TestAutonomousSubAgents:
         patcher = patch('chatchat.agents.agent.create_client', side_effect=fake_client_factory)
         patcher.start()
         return rt, team, patcher
-
-    async def test_sub_agent_result_returns_to_source_via_notification(self):
-        from chatchat.agents.builtin_tools import create_agent_tool
-        rt, team, patcher = await self._make_team_with_fake_clients('hi from player')
-        try:
-            await create_agent_tool(
-                ctx=ToolContext(agent=team), instruction='say hi',
-            )
-            # the sub-agent finishes and routes its result back to the message
-            # source (team) as a notification.
-            sub = next(iter(team._sub_agents.values()))
-            await sub._send_notification(team.id, 'hi from player')
-            await asyncio.sleep(0.1)  # let the team's loop consume the notification
-            notes = team._drain_notifications() or []
-            assert any('hi from player' in n.get('content', '') for n in notes), notes
-        finally:
-            patcher.stop()
-            await team.stop()
-            await rt.shutdown()
 
     async def test_send_message_to_sub_agent(self):
         from chatchat.agents.builtin_tools import create_agent_tool, send_message_tool

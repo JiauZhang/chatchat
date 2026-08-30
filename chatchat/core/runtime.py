@@ -102,12 +102,6 @@ class Runtime:
         self._deliver_to_observers(event)
         self._resolve_pending(event)
 
-    def publish_sync(self, event: Event):
-        annotate(event)
-        self._deliver_to_entity_sync(event)
-        self._deliver_to_observers(event)
-        self._resolve_pending(event)
-
     async def _deliver_to_entity(self, event: Event):
         _, eid, _, _ = parse_topic(event.topic)
         if not eid:
@@ -115,17 +109,6 @@ class Runtime:
         entry = self._entities.get(eid)
         if entry:
             await entry[1].put(event)
-        spawn = self._spawners.get(eid)
-        if spawn:
-            spawn()
-
-    def _deliver_to_entity_sync(self, event: Event):
-        _, eid, _, _ = parse_topic(event.topic)
-        if not eid:
-            return
-        entry = self._entities.get(eid)
-        if entry:
-            entry[1].put_nowait(event)
         spawn = self._spawners.get(eid)
         if spawn:
             spawn()

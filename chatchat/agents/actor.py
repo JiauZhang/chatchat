@@ -101,8 +101,6 @@ class Actor:
                     result = await self.handle_message(ev)
                     if result is not None and ev.reply_to:
                         await self._runtime.reply(ev, result, source=self.id)
-                    elif result is not None and ev.expect_reply:
-                        await self._send_notification(ev.source, result)
                 except asyncio.CancelledError:
                     self.state = 'idle'
                     raise
@@ -110,8 +108,6 @@ class Actor:
                     if ev.reply_to:
                         await self._runtime.reply(
                             ev, f'{type(e).__name__}: {e}', source=self.id)
-                    elif ev.expect_reply:
-                        await self._send_notification(ev.source, f'{type(e).__name__}: {e}')
                 finally:
                     self.state = 'idle'
             finally:
@@ -124,12 +120,3 @@ class Actor:
 
     async def handle_message(self, ev: Event):
         raise NotImplementedError
-
-    async def _send_notification(self, target_id: str, content: Any):
-        entry = self._runtime.lookup_entity(target_id)
-        kind = entry[0] if entry else 'agent'
-        await self._runtime.publish(Event(
-            topic=f'entity:{kind}:{target_id}:notification',
-            source=self.id,
-            data={'content': content, 'agent_id': self.id},
-        ))

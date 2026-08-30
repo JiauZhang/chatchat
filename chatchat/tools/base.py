@@ -16,18 +16,6 @@ class Tool:
         self.name = name
         self.description = description
         self.parameters = parameters
-        self._interact_handlers = []
-
-    def on_interact(self, handler):
-        self._interact_handlers.append(handler)
-        return self
-
-    def _ask(self, question='', metadata=None):
-        for h in self._interact_handlers:
-            reply = h(question, metadata or {})
-            if reply is not None:
-                return reply
-        return None
 
     def to_dict(self):
         function = {
@@ -66,16 +54,6 @@ class Tool:
                 data={'name': self.name, 'result': result},
             ))
         return result
-
-    def step(self, ctx=None, content: str = ''):
-        from chatchat.core.event import Event
-        source = getattr(getattr(ctx, 'agent', None), 'id', None) or self.name
-        runtime = getattr(getattr(ctx, 'agent', None), '_runtime', None)
-        if runtime is not None:
-            runtime.publish_sync(Event(
-                topic='lifecycle:tool:step', source=source,
-                data={'name': self.name, 'content': content},
-            ))
 
     def _run(self, ctx: ToolContext | None, **kwargs):
         if ctx is not None and 'ctx' in inspect.signature(self.func).parameters:

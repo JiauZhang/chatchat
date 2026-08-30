@@ -54,9 +54,10 @@ async def test_send_message_publishes_event_only():
         ctx=ToolContext(agent=lead), to=sub.id, message='hi', expect_reply=False,
     )
     assert sub.id in out
-    # exactly one text event published, no request/reply
+    # exactly one text event published; sender is carried by the event source
     texts = [e for e in published if e.topic.endswith(':text')]
     assert len(texts) == 1
+    assert texts[0].source == lead.id
     assert texts[0].data == 'hi'
     await rt.shutdown()
 
@@ -75,7 +76,7 @@ async def test_send_message_expect_reply_tracks_ledger():
     await rt.shutdown()
 
 
-async def test_sender_receives_notification_from_source():
+async def test_peer_reply_carries_sender_envelope():
     rt = Runtime()
     lead = _leader(rt)
     sub = Agent(AgentConfig(provider='agnes', model='agnes-2.5-flash'), runtime=rt)
@@ -86,11 +87,9 @@ async def test_sender_receives_notification_from_source():
         return await orig(ev)
     rt.publish = spy
 
-    # a sub-agent finishing a message routes its result back to the message's
-    # source (whoever asked), as a notification.
-    await sub._send_notification(lead.id, 'the answer is 42')
-    topics = [e.topic for e in published]
-    assert any(t.endswith(':notification') for t in topics)
-    notif = next(e for e in published if e.topic.endswith(':notification'))
-    assert '42' in (notif.data.get('content') or notif.data.get('error') or '')
+    # 对端用 send_message 回信：发送方 id 由事件 source 携带，收方据此区分“这是 agent 的话”。
+    await send_message_tool(
+        ctx=ToolContext(agent=sub), to=lead.id, message='the answer is 42', expect_reply=False,
+    )
+    assert any(e.topic.endswith(':text') and e.source == sub.id for e in published)
     await rt.shutdown()
