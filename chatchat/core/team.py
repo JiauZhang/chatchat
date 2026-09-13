@@ -183,6 +183,9 @@ class Team:
     def transcript(self) -> list[dict]:
         return list(self.lead.messages)
 
+    def restore(self, messages: list[dict]):
+        self.lead.messages = [m for m in messages if isinstance(m, dict)]
+
     def usage(self):
         return self.lead.total_usage
 
