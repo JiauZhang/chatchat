@@ -45,6 +45,7 @@ class Agent:
         self._idle_event = asyncio.Event()
         self._pending = 0
         self._done = 0
+        self._attachments: list[str] = []
         self._work_abort = AbortSignal()
         self._in_tool: str | None = None
         self.task: Task | None = None
@@ -99,6 +100,18 @@ class Agent:
         self._pending += 1
         self._clear_idle()
         self._queue.put_nowait(text)
+
+    def enqueue_attachment(self, text: str):
+        """排入待注入附件（如后台任务完成通知）。附件不唤醒 agent，
+        在下一次模型调用前作为 user 消息注入（claude 的 attachment 语义）。"""
+        self._attachments.append(text)
+
+    def _drain_attachments(self):
+        if not self._attachments:
+            return ''
+        text = '\n\n'.join(self._attachments)
+        self._attachments.clear()
+        return text
 
     async def chat(self, text: str) -> str:
         self._clear_idle()
@@ -203,6 +216,9 @@ class Agent:
         for _ in range(self.max_steps):
             self.ctx.abort.check()
             self._work_abort.check()
+            attachment = self._drain_attachments()
+            if attachment:
+                self.messages.append({'role': 'user', 'content': attachment})
             thinking_parts.clear()
             respond_task = asyncio.create_task(self.client.respond(
                 self.messages, self.tool_exec.tool_schemas(), stream_cb=stream))

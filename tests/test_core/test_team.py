@@ -185,3 +185,52 @@ def test_inbox_poller_reports_enqueue_to_callback():
     bumps, queued = asyncio.run(main())
     assert bumps >= 1
     assert queued >= 1
+
+
+def _notification_texts(messages):
+    return [m['content'] for m in messages if m['role'] == 'user'
+            and isinstance(m.get('content'), str)
+            and 'task-notification' in m['content']]
+
+
+def test_attachment_injected_before_next_model_call():
+    """turn 开始前入队的附件必须在第一次模型调用前注入，且只注入一次。"""
+    payloads = []
+
+    async def respond(messages, tools=None, *, stream_cb=None):
+        payloads.append(_notification_texts(messages))
+        return 'ok'
+
+    async def main():
+        team = Team('att', client_factory=lambda inst: MockClient(handler=respond))
+        team.lead.enqueue_attachment('<task-notification>b1</task-notification>')
+        return await team.query('go')
+
+    asyncio.run(main())
+    assert len(payloads) == 1
+    assert len(payloads[0]) == 1
+
+
+def test_attachment_enqueued_mid_turn_reaches_next_model_call():
+    """turn 进行中（工具执行后）入队的附件要在下一次模型调用前注入。"""
+    holder = {}
+    payloads = []
+
+    async def respond(messages, tools=None, *, stream_cb=None):
+        payloads.append(_notification_texts(messages))
+        if len(payloads) == 1:
+            holder['lead'].enqueue_attachment(
+                '<task-notification>b1</task-notification>')
+            return [ToolUse('whatever', {}, 't1')]
+        return 'done'
+
+    async def main():
+        team = Team('att2', client_factory=lambda inst: MockClient(handler=respond))
+        holder['lead'] = team.lead
+        return await team.query('go')
+
+    asyncio.run(main())
+    assert len(payloads) >= 2
+    assert len(payloads[0]) == 0       # 第一轮调用时还没有
+    assert len(payloads[1]) == 1       # 工具结果后、第二次调用前已注入
+    assert all(len(p) == 1 for p in payloads[1:])   # 不重复注入
