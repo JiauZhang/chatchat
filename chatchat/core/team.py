@@ -205,6 +205,12 @@ class Team:
         if lead is not None:
             lead.client = self._client_for(lead.instruction)
 
+    def set_model(self, model: str):
+        self._model = model
+        lead = self.get_by_name(LEAD_NAME)
+        if lead is not None:
+            lead.client = self._client_for(lead.instruction)
+
     @property
     def provider(self):
         return self._provider
