@@ -1,15 +1,10 @@
+from conippets import json
 from chatchat.providers import __providers__
-from chatchat.core.config import save_config
+from chatchat.client import __secret_file__
 
-
-def config_handler(args):
+def parse_config(args, secret_file=None):
     if args.list:
-        import importlib
-        import pkgutil
-        import chatchat.providers as providers_pkg
-        for mod in pkgutil.iter_modules(providers_pkg.__path__):
-            importlib.import_module(f'chatchat.providers.{mod.name}')
-        print(f'supported providers: {sorted(__providers__.keys())}')
+        print(f'supported providers: {__providers__}')
     elif args.cfgs:
         cfg = args.cfgs.split('=')
         provider_key = cfg[0].split('.')
@@ -19,11 +14,22 @@ def config_handler(args):
             return
 
         (provider, key), value = provider_key, cfg[1]
-        save_config(provider, key, value)
+        if provider not in __providers__:
+            print(f'provider `{provider}` is currently NOT supported!')
+            print(f'supported providers: {__providers__}')
+            return
 
+        secret_file = secret_file if secret_file else __secret_file__
+        secret_data = json.read(secret_file)
 
-def register(subparser):
+        if provider in secret_data:
+            secret_data[provider][key] = value
+        else:
+            secret_data[provider] = {key: value}
+        json.write(secret_file, secret_data)
+
+def cli_config(subparser):
     config_parser = subparser.add_parser('config', help='config provider secret key')
     config_parser.add_argument('cfgs', type=str, nargs='?')
     config_parser.add_argument('--list', action='store_true')
-    config_parser.set_defaults(handler=config_handler)
+    config_parser.set_defaults(parser=parse_config)

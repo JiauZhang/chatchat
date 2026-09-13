@@ -1,7 +1,9 @@
-from chatchat.providers.client import BaseClient
-from chatchat.providers import register_provider
+from chatchat.client import BaseClient
 
-
-@register_provider('baidu')
 class BaiduClient(BaseClient):
-    base_url = 'https://qianfan.baidubce.com/v2'
+    def __init__(self, model=None, instruction=None, http_options={}):
+        super().__init__(
+            'baidu',
+            'https://qianfan.baidubce.com/v2',
+            http_options=http_options, model=model, instruction=instruction,
+        )

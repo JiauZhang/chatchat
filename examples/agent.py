@@ -1,127 +1,20 @@
-import os, sys, argparse, random, subprocess, asyncio
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+import argparse
+import asyncio
 
-from chatchat.agents.agent import Agent, AgentConfig, create_agent
-from chatchat.agents.user import User
-from chatchat.core.runtime import Runtime
-from chatchat.tools.base import Tool, tool
+from chatchat.core.agents import run_agent
 
-
-parser = argparse.ArgumentParser()
-parser.add_argument('--provider', type=str, default='agnes')
-parser.add_argument('--model', type=str, default='agnes-2.5-flash')
-parser.add_argument('--timeout', type=int, default=None)
-parser.add_argument('--proxy', type=str, default=None)
-args = parser.parse_args()
-
-http_options = {}
-if args.timeout:
-    http_options['timeout'] = args.timeout
-if args.proxy:
-    http_options['proxy'] = args.proxy
-
-
-@tool(name='query_train_ticket', description='query number of train tickets between cities',
-      parameters={'type': 'object', 'properties': {
-          'from_city': {'type': 'string', 'description': 'departure city'},
-          'to_city': {'type': 'string', 'description': 'arrival city'},
-      }, 'required': ['from_city', 'to_city']})
-def query_train_ticket(from_city, to_city):
-    return f'{from_city} to {to_city}: {random.randint(1, 10)} tickets left.'
-
-
-@tool(name='query_ticket_price', description='query ticket price between cities',
-      parameters={'type': 'object', 'properties': {
-          'from_city': {'type': 'string', 'description': 'departure city'},
-          'to_city': {'type': 'string', 'description': 'arrival city'},
-      }, 'required': ['from_city', 'to_city']})
-def query_ticket_price(from_city, to_city):
-    return f'{from_city} to {to_city}: {random.randint(100, 200)} CNY.'
-
-
-@tool(name='read_file', description='read file content',
-      parameters={'type': 'object', 'properties': {
-          'file_path': {'type': 'string', 'description': 'absolute or relative file path'},
-          'offset': {'type': 'integer', 'description': 'starting line number'},
-          'num_lines': {'type': 'integer', 'description': 'number of lines to read'},
-      }, 'required': ['file_path']})
-def read_file(file_path, offset=0, num_lines=500):
-    try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
-        total_lines = len(lines)
-        read_count = min(num_lines, total_lines - offset)
-        result = '\n'.join(f'{i} | {line}'
-                           for i, line in enumerate(lines[offset:offset + num_lines], start=offset))
-        if not result:
-            result = '(empty file)'
-        return f'read {read_count}/{total_lines} lines:\n{result}'
-    except FileNotFoundError:
-        return f'file not found: {file_path}'
-
-
-@tool(name='write_file', description='write content to file (overwrites existing)',
-      parameters={'type': 'object', 'properties': {
-          'file_path': {'type': 'string', 'description': 'file path'},
-          'content': {'type': 'string', 'description': 'content to write'},
-      }, 'required': ['file_path', 'content']})
-def write_file(file_path, content):
-    try:
-        os.makedirs(os.path.dirname(os.path.abspath(file_path)), exist_ok=True)
-        with open(file_path, 'w', encoding='utf-8') as f:
-            f.write(content)
-        return f'wrote {len(content)} chars to {file_path}'
-    except Exception as e:
-        return f'write failed: {e}'
-
-
-@tool(name='execute_shell_command', description='execute a shell command',
-      parameters={'type': 'object', 'properties': {
-          'command': {'type': 'string', 'description': 'shell command to execute'},
-      }, 'required': ['command']})
-def execute_shell_command(command):
-    try:
-        result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=30)
-        output = result.stdout
-        if result.stderr:
-            output += '\n[STDERR]\n' + result.stderr
-        return output.strip() or '(no output)'
-    except subprocess.TimeoutExpired:
-        return 'command timed out after 30s'
-
-
-rt = Runtime()
-for t in (query_train_ticket, query_ticket_price, read_file, write_file, execute_shell_command):
-    rt.registry.register(t)
-
-agent = create_agent(AgentConfig(
-    provider=args.provider, model=args.model, http_options=http_options,
-    instruction=('You are a helpful assistant with tools for tickets, files, and shell commands. '
-                 'The user reaches you as "message from <id>:". Reply to that user id via '
-                 'send_message(to=<id>, message=...) once you have your answer.'),
-    tools=['query_train_ticket', 'query_ticket_price', 'read_file', 'write_file', 'execute_shell_command', 'send_message'],
-), runtime=rt)
-
-print('Enter /exit to quit, /clear to reset conversation.')
+WRITER = '你是 writer，把用户给的主题用一句话成稿。'
 
 
 async def main():
-    user = User(rt)
-    while True:
-        prompt = input('user> ')
-        if prompt == '/exit':
-            break
-        if prompt == '/clear':
-            agent.clear()
-            print('Conversation cleared.\n')
-            continue
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--provider', default='deepseek')
+    parser.add_argument('--model', default='deepseek-chat')
+    parser.add_argument('--prompt', default='把「猫」写成一句简介。')
+    args = parser.parse_args()
 
-        await user.send(agent.id, prompt)
-        response = await user.receive(timeout=args.timeout or 300)
-        print(f'assistant> {response}')
-        print()
-    await agent.stop()
-    await rt.shutdown()
+    print(await run_agent(args.prompt, provider=args.provider, model=args.model,
+                          system_prompt=WRITER))
 
 
 if __name__ == '__main__':

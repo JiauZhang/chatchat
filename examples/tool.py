@@ -1,50 +1,58 @@
-import argparse, random
-from chatchat.tools.base import Tool
-from chatchat.tools.registry import Tools
-from chatchat.providers.client import ClientConfig, create_client
+import argparse
+from chatchat.client import Client
+from chatchat.tool import tool, Tools
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--provider', type=str, default='agnes')
-parser.add_argument('--model', type=str, default='agnes-2.5-flash')
-parser.add_argument('--timeout', type=int, default=30)
+parser.add_argument('--provider', type=str, default='zhipu')
+parser.add_argument('--model', type=str, default='glm-4.7-flash')
+parser.add_argument('--timeout', type=int, default=None)
+parser.add_argument('--non-streaming', action='store_true')
+parser.add_argument('--thinking', action='store_true')
 args = parser.parse_args()
 
-
-def search_impl(query):
-    return '\n'.join([f'result {i} about {query}' for i in range(random.randint(1, 3))])
-
-
-search = Tool(
-    name='search', description='search the web',
-    func=search_impl,
-    parameters={
-        'type': 'object', 'properties': {
-            'query': {'type': 'string', 'description': 'search keywords'},
-        }, 'required': ['query'],
-    },
+llm = Client(
+    args.provider, model=args.model, http_options={'timeout': args.timeout},
+    instruction='You are a helpful assistant.',
 )
-tools = Tools(search)
+generation_options = {'stream': not args.non_streaming, 'thinking': args.thinking}
 
+def on_start(self, **kwargs):
+    print(f'\n<tool>{self.name} {kwargs}</tool>\n')
 
-async def main():
-    print(await search(query='AI news'))
+@tool(
+    name='get_weather', description='getting weather information for a specified city',
+    parameters={
+        'type': 'object',
+        'properties': {
+            'city': {
+                'type': 'string',
+                'description': 'the city name, e.g., Shanghai',
+            }
+        },
+        'required': ['city'],
+    },
+    on_start=on_start,
+)
+def get_weather(city):
+    return f'{city} is Sunny.'
+
+def on_error(self, exception):
+    print(f'\n<tool>{self.name} {exception}</tool>\n')
+
+@tool(
+    name='get_datetime', description='getting current datetime',
+    on_error=on_error,
+)
+def get_datetime():
+    raise RuntimeError('get datetime failed.')
+
+tools = Tools(get_weather, get_datetime)
+while True:
+    prompt = input("user> ")
+    if prompt == '/exit':
+        break
+    response = llm.chat(prompt, generation_options=generation_options, tools=tools)
+    print('assistant> ', end='')
+    for chunk in response:
+        print(chunk, end="", flush=True)
     print()
-
-    client = create_client(ClientConfig(
-        provider=args.provider, model=args.model,
-        http_options={'timeout': args.timeout},
-    ))
-    parts = []
-    async for chunk in client.chat(
-        [{'role': 'user', 'content': 'search AI news'}],
-        tools=tools,
-    ):
-        if chunk.choices:
-            parts.append(chunk.choices[0].delta.content or '')
-    await client.close()
-    print(f'agent with manual tool: {"".join(parts)[:80]}...')
-
-
-if __name__ == '__main__':
-    import asyncio
-    asyncio.run(main())

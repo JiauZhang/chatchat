@@ -1,8 +1,9 @@
 import argparse
-import asyncio
 from chatchat import __version__
-from chatchat.cli.config import register as register_config
-from chatchat.cli.run import register as register_run
+from chatchat.cli.config import cli_config
+from chatchat.cli.chat import cli_chat
+from chatchat.cli.hooks import cli_hooks
+from chatchat.cli.team import cli_team
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
@@ -10,23 +11,20 @@ parser.add_argument(
     action='version',
     version=f'%(prog)s {__version__}',
 )
-parser.set_defaults(handler=None)
+parser.set_defaults(parser=None)
 subparser = parser.add_subparsers()
 
-register_config(subparser)
-register_run(subparser)
+cli_config(subparser)
+cli_chat(subparser)
+cli_hooks(subparser)
 
+args = parser.parse_args()
 
 def main():
-    args = parser.parse_args()
-    if args.handler:
-        if asyncio.iscoroutinefunction(args.handler):
-            asyncio.run(args.handler(args))
-        else:
-            args.handler(args)
+    if args.parser:
+        args.parser(args)
     else:
         parser.print_help()
-
 
 if __name__ == '__main__':
     main()

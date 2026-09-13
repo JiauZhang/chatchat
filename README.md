@@ -1,192 +1,118 @@
-# chatchat — Agent Framework
+### Large Language Models Python API
+<table align="center">
+    <tr>
+        <th>Provider</th>
+        <th>Model</th>
+    </tr>
+    <tr>
+        <td align="center">Google</td>
+        <td>
+            <code>gemini-2.5-flash</code>
+        </td>
+    </tr>
+    <tr>
+        <td align="center">DeepSeek</td>
+        <td>
+            <code>deepseek-chat</code> <code>deepseek-reasoner</code> <code>deepseek-coder</code>
+        </td>
+    </tr>
+    <tr>
+        <td align="center">百度</td>
+        <td>
+            <code>ernie-lite-8k</code> <code>ernie-tiny-8k</code> <code>ernie-speed-8k</code> <code>ernie-speed-128k</code>
+        </td>
+    </tr>
+    <tr>
+        <td align="center">阿里巴巴</td>
+        <td>
+            <code>qwen3-max</code> <code>qwen-plus</code> <code>qwen-flash</code> <code>qwen-turbo</code>
+        </td>
+    </tr>
+    <tr>
+        <td align="center">讯飞</td>
+        <td>
+            <code>lite</code> <code>generalv3</code> <code>pro-128k</code> <code>generalv3.5</code> <code>max-32k</code> <code>4.0Ultra</code>
+        </td>
+    </tr>
+    <tr>
+        <td align="center">腾讯</td>
+        <td>
+            <code>hunyuan-lite</code> <code>hunyuan-standard</code> <code>hunyuan-standard-256K</code> <code>hunyuan-pro</code>
+        </td>
+    </tr>
+    <tr>
+        <td align="center">智谱</td>
+        <td>
+            <code>glm-4-plus</code> <code>glm-4-air</code> <code>glm-4-long</code> <code>glm-4-flash</code>
+        </td>
+    </tr>
+</table>
 
-Python agent framework with LLM tool calling, multi-agent orchestration, and a scheduler-based event-driven architecture.
-
-## Install
-
+### Install
 ```shell
 pip install chatchat
 ```
 
-## Quick Start
-
-### Single Agent
-
-```python
-import asyncio
-from chatchat.agents.agent import AgentConfig, create_agent
-from chatchat.core.runtime import Runtime
-from chatchat.core.ids import make_id
-from chatchat.tools.base import tool
-
-@tool(
-    name='get_weather', description='get weather for a city',
-    parameters={
-        'type': 'object',
-        'properties': {
-            'city': {'type': 'string', 'description': 'the city name, e.g., Shanghai'},
-        },
-        'required': ['city'],
-    },
-)
-def get_weather(city):
-    return f'{city} is Sunny.'
-
-rt = Runtime()
-rt.registry.register(get_weather)
-
-agent = create_agent(AgentConfig(
-    provider='agnes', model='agnes-2.5-flash',
-    instruction='You are a helpful assistant.',
-    tools=['get_weather'],
-), runtime=rt)
-
-async def main():
-    reply = await rt.request(
-        source=make_id(), target_id=agent.id,
-        topic=f'entity:{agent.kind}:{agent.id}:text',
-        data='How is the weather in Shanghai?', timeout=300,
-    )
-    print(reply)
-    await agent.stop()
-    await rt.shutdown()
-
-asyncio.run(main())
-```
-
-> Every Runtime is self-contained (its own message router, tool table and tool handler) and must be created explicitly. Every interaction goes through it as an async event: `request` delivers a text message into the agent's mailbox, its process loop consumes it, and the reply resolves the pending future.
-
-### Multi-Agent Team
-
-Teams inherit from Agent and carry management tools (`create_agent`, `create_team`, `send_message`, `task_stop`). Sub-agents are created on demand by the leader and communicate through the Runtime via `request` / `publish`.
-
-```python
-import asyncio
-from chatchat.agents.team import TeamConfig, create_team
-from chatchat.core.runtime import Runtime
-from chatchat.core.ids import make_id
-
-rt = Runtime()
-
-team = create_team(TeamConfig(
-    provider='agnes', model='agnes-2.5-flash',
-    instruction='You are a tech lead. Use create_agent to delegate tasks to sub-agents.',
-    agent_tools=[],
-), runtime=rt)
-
-async def main():
-    reply = await rt.request(
-        source=make_id(), target_id=team.id,
-        topic=f'entity:team:{team.id}:text',
-        data='write a tutorial to output.md', timeout=300,
-    )
-    print(reply)
-    await team.stop()
-    await rt.shutdown()
-
-asyncio.run(main())
-```
-
-### Tools
-
-Tools are independent objects built with the `@tool` decorator, then mounted into a Runtime via `rt.registry.register(tool)`. Agent configs reference tools by name; the Runtime resolves them and runs calls inside the AgentLoop\&ToolHandler.
-
-```python
-from chatchat.tools.base import tool
-
-@tool(
-    name='add', description='add two numbers',
-    parameters={
-        'type': 'object',
-        'properties': {
-            'a': {'type': 'integer'},
-            'b': {'type': 'integer'},
-        },
-        'required': ['a', 'b'],
-    },
-)
-def add(a, b):
-    return a + b
-
-rt = Runtime()
-rt.registry.register(add)
-agent = create_agent(AgentConfig(
-    provider='agnes', model='agnes-2.5-flash',
-    instruction='You are a helpful assistant.',
-    tools=['add'],
-), runtime=rt)
-```
-
-### Skills
-
-Skills are directories containing a `SKILL.md`. Their instruction block is injected into the agent's system prompt.
-
-```python
-agent = create_agent(AgentConfig(
-    name='skilled',
-    provider='agnes', model='agnes-2.5-flash',
-    instruction='You are a helpful assistant.',
-    skills=['/path/to/skill_dir'],
-))
-```
-
-## Architecture
-
-* **Runtime** — one self-contained environment per application: message router, tool table (`registry`), tool executor and lifecycle. Every agent/team must be created with an explicit Runtime; there is no global default.
-
-* **Agent** — wraps an LLM client, a tool set, and the AgentLoop (streaming, tool-call accumulation, lifecycle hooks `start`/`step`/`end`/`error`).
-
-* **Team** — an Agent with management tools; `leader_tools` configure the leader's tools, `agent_tools` configure tools given to created sub-agents.
-
-* **Client / providers** — async streaming LLM clients (aiohttp) for `agnes`, `deepseek`, `openrouter`, `google`, `alibaba`, `baidu`, `zhipu`, `tencent`, `xunfei`, etc.
-
-Observe runtime activity with `rt.enable_logging('agent', 'team', 'client', 'tool')`. Lifecycle topics: `lifecycle:agent:start/step/end/error`, `lifecycle:client:start/step/end/error`, `lifecycle:tool:start/step/end/error`. Every entity is a persistent message loop: incoming messages are handled one pass at a time and the entity never exits on its own (only via runtime shutdown or `task_stop`). Cross-entity communication is fire-and-forget via the single `send_message` tool; the sender id is carried by the event `source`, so workers reply by calling `send_message` back. Users participate as mailbox entities (see `chatchat/agents/user.py`).
-
-## Configuration
-
+### Chat in the Terminal
 ```shell
+$ chatchat run baidu ernie-lite-8k
+user> http://github.com/JiauZhang/chatchat 这个网址是干啥的？
+assistant> 这个网址 <http://github.com/JiauZhang/chatchat> 是一个指向GitHub上的一个开源项目的链接。
+
+"chatchat" 看起来像是一个项目名称或别名，由 "JiauZhang" 创建并托管在GitHub上。
+GitHub是一个流行的代码托管和协作平台，允许开发者存储、分享和协作开发代码。
+
+要了解这个网址具体是干什么的，你可以访问该链接并查看项目详情。
+通常，项目页面会包含项目的描述、代码、文档、问题跟踪等。通过查看这些信息，
+你可以了解该项目的目的、功能、使用方法等。
+
+请注意，由于这是一个开源项目，其具体内容和用途可能因项目而异。
+如果你对特定项目或其用途有更多疑问，建议直接访问GitHub上的项目页面或查看相关文档和说明。
+user> /exit
+
+$ chatchat run google gemini-2.0-flash --proxy YOUR_PROXY
+user> Introduce yourself briefly.
+assistant> Hello! I am a large language model, trained by Google.
+I am designed to provide information and complete tasks based on the prompts I receive.
+I can generate text, translate languages, write different kinds of creative content,
+and answer your questions in an informative way. How can I help you today?
+user> /exit
+```
+
+### Usage
+```shell
+# set YOUR secret keys
+# tencent
+chatchat config tencent.api_key=YOUR_API_KEY
+# baidu
+chatchat config baidu.api_key=YOUR_API_KEY
+# list info of all supported providers
 chatchat config --list
-chatchat config <provider>.api_key=YOUR_API_KEY
-chatchat run --provider agnes --model agnes-2.5-flash --thinking
 ```
+> Refer to [\[examples\]](./examples)
 
-Rate limits are configured per-provider on the client config (no global
-registry). The shared aiohttp session is global and managed by the runtime via
-`init_transport()` / `close_transport()`.
-
-```python
-from chatchat.core.rate_limiter import RateLimit
-from chatchat.providers.client import ClientConfig
-
-config = ClientConfig(
-    provider='agnes', model='agnes-2.5-flash', name='my-client',
-    rate_limit=RateLimit(rpm=20, tpm=0, max_concurrency=0),
-)
-```
-
-## Examples
-
-See [examples](./examples) for complete usage:
-
-* `agent.py` — Interactive terminal chat with tool calling
-
-* `team.py` — Autonomous dice knockout: the leader spawns players and runs the bracket itself using create\_agent / send\_message / task\_stop
-
-* `tool.py` — Raw client with tool calling
-
-* `client.py` — Raw LLM client streaming usage
-
-* `state.py` — Agent state serialization and restoration
-
-* `interact.py` — Interactive tool confirmation
-
-* `progress.py` — Streaming progress with custom tools
-
-## Sponsor
-
-| 公众号    | <br />    |
-| ------ | --------- |
-| AliPay | WeChatPay |
-| <br /> | <br />    |
-| <br /> | <br />    |
-
+### Sponsor
+<table align="center">
+    <thead>
+        <tr>
+            <th colspan="2">公众号</th>
+        </tr>
+    </thead>
+    <tbody align="center" valign="center">
+        <tr>
+            <td colspan="2"><img src="https://jiauzhang.github.io/ghstatic/images/ofa_m.png" style="height: 196px" alt="AliPay.png"></td>
+        </tr>
+    </tbody>
+    <thead>
+        <tr>
+            <th>AliPay</th>
+            <th>WeChatPay</th>
+        </tr>
+    </thead>
+    <tbody align="center" valign="center">
+        <tr>
+            <td><img src="https://jiauzhang.github.io/AliPay.png" style="width: 196px; height: 196px" alt="AliPay.png"></td>
+            <td><img src="https://jiauzhang.github.io/WeChatPay.png" style="width: 196px; height: 196px" alt="WeChatPay.png"></td>
+        </tr>
+    </tbody>
+</table>

@@ -17,20 +17,22 @@ classifiers = [
 keywords = ['Artificial Intelligence']
 requires-python = ">=3.10"
 dependencies = [
-    'conippets>=0.1.16',
-    'aiohttp>=3.9.0',
+    'conippets>=0.1.14',
+    'aiohttp>=3.9',
     'PyYAML>=6.0.3',
 ]
-
-[tool.pytest.ini_options]
-asyncio_mode = "auto"
-timeout = 15
 
 [project.urls]
 Homepage = "https://github.com/jiauzhang/chatchat"
 
 [project.scripts]
 chatchat = "chatchat.__main__:main"
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [tool.hatch.version]
 path = "chatchat/version.py"
