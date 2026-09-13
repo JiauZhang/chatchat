@@ -239,6 +239,17 @@ class Team:
             pass
         return last_assistant(self.lead)
 
+    def _create_agent_description(self) -> str:
+        text = ('Run a one-off isolated sub-agent (AgentDefinition '
+                'by subagent_type, default general-purpose): spawns a '
+                'fresh agent, runs synchronously, returns its final '
+                'answer, then is reclaimed. Not a teammate.')
+        lines = [f'- {agent_type}: {when_to_use}'
+                 for agent_type, when_to_use in self.agent_defs.describe()]
+        if lines:
+            text += '\nAvailable subagent types:\n' + '\n'.join(lines)
+        return text
+
     def tool_schemas(self) -> list[dict]:
         return [
             {'name': 'send_message',
@@ -250,10 +261,7 @@ class Team:
                                              'message': {'type': 'string'}},
                               'required': ['to', 'message']}},
             {'name': 'create_agent',
-             'description': 'Run a one-off isolated sub-agent (AgentDefinition '
-                            'by subagent_type, default general-purpose): spawns a '
-                            'fresh agent, runs synchronously, returns its final '
-                            'answer, then is reclaimed. Not a teammate.',
+             'description': self._create_agent_description(),
              'input_schema': {'type': 'object',
                               'properties': {'prompt': {'type': 'string'},
                                              'instruction': {'type': 'string'},

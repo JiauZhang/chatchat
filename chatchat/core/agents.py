@@ -15,6 +15,7 @@ class AgentDefinition:
     model: str | None = None
     default: bool = False
     addenda: str = ''
+    description: str = ''
 
     def tool_schemas(self) -> list[dict]:
         return [{'name': t.name,
@@ -107,3 +108,9 @@ class AgentRegistry:
 
     def types(self) -> list[str]:
         return sorted(self._defs)
+
+    def describe(self) -> list[tuple[str, str]]:
+        """(agent_type, when-to-use) 列表，供 create_agent 工具描述呈现
+        （claude 的 formatAgentLine：主模型据此选择合适的 subagent）。"""
+        return [(d.agent_type, d.description) for d in self._defs.values()
+                if d.description]
