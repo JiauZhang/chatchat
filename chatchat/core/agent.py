@@ -45,6 +45,7 @@ class Agent:
         self._pending = 0
         self._done = 0
         self._attachments: list[str] = []
+        self._stop_hook_active = False
         self._work_abort = AbortSignal()
         self._in_tool: str | None = None
         self.task: Task | None = None
@@ -165,13 +166,29 @@ class Agent:
                     await self.team.hooks.execute_stop_failure_hooks(self, e)
             finally:
                 self.busy = False
-                self._done += 1
+                if self._internal:
+                    self._done += 1
                 self._set_idle()
             self._emit_state()
             if not self._internal:
-                await self.team.hooks.execute_stop_hooks(self)
+                # 对齐 claude：Stop hook 可阻断——反馈重新排队为本轮延续，
+                # _done 不推进（外部 wait/query 继续等待）；防失控由 hook
+                # 通过 stop_hook_active 自行判断。
+                stop_res = await self.team.hooks.execute_stop_hooks(
+                    self, stop_hook_active=self._stop_hook_active)
+                if stop_res.blocking_error is not None:
+                    from chatchat.hooks.output import get_stop_hook_message
+                    self._stop_hook_active = True
+                    self._queue.put_nowait(get_stop_hook_message(
+                        stop_res.blocking_error))
+                    continue
+                self._stop_hook_active = False
+                if not self.ctx.leader:
+                    await self.team.hooks.execute_teammate_idle_hooks(self)
                 await self.team.notify_idle(self, reason=reason,
                                             failure_reason=error or None)
+            self._done += 1
+            self._set_idle()
 
     def _emit_progress(self, msg: dict, usage: dict | None = None):
         if not self._internal:

@@ -247,9 +247,11 @@ class HookManager:
                               input={'prompt': prompt}, agent=agent,
                               blocking=True)
 
-    async def execute_stop_hooks(self, agent):
-        return await self.run('Stop', input={'stop_hook_active': True},
-                              agent=agent)
+    async def execute_stop_hooks(self, agent, stop_hook_active: bool = False,
+                                 blocking: bool = True):
+        return await self.run('Stop',
+                              input={'stop_hook_active': stop_hook_active},
+                              agent=agent, blocking=blocking)
 
     async def execute_stop_failure_hooks(self, agent, error):
         return await self.run('StopFailure', input={'error': str(error)},

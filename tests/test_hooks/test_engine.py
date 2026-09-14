@@ -153,6 +153,50 @@ def test_user_prompt_submit_block_reaches_turn(team):
     asyncio.run(main())
 
 
+def test_stop_hook_blocking_feedback_continues_turn(team):
+    """对齐 claude：Stop hook 阻断时反馈回流为新 turn，turn 不结束。"""
+    calls = []
+
+    async def respond(messages, tools=None, *, stream_cb=None):
+        texts = [c for c in (m.get('content') for m in messages)
+                 if isinstance(c, str)]
+        if any('Stop hook feedback' in c for c in texts):
+            return 'after feedback'
+        calls.append(1)
+        return 'initial'
+
+    async def main():
+        t = team(handler=respond)
+        # claude 协议：hook 通过 stop_hook_active 防止无限续聊
+        t.hooks.on('Stop', fn=lambda inp: False if not inp.get('stop_hook_active')
+                   else True)
+        return await t.query('go'), len(calls)
+
+    ans, initial_calls = asyncio.run(main())
+    assert ans == 'after feedback'
+    assert initial_calls == 1
+
+
+def test_teammate_idle_hook_fires_when_teammate_turn_ends(team):
+    seen = []
+
+    async def respond(messages, tools=None, *, stream_cb=None):
+        if any(isinstance(m.get('content'), list) for m in messages):
+            return 'done'
+        return [ToolUse('create_agent', {'prompt': 'x', 'name': 'worker'}, 't1')]
+
+    async def main():
+        t = team(handler=respond)
+        t.hooks.on('TeammateIdle', fn=lambda inp: seen.append(1) or True)
+        await t.query('go')
+        teammate = t.agents.get(t.agent_id('worker'))
+        if teammate is not None:
+            await teammate.wait_idle(3.0)
+        return seen
+
+    assert asyncio.run(main())
+
+
 def test_pre_tool_block_reaches_agent_as_tool_result(team):
     async def respond(messages, tools):
         if any(isinstance(m.get('content'), list) for m in messages):

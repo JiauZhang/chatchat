@@ -41,10 +41,14 @@ async def create_agent(team, agent, input: dict) -> str:
         # 需要 teams 门开启（我们是 --use-team 的 multi_agent，team 上下文天然
         # 存在）且传了 name；单 agent 模式下 name 被静默降级为一次性（claude
         # 同样不报错）。roster 是平的：teammate 身份不会再 spawn teammate。
+        if agent is not None and not agent.ctx.leader:
+            return ('Error: Teammates cannot spawn other teammates — '
+                    'the team roster is flat.')
         teammate = team.create_agent(
             str(name), instruction=cfg, depth=getattr(agent, 'depth', 0) + 1)
         team.parents[teammate.agent_id] = agent.agent_id
         team.children.setdefault(agent.agent_id, set()).add(teammate.agent_id)
+        teammate.submit(prompt)   # claude：初始指令经 mailbox 投递给 teammate
         return (f'Teammate "{name}" spawned and idle. Assign work with '
                 f'send_message (to: "{name}"); stop it with task_stop '
                 f'(agent_id: {teammate.agent_id}).')

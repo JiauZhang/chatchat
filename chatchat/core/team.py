@@ -85,11 +85,13 @@ class Team:
     async def maybe_compact(self, messages: list[dict]) -> list[dict]:
         if self._compact_fn is None or _msgs_chars(messages) < self._compact_threshold:
             return messages
+        await self.hooks.execute_pre_compact_hooks()
         result = self._compact_fn(messages)
         if asyncio.iscoroutine(result):
             result = await result
         emit('agent.compact', agent='',
              before=len(messages), after=len(result or []))
+        await self.hooks.execute_post_compact_hooks()
         return list(result) if result else messages
 
     def _client_for(self, instruction: str, thinking: bool | None = None):
