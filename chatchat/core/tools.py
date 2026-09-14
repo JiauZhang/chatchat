@@ -36,11 +36,11 @@ async def create_agent(team, agent, input: dict) -> str:
         'You are an autonomous sub-agent. Complete the task and give your '
         'final answer.')
     name = input.get('name')
-    if name:
-        # claude 语义：带 name = 持久 teammate（长驻、有 mailbox、可
-        # send_message/task_stop）；不带 name = 一次性 subagent。
-        if not getattr(team, 'multi_agent', True):
-            return 'Error: named teammates require team mode (--use-team).'
+    if name and getattr(team, 'multi_agent', True):
+        # claude 判定（AgentTool.tsx `if (teamName && name)`）：持久 teammate
+        # 需要 teams 门开启（我们是 --use-team 的 multi_agent，team 上下文天然
+        # 存在）且传了 name；单 agent 模式下 name 被静默降级为一次性（claude
+        # 同样不报错）。roster 是平的：teammate 身份不会再 spawn teammate。
         teammate = team.create_agent(
             str(name), instruction=cfg, depth=getattr(agent, 'depth', 0) + 1)
         team.parents[teammate.agent_id] = agent.agent_id

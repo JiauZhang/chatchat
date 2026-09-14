@@ -276,11 +276,18 @@ def test_create_agent_tool_name_spawns_persistent_teammate():
             # 一次性路径：不带 name，返回最终答案，不留持久 agent
             one_shot = await team.execute_tool(
                 'create_agent', {'prompt': 'quick'}, lead)
-            return persistent, one_shot
+            # claude：单 agent 模式下 name 被静默降级为一次性，不报错
+            team_single = Team(
+                'm3', client_factory=lambda inst: MockClient(handler=respond),
+                multi_agent=False)
+            single_out = await team_single.execute_tool(
+                'create_agent', {'prompt': 'quick', 'name': 'w'}, team_single.lead)
+            return persistent, one_shot, single_out
         finally:
             if teammate is not None:
                 await team.stop_agent(teammate)
 
-    persistent, one_shot = asyncio.run(main())
+    persistent, one_shot, single_out = asyncio.run(main())
     assert persistent is True
     assert one_shot == 'done'
+    assert single_out == 'done'   # name 静默忽略，仍是一次性
