@@ -101,9 +101,14 @@ class Agent:
         self._queue.put_nowait(text)
 
     def enqueue_attachment(self, text: str):
-        """排入待注入附件（如后台任务完成通知）。附件不唤醒 agent，
-        在下一次模型调用前作为 user 消息注入（claude 的 attachment 语义）。"""
+        """排入待注入附件（如后台任务完成通知）。对齐 claude：通知入队为
+        command，可驱动 turn——闲置 agent 被唤醒立即处理；忙碌时在本轮
+        后续模型调用前注入。"""
         self._attachments.append(text)
+        if not self.busy and self._queue.empty() and self._pending == self._done:
+            self._pending += 1
+            self._clear_idle()
+            self._queue.put_nowait('')
 
     def _drain_attachments(self):
         if not self._attachments:
@@ -178,10 +183,12 @@ class Agent:
 
     async def _full_turn(self, user_block: str) -> str:
         self._work_abort = AbortSignal()
-        self.messages.append({'role': 'user', 'content': user_block})
+        if user_block:
+            self.messages.append({'role': 'user', 'content': user_block})
         if not self._internal:
             await self.team.hooks.execute_instructions_loaded_hooks(
                 self, self.instruction)
+        if not self._internal and user_block:
             pre = await self.team.hooks.execute_user_prompt_submit_hooks(
                 self, user_block)
             if pre.blocking_error is not None:

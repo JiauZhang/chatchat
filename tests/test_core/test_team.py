@@ -187,6 +187,27 @@ def test_inbox_poller_reports_enqueue_to_callback():
     assert queued >= 1
 
 
+def test_attachment_wakes_idle_agent():
+    """对齐 claude：通知入队为 command 可驱动 turn——闲置 agent 被唤醒，
+    附件注入模型上下文并得到回应。"""
+    seen = []
+
+    async def respond(messages, tools=None, *, stream_cb=None):
+        seen.append([m for m in messages
+                     if 'task-notification' in str(m.get('content'))])
+        return 'ack'
+
+    async def main():
+        team = Team('wake', client_factory=lambda inst: MockClient(handler=respond))
+        lead = team.lead
+        lead.enqueue_attachment('<task-notification>b9</task-notification>')
+        await lead.wait_idle(3.0)
+        return seen
+
+    seen = asyncio.run(main())
+    assert seen and seen[-1], '附件必须被注入模型上下文'
+
+
 def _notification_texts(messages):
     return [m['content'] for m in messages if m['role'] == 'user'
             and isinstance(m.get('content'), str)
@@ -194,7 +215,7 @@ def _notification_texts(messages):
 
 
 def test_attachment_injected_before_next_model_call():
-    """turn 开始前入队的附件必须在第一次模型调用前注入，且只注入一次。"""
+    """闲置时入队的附件唤醒 agent，作为独立 turn 注入且只注入一次。"""
     payloads = []
 
     async def respond(messages, tools=None, *, stream_cb=None):
@@ -204,11 +225,15 @@ def test_attachment_injected_before_next_model_call():
     async def main():
         team = Team('att', client_factory=lambda inst: MockClient(handler=respond))
         team.lead.enqueue_attachment('<task-notification>b1</task-notification>')
-        return await team.query('go')
+        await team.lead.wait_idle(3.0)
+        out = await team.query('go')
+        await team.lead.wait_idle(3.0)
+        return out
 
     asyncio.run(main())
-    assert len(payloads) == 1
-    assert len(payloads[0]) == 1
+    assert len(payloads) >= 2
+    assert len(payloads[0]) == 1        # 唤醒轮：附件注入
+    assert payloads[-1] == []           # 后续用户轮不再重复注入
 
 
 def test_attachment_enqueued_mid_turn_reaches_next_model_call():
