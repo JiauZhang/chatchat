@@ -234,3 +234,20 @@ def test_attachment_enqueued_mid_turn_reaches_next_model_call():
     assert len(payloads[0]) == 0       # 第一轮调用时还没有
     assert len(payloads[1]) == 1       # 工具结果后、第二次调用前已注入
     assert all(len(p) == 1 for p in payloads[1:])   # 不重复注入
+
+
+def test_tool_schemas_differ_by_multi_agent():
+    """对齐 claude：协作工具（send_message/task_stop）只在 multi_agent=True 的
+    team 出现；一次性 subagent（create_agent）两种模式都有（claude 常态能力）。"""
+    async def names(**kw):
+        team = Team('m', client_factory=lambda inst: MockClient(handler=_ok), **kw)
+        return {t['name'] for t in team.tool_schemas()}
+
+    async def _ok(messages, tools=None, *, stream_cb=None):
+        return 'ok'
+
+    single = asyncio.run(names(multi_agent=False))
+    multi = asyncio.run(names())
+    assert 'create_agent' in single and 'create_agent' in multi
+    assert 'send_message' not in single and 'task_stop' not in single
+    assert {'send_message', 'task_stop'} <= multi

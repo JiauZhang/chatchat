@@ -34,8 +34,13 @@ class Team:
                  client_factory=None, max_steps: int = 20,
                  lead_instruction: str = '', model_timeout: float = 120.0,
                  provider: str = None, model: str = None,
-                 thinking: bool = True, tools: list = None, **client_kw):
+                 thinking: bool = True, tools: list = None,
+                 multi_agent: bool = True, **client_kw):
         self.name = name
+        # 对齐 claude：协作工具（send_message/task_stop）只在 multi_agent 的
+        # team 上存在；create_agent（一次性 subagent，claude 的 Agent 工具）
+        # 是常态能力，两种模式都有。
+        self.multi_agent = multi_agent
         self._client = client
         self._max_steps = max_steps
         self._model_timeout = model_timeout
@@ -251,15 +256,7 @@ class Team:
         return text
 
     def tool_schemas(self) -> list[dict]:
-        return [
-            {'name': 'send_message',
-             'description': 'Send a message to a teammate by name (or "*" to '
-                            'broadcast). Messages are delivered to their mailbox '
-                            'and injected on their next idle turn.',
-             'input_schema': {'type': 'object',
-                              'properties': {'to': {'type': 'string'},
-                                             'message': {'type': 'string'}},
-                              'required': ['to', 'message']}},
+        team_tools = [
             {'name': 'create_agent',
              'description': self._create_agent_description(),
              'input_schema': {'type': 'object',
@@ -267,14 +264,26 @@ class Team:
                                              'instruction': {'type': 'string'},
                                              'subagent_type': {'type': 'string'}},
                               'required': ['prompt']}},
-            {'name': 'task_stop',
-             'description': 'Permanently stop one of your own sub-agents.',
-             'input_schema': {'type': 'object',
-                              'properties': {'agent_id': {'type': 'string'}},
-                              'required': ['agent_id']}},
-        ] + [{'name': t.name, 'description': t.description,
-              'input_schema': t.parameters or {}}
-             for t in self._injected_tools]
+        ]
+        if self.multi_agent:
+            team_tools += [
+                {'name': 'send_message',
+                 'description': 'Send a message to a teammate by name (or "*" to '
+                                'broadcast). Messages are delivered to their mailbox '
+                                'and injected on their next idle turn.',
+                 'input_schema': {'type': 'object',
+                                  'properties': {'to': {'type': 'string'},
+                                                 'message': {'type': 'string'}},
+                                  'required': ['to', 'message']}},
+                {'name': 'task_stop',
+                 'description': 'Permanently stop one of your own sub-agents.',
+                 'input_schema': {'type': 'object',
+                                  'properties': {'agent_id': {'type': 'string'}},
+                                  'required': ['agent_id']}},
+            ]
+        return team_tools + [{'name': t.name, 'description': t.description,
+                              'input_schema': t.parameters or {}}
+                             for t in self._injected_tools]
 
     async def execute_tool(self, name: str, input: dict, agent: Agent,
                            tool_use_id: str = '') -> str:
