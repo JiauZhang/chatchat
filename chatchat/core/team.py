@@ -37,6 +37,7 @@ class Team:
                  lead_instruction: str = '', model_timeout: float = 120.0,
                  provider: str = None, model: str = None,
                  thinking: bool = True, tools: list = None,
+                 compact_tokens: int = 160_000,
                  mailbox_dir=None,
                  multi_agent: bool = True, **client_kw):
         self.name = name
@@ -61,7 +62,8 @@ class Team:
         self._counter = 0
         self._session_started = False
         self._compact_fn = None
-        self._compact_threshold = 50_000
+        self._compact_threshold = compact_tokens
+        self._compact_fn = self._builtin_compact
         self.agent_defs = AgentRegistry()
         # 默认 general-purpose 子代理继承团队工具（claude：general-purpose
         # 拥有全部工具）；否则一次性子代理工具池为空，什么都干不了。
@@ -87,8 +89,28 @@ class Team:
         self._compact_fn = fn
         self._compact_threshold = threshold
 
-    async def maybe_compact(self, messages: list[dict]) -> list[dict]:
-        if self._compact_fn is None or _msgs_chars(messages) < self._compact_threshold:
+    async def compact(self, messages: list[dict], force: bool = False) -> list[dict]:
+        return await self.maybe_compact(messages, force=force)
+
+    async def _builtin_compact(self, messages: list[dict]) -> list[dict]:
+        """claude auto-compact 的最小等价：摘要中间段，保留头部与近期消息。"""
+        keep_recent = 8
+        if len(messages) <= keep_recent + 2:
+            return messages
+        head, tail = messages[:2], messages[-keep_recent:]
+        middle = messages[2:-keep_recent]
+        client = self._client_for('Summarize the conversation so far.')
+        text = await client.respond(middle)
+        if not isinstance(text, str) or not text.strip():
+            return messages
+        marker = {'role': 'user',
+                  'content': f'[conversation summary]\n{text}'}
+        return head + [marker] + tail
+
+    async def maybe_compact(self, messages: list[dict], force: bool = False) -> list[dict]:
+        # 对齐 claude：按 token 估算阈值（字符/4），且 auto-compact 默认开启
+        if not force and (self._compact_fn is None
+                          or -(-_msgs_chars(messages) // 4) < self._compact_threshold):
             return messages
         await self.hooks.execute_pre_compact_hooks()
         result = self._compact_fn(messages)

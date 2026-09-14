@@ -78,6 +78,34 @@ def test_model_call_timeout_degrades_gracefully():
                    for m in messages if isinstance(m, dict))
 
 
+def test_default_auto_compaction_summarizes_middle():
+    """C13：auto-compact 默认开启；C12：按 token 估算阈值。"""
+    calls = []
+
+    async def respond(messages, tools=None, *, stream_cb=None):
+        calls.append(len(messages))
+        if len(messages) > 3:
+            return 'conversation summary text'
+        return 'ok'
+
+    def factory(instruction):
+        return MockClient(handler=respond)
+
+    async def main():
+        team = Team('ac', client_factory=factory, lead_instruction='lead',
+                    compact_tokens=1)
+        for i in range(14):
+            team.lead.messages.append({'role': 'user', 'content': f'm{i}'})
+        return await team.maybe_compact(list(team.lead.messages))
+
+    result = asyncio.run(main())
+    assert any('conversation summary' in str(m.get('content'))
+               for m in result)
+    # 头部与近期消息保留
+    assert result[0]['content'] == 'm0'
+    assert 'm13' in str(result[-1]['content'])
+
+
 def test_pluggable_compact_strategy():
     compacted = []
 
