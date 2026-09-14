@@ -251,3 +251,36 @@ def test_tool_schemas_differ_by_multi_agent():
     assert 'create_agent' in single and 'create_agent' in multi
     assert 'send_message' not in single and 'task_stop' not in single
     assert {'send_message', 'task_stop'} <= multi
+
+
+def test_create_agent_tool_name_spawns_persistent_teammate():
+    """对齐 claude：create_agent 带 name = 持久 teammate（登记进 team、
+    mailbox 存活、可 send_message/task_stop）；不带 name = 一次性。"""
+    async def respond(messages, tools=None, *, stream_cb=None):
+        if any(isinstance(m.get('content'), list) for m in messages):
+            return 'done'
+        return [ToolUse('create_agent',
+                        {'prompt': 'do work', 'name': 'worker'}, 't1')]
+
+    async def main():
+        team = Team('m2', client_factory=lambda inst: MockClient(handler=respond))
+        lead = team.lead
+        out = await team.execute_tool(
+            'create_agent', {'prompt': 'do work', 'name': 'worker'}, lead)
+        teammate_id = team.agent_id('worker')
+        teammate = team.agents.get(teammate_id)
+        try:
+            persistent = (teammate is not None
+                          and teammate_id in team.children.get(lead.agent_id, set())
+                          and 'send_message' in out)
+            # 一次性路径：不带 name，返回最终答案，不留持久 agent
+            one_shot = await team.execute_tool(
+                'create_agent', {'prompt': 'quick'}, lead)
+            return persistent, one_shot
+        finally:
+            if teammate is not None:
+                await team.stop_agent(teammate)
+
+    persistent, one_shot = asyncio.run(main())
+    assert persistent is True
+    assert one_shot == 'done'

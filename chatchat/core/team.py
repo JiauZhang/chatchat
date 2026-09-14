@@ -262,7 +262,15 @@ class Team:
              'input_schema': {'type': 'object',
                               'properties': {'prompt': {'type': 'string'},
                                              'instruction': {'type': 'string'},
-                                             'subagent_type': {'type': 'string'}},
+                                             'subagent_type': {'type': 'string'},
+                                             'name': {'type': 'string',
+                                                      'description': 'Optional '
+                                                      'name for a persistent '
+                                                      'teammate (team mode): '
+                                                      'stays alive with a '
+                                                      'mailbox; message it via '
+                                                      'send_message. Omit for '
+                                                      'a one-off sub-agent.'}},
                               'required': ['prompt']}},
         ]
         if self.multi_agent:

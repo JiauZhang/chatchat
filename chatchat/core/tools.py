@@ -35,6 +35,19 @@ async def create_agent(team, agent, input: dict) -> str:
     cfg = input.get('instruction') or (
         'You are an autonomous sub-agent. Complete the task and give your '
         'final answer.')
+    name = input.get('name')
+    if name:
+        # claude 语义：带 name = 持久 teammate（长驻、有 mailbox、可
+        # send_message/task_stop）；不带 name = 一次性 subagent。
+        if not getattr(team, 'multi_agent', True):
+            return 'Error: named teammates require team mode (--use-team).'
+        teammate = team.create_agent(
+            str(name), instruction=cfg, depth=getattr(agent, 'depth', 0) + 1)
+        team.parents[teammate.agent_id] = agent.agent_id
+        team.children.setdefault(agent.agent_id, set()).add(teammate.agent_id)
+        return (f'Teammate "{name}" spawned and idle. Assign work with '
+                f'send_message (to: "{name}"); stop it with task_stop '
+                f'(agent_id: {teammate.agent_id}).')
     if agent is not None and not agent._internal:
         await team.hooks.execute_task_created_hooks(
             agent, f'{agent.name}:sub', '', agent.name)
