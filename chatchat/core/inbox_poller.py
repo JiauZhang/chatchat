@@ -5,7 +5,7 @@ import asyncio
 from chatchat.core.mailbox import (Mailbox, Message, format_teammate_batch,
                                    is_structured_protocol_message)
 
-DEFAULT_INTERVAL = 1.0
+DEFAULT_INTERVAL = 0.5
 
 
 class InboxPoller:
@@ -69,4 +69,6 @@ class InboxPoller:
         handler = self.handlers.get(ptype)
         if handler is not None:
             asyncio.get_running_loop().call_soon(handler, m)
-        return True
+            return True
+        # 无 handler 的协议消息按 claude 语义照常投递进上下文，不静默吞掉
+        return False

@@ -17,7 +17,8 @@ class Agent:
     def __init__(self, agent_id, name, team, client, ctx, *,
                  instruction: str = '',
                  internal: bool = False, depth: int = 0,
-                 tool_exec=None, model_timeout: float = 120.0):
+                 tool_exec=None, model_timeout: float = 120.0,
+                 inbox=None):
         self.agent_id = agent_id
         self.name = name
         self.team = team
@@ -30,7 +31,7 @@ class Agent:
         self.tool_exec = tool_exec if tool_exec is not None else team
 
         self.total_usage = Usage()
-        self.inbox = Mailbox()
+        self.inbox = inbox if inbox is not None else Mailbox()
         self.messages: list[dict] = []
         self.busy = False
         self._queue: asyncio.Queue[str] = asyncio.Queue()

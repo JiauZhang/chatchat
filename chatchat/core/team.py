@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+from pathlib import Path
 
 import chatchat.core.tools as _tools
 from chatchat.core.abort import AbortSignal
 from chatchat.core.agent import Agent
 from chatchat.core.agents import GENERAL_PURPOSE, AgentDefinition, AgentRegistry
+from chatchat.core.mailbox import FileMailbox
 from chatchat.core.context import AgentContext
 from chatchat.core.mailbox import idle_notification as _idle_msg
 from chatchat.hooks.events import AGENT_PROGRESS, emit
@@ -35,6 +37,7 @@ class Team:
                  lead_instruction: str = '', model_timeout: float = 120.0,
                  provider: str = None, model: str = None,
                  thinking: bool = True, tools: list = None,
+                 mailbox_dir=None,
                  multi_agent: bool = True, **client_kw):
         self.name = name
         # 对齐 claude：协作工具（send_message/task_stop）只在 multi_agent 的
@@ -48,6 +51,8 @@ class Team:
         self._thinking = thinking
         self._client_kw = client_kw
         self._injected_tools = list(tools or [])
+        self._mailbox_dir = (Path(mailbox_dir) / self.name / 'inboxes'
+                             if mailbox_dir else None)
         self._factory = client_factory
         self.hooks = HookManager(self, enabled=hooks)
         self.agents: dict[str, Agent] = {}
@@ -120,8 +125,11 @@ class Team:
         abort = AbortSignal()
         ctx = AgentContext(agent_id=agent_id, agent_name=name,
                            team_name=self.name, abort=abort, leader=leader)
+        inbox = None
+        if self._mailbox_dir is not None:
+            inbox = FileMailbox(self._mailbox_dir / f'{name}.json')
         agent = Agent(agent_id, name, self, self._client_for(instruction),
-                      ctx, instruction=instruction,
+                      ctx, instruction=instruction, inbox=inbox,
                       depth=depth, model_timeout=self._model_timeout)
         self.agents[agent_id] = agent
         agent.start()
