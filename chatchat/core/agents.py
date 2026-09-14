@@ -89,11 +89,12 @@ class AgentRegistry:
         return defn
 
     def define(self, agent_type: str, *, system_prompt: str = '', tools: list = None,
-               model: str | None = None, addenda: str = '', default: bool = False) \
-            -> AgentDefinition:
+               model: str | None = None, addenda: str = '', default: bool = False,
+               description: str = '') -> AgentDefinition:
         return self.register(AgentDefinition(
             agent_type, system_prompt=system_prompt, tools=list(tools or []),
-            model=model, addenda=addenda, default=default))
+            model=model, addenda=addenda, default=default,
+            description=description))
 
     def get(self, agent_type: str | None) -> AgentDefinition:
         if agent_type:

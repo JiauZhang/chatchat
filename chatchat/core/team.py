@@ -6,7 +6,7 @@ import inspect
 import chatchat.core.tools as _tools
 from chatchat.core.abort import AbortSignal
 from chatchat.core.agent import Agent
-from chatchat.core.agents import AgentDefinition, AgentRegistry
+from chatchat.core.agents import GENERAL_PURPOSE, AgentDefinition, AgentRegistry
 from chatchat.core.context import AgentContext
 from chatchat.core.mailbox import idle_notification as _idle_msg
 from chatchat.hooks.events import AGENT_PROGRESS, emit
@@ -60,6 +60,13 @@ class Team:
         self._compact_fn = None
         self._compact_threshold = 50_000
         self.agent_defs = AgentRegistry()
+        # 默认 general-purpose 子代理继承团队工具（claude：general-purpose
+        # 拥有全部工具）；否则一次性子代理工具池为空，什么都干不了。
+        self.agent_defs.define(GENERAL_PURPOSE,
+                               tools=list(self._injected_tools), default=True,
+                               description='General-purpose agent that '
+                                           'inherits the team tools for '
+                                           'routine tasks')
         self.lead = self.create_agent(LEAD_NAME, instruction=lead_instruction,
                                       leader=True)
 

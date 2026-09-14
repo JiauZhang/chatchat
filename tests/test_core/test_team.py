@@ -253,6 +253,42 @@ def test_tool_schemas_differ_by_multi_agent():
     assert {'send_message', 'task_stop'} <= multi
 
 
+def test_general_purpose_subagent_inherits_team_tools():
+    """回归：默认 general-purpose 子代理必须继承团队工具（claude 语义），
+    否则一次性子代理工具池为空、什么都干不了（真机抓到）。"""
+    from chatchat.tool import tool as ctool
+
+    calls = []
+
+    @ctool(name='mytool', description='d',
+           parameters={'type': 'object', 'properties': {}})
+    def mytool():
+        calls.append(1)
+        return 'tool-ok'
+
+    async def respond(messages, tools=None, *, stream_cb=None):
+        if any(isinstance(m.get('content'), list) for m in messages):
+            return 'done'
+        if any(m.get('role') == 'user' and 'run-it' in str(m.get('content'))
+               for m in messages):
+            return [ToolUse('mytool', {}, 't2')]
+        return [ToolUse('create_agent', {'prompt': 'run-it'}, 't1')]
+
+    async def main():
+        team = Team('gp', client_factory=lambda inst: MockClient(handler=respond),
+                    tools=[mytool])
+        # 工具描述列出 general-purpose（lead 模型可据此选择/不再瞎编类型）
+        schema = next(t for t in team.tool_schemas()
+                      if t['name'] == 'create_agent')
+        assert 'general-purpose' in schema['description']
+        out = await team.query('spawn and run')
+        return out, len(calls)
+
+    out, calls = asyncio.run(main())
+    assert calls >= 1                       # 子代理真的执行了继承来的工具
+    assert out == 'done'
+
+
 def test_model_timeout_is_visible_and_query_never_returns_stale_text():
     """回归：模型调用超时的错误只进 messages 不 emit → 外壳一片空白；
     query 超时返回 last_assistant 会捞到上一轮的旧文（含上一轮的超时错误）。
