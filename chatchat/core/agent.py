@@ -246,6 +246,8 @@ class Agent:
             if resp is None:
                 msg = f'Error: model call timed out after {self.model_timeout}s'
                 self.messages.append({'role': 'assistant', 'content': msg})
+                # 必须可见：只 append 不 emit 会让外壳（TUI/headless）一片空白
+                emit(AGENT_WARN, agent=self.name, text=msg)
                 emit(AGENT_TURN_FINISHED, agent=self.name)
                 return msg
             self.total_usage.add(getattr(self.client, '_last_usage', None))

@@ -3,8 +3,8 @@ import asyncio
 from chatchat.client import MockClient, ToolUse
 from chatchat.core.inbox_poller import InboxPoller
 from chatchat.core.mailbox import Mailbox
-from chatchat.hooks.events import AGENT_TOOL_CALL, clear_runtime_sinks, \
-    register_runtime_handler
+from chatchat.hooks.events import AGENT_TOOL_CALL, AGENT_WARN, \
+    clear_runtime_sinks, register_runtime_handler
 from chatchat.team import Team
 
 LEAD = ('你是 team lead。把任务拆开用 send_message 发给 teammate 并等回信，'
@@ -251,6 +251,38 @@ def test_tool_schemas_differ_by_multi_agent():
     assert 'create_agent' in single and 'create_agent' in multi
     assert 'send_message' not in single and 'task_stop' not in single
     assert {'send_message', 'task_stop'} <= multi
+
+
+def test_model_timeout_is_visible_and_query_never_returns_stale_text():
+    """回归：模型调用超时的错误只进 messages 不 emit → 外壳一片空白；
+    query 超时返回 last_assistant 会捞到上一轮的旧文（含上一轮的超时错误）。
+    对齐：超时必须 AGENT_WARN 可见；query 只返回本轮切片内的助手文本。"""
+    events = []
+    register_runtime_handler(lambda ev: events.append(ev))
+
+    async def respond(messages, tools=None, *, stream_cb=None):
+        await asyncio.sleep(2)          # 远超 model_timeout
+        return 'late'
+
+    async def main():
+        team = Team('to', client_factory=lambda inst: MockClient(handler=respond),
+                    model_timeout=0.2)
+        # 第一轮：query 比模型调用先超时（0.05 < 0.2）→ 返回空串而非旧文
+        out1 = await team.query('first', timeout=0.05)
+        await team.lead.wait_idle(2.0)
+        # 第二轮：模型超时(0.2s)发生在 query 窗口(60s)内 → 错误文本可见
+        out2 = await team.query('second')
+        warns = [ev for ev in events if ev.kind == AGENT_WARN
+                 and 'timed out' in str(ev.data.get('text', ''))]
+        return out1, out2, len(warns)
+
+    try:
+        out1, out2, warn_count = asyncio.run(main())
+    finally:
+        clear_runtime_sinks()
+    assert out1 == ''                                   # 不捞旧文
+    assert 'timed out after 0.2s' in out2               # 本轮超时错误可见
+    assert warn_count >= 1                              # AGENT_WARN 已 emit
 
 
 def test_create_agent_tool_name_spawns_persistent_teammate():

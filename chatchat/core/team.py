@@ -238,11 +238,14 @@ class Team:
             await self.hooks.execute_setup_hooks()
             await self.hooks.execute_session_start_hooks()
         self.lead.submit(prompt)
+        start = len(self.lead.messages)
         try:
             await asyncio.wait_for(self.lead.wait_idle(), timeout)
         except asyncio.TimeoutError:
             pass
-        return last_assistant(self.lead)
+        # 只返回本轮切片内的助手文本：跨轮捞 last_assistant 会把上一轮的
+        # 旧回复（甚至上一轮的超时错误）当成本轮结果交给外壳渲染。
+        return last_assistant(self.lead, start=start)
 
     def _create_agent_description(self) -> str:
         text = ('Run a one-off isolated sub-agent (AgentDefinition '
@@ -364,8 +367,8 @@ class Team:
             asyncio.get_running_loop().create_task(agent.stop())
 
 
-def last_assistant(agent: Agent) -> str:
-    for m in reversed(agent.messages):
+def last_assistant(agent: Agent, *, start: int = 0) -> str:
+    for m in reversed(agent.messages[start:]):
         if not isinstance(m, dict):
             continue
         if m.get('role') == 'assistant' and isinstance(m.get('content'), str):
