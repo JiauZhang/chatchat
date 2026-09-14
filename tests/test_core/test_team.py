@@ -224,16 +224,21 @@ def test_attachment_injected_before_next_model_call():
 
     async def main():
         team = Team('att', client_factory=lambda inst: MockClient(handler=respond))
-        team.lead.enqueue_attachment('<task-notification>b1</task-notification>')
-        await team.lead.wait_idle(3.0)
-        out = await team.query('go')
-        await team.lead.wait_idle(3.0)
-        return out
+        lead = team.lead
+        lead.enqueue_attachment('<task-notification>b1</task-notification>')
+        await lead.wait_idle(3.0)
+        await team.query('go')
+        await lead.wait_idle(3.0)
+        # 附件只入队/注入一次：messages 里的通知消息不重复
+        count = sum(1 for m in lead.messages
+                    if isinstance(m, dict)
+                    and 'task-notification' in str(m.get('content')))
+        return count
 
-    asyncio.run(main())
+    count = asyncio.run(main())
     assert len(payloads) >= 2
     assert len(payloads[0]) == 1        # 唤醒轮：附件注入
-    assert payloads[-1] == []           # 后续用户轮不再重复注入
+    assert count == 1                   # 且仅注入一次
 
 
 def test_attachment_enqueued_mid_turn_reaches_next_model_call():
