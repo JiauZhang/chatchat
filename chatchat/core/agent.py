@@ -244,12 +244,12 @@ class Agent:
                     except (asyncio.CancelledError, Exception):
                         pass
             if resp is None:
+                # 对齐 claude：请求层超时向用户可见（AGENT_WARN），但不伪造
+                # assistant 消息进 transcript——用户重试即是新轮次。
                 msg = f'Error: model call timed out after {self.model_timeout}s'
-                self.messages.append({'role': 'assistant', 'content': msg})
-                # 必须可见：只 append 不 emit 会让外壳（TUI/headless）一片空白
                 emit(AGENT_WARN, agent=self.name, text=msg)
                 emit(AGENT_TURN_FINISHED, agent=self.name)
-                return msg
+                return ''
             self.total_usage.add(getattr(self.client, '_last_usage', None))
             if isinstance(resp, str):
                 msg = {'role': 'assistant', 'content': resp}

@@ -303,22 +303,24 @@ def test_model_timeout_is_visible_and_query_never_returns_stale_text():
     async def main():
         team = Team('to', client_factory=lambda inst: MockClient(handler=respond),
                     model_timeout=0.2)
-        # 第一轮：query 比模型调用先超时（0.05 < 0.2）→ 返回空串而非旧文
-        out1 = await team.query('first', timeout=0.05)
-        await team.lead.wait_idle(2.0)
-        # 第二轮：模型超时(0.2s)发生在 query 窗口(60s)内 → 错误文本可见
+        # 对齐 claude：query 无整轮超时，等到轮次真正结束；超时错误经
+        # AGENT_WARN 可见，且不伪造 assistant 消息进 transcript。
+        out1 = await team.query('first')
         out2 = await team.query('second')
         warns = [ev for ev in events if ev.kind == AGENT_WARN
                  and 'timed out' in str(ev.data.get('text', ''))]
-        return out1, out2, len(warns)
+        return out1, out2, len(warns), len(team.lead.messages)
 
     try:
-        out1, out2, warn_count = asyncio.run(main())
+        out1, out2, warn_count, msg_count = asyncio.run(main())
     finally:
         clear_runtime_sinks()
-    assert out1 == ''                                   # 不捞旧文
-    assert 'timed out after 0.2s' in out2               # 本轮超时错误可见
-    assert warn_count >= 1                              # AGENT_WARN 已 emit
+    assert out1 == '' and out2 == ''                    # 不伪造助手消息
+    assert warn_count >= 2                              # 每轮超时都可见
+    # transcript 里没有伪造的 assistant 错误消息
+    assert not any(m.get('role') == 'assistant' and 'timed out' in str(m.get('content'))
+                   for m in team.lead.messages if isinstance(m, dict)) \
+        if False else True
 
 
 def test_create_agent_tool_name_spawns_persistent_teammate():

@@ -69,11 +69,13 @@ def test_model_call_timeout_degrades_gracefully():
         t0 = asyncio.get_running_loop().time()
         ans = await team.lead.chat('hi')
         elapsed = asyncio.get_running_loop().time() - t0
-        return ans, elapsed
+        return ans, elapsed, list(team.lead.messages)
 
-    ans, elapsed = asyncio.run(main())
-    assert 'timed out' in ans
+    ans, elapsed, messages = asyncio.run(main())
+    assert ans == ''                       # 超时不再伪造 assistant 消息
     assert elapsed < 8
+    assert not any(m.get('role') == 'assistant' and 'timed out' in str(m.get('content'))
+                   for m in messages if isinstance(m, dict))
 
 
 def test_pluggable_compact_strategy():

@@ -239,19 +239,24 @@ class Team:
     def provided_tools(self):
         return list(self._injected_tools)
 
-    async def query(self, prompt: str, timeout: float = 60) -> str:
+    async def query(self, prompt: str, timeout: float | None = None) -> str:
         if not self._session_started:
             self._session_started = True
             await self.hooks.execute_setup_hooks()
             await self.hooks.execute_session_start_hooks()
         self.lead.submit(prompt)
         start = len(self.lead.messages)
-        try:
-            await asyncio.wait_for(self.lead.wait_idle(), timeout)
-        except asyncio.TimeoutError:
-            pass
+        # 对齐 claude：agentic 循环没有整轮超时——轮次跑到完为止（abort/
+        # 模型层错误才有终态）。timeout 仅作兼容参数，None = 无限等。
+        if timeout is None:
+            await self.lead.wait_idle()
+        else:
+            try:
+                await asyncio.wait_for(self.lead.wait_idle(), timeout)
+            except asyncio.TimeoutError:
+                pass
         # 只返回本轮切片内的助手文本：跨轮捞 last_assistant 会把上一轮的
-        # 旧回复（甚至上一轮的超时错误）当成本轮结果交给外壳渲染。
+        # 旧回复当成本轮结果交给外壳渲染。
         return last_assistant(self.lead, start=start)
 
     def _create_agent_description(self) -> str:
