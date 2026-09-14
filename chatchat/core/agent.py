@@ -15,7 +15,7 @@ from chatchat.hooks.events import (AGENT_PROGRESS, AGENT_REASON_START,
 
 class Agent:
     def __init__(self, agent_id, name, team, client, ctx, *,
-                 instruction: str = '', max_steps: int = 20,
+                 instruction: str = '',
                  internal: bool = False, depth: int = 0,
                  tool_exec=None, model_timeout: float = 120.0):
         self.agent_id = agent_id
@@ -24,7 +24,6 @@ class Agent:
         self.client = client
         self.ctx = ctx
         self.instruction = instruction
-        self.max_steps = max_steps
         self._internal = internal
         self.depth = depth
         self.model_timeout = model_timeout
@@ -213,7 +212,7 @@ class Agent:
 
         self.ctx.abort.check()
         self._work_abort.check()
-        for _ in range(self.max_steps):
+        while True:
             self.ctx.abort.check()
             self._work_abort.check()
             attachment = self._drain_attachments()
@@ -280,10 +279,6 @@ class Agent:
                                 'tool_use_id': tu.id, 'content': out})
             self._emit_progress({'role': 'user', 'content': results})
             self.messages.append({'role': 'user', 'content': results})
-        self.messages.append({'role': 'assistant',
-                              'content': f'Error: max_steps exceeded ({self.max_steps})'})
-        emit(AGENT_TURN_FINISHED, agent=self.name)
-        return 'Error: max_steps exceeded'
 
     async def poll_inbox(self):
         text = await self.poller.poll_once()

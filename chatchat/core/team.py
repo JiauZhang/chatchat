@@ -31,7 +31,7 @@ def _msgs_chars(messages: list[dict]) -> int:
 
 class Team:
     def __init__(self, name: str, client=None, hooks: bool = True,
-                 client_factory=None, max_steps: int = 20,
+                 client_factory=None,
                  lead_instruction: str = '', model_timeout: float = 120.0,
                  provider: str = None, model: str = None,
                  thinking: bool = True, tools: list = None,
@@ -42,7 +42,6 @@ class Team:
         # 是常态能力，两种模式都有。
         self.multi_agent = multi_agent
         self._client = client
-        self._max_steps = max_steps
         self._model_timeout = model_timeout
         self._provider = provider
         self._model = model
@@ -50,7 +49,6 @@ class Team:
         self._client_kw = client_kw
         self._injected_tools = list(tools or [])
         self._factory = client_factory
-        self._max_steps = max_steps
         self.hooks = HookManager(self, enabled=hooks)
         self.agents: dict[str, Agent] = {}
         self.children: dict[str, set[str]] = {}
@@ -121,7 +119,7 @@ class Team:
         ctx = AgentContext(agent_id=agent_id, agent_name=name,
                            team_name=self.name, abort=abort, leader=leader)
         agent = Agent(agent_id, name, self, self._client_for(instruction),
-                      ctx, instruction=instruction, max_steps=self._max_steps,
+                      ctx, instruction=instruction,
                       depth=depth, model_timeout=self._model_timeout)
         self.agents[agent_id] = agent
         agent.start()
@@ -158,7 +156,7 @@ class Team:
         ctx = AgentContext(agent_id=agent_id, agent_name=name,
                            team_name=self.name, abort=abort, leader=False)
         agent = Agent(agent_id, name, self, self._client_for(sys_prompt),
-                      ctx, instruction=sys_prompt, max_steps=self._max_steps,
+                      ctx, instruction=sys_prompt,
                       depth=depth, internal=True, tool_exec=defn,
                       model_timeout=self._model_timeout)
         if fork_msgs:
@@ -384,8 +382,6 @@ def last_assistant(agent: Agent, *, start: int = 0) -> str:
         if not isinstance(m, dict):
             continue
         if m.get('role') == 'assistant' and isinstance(m.get('content'), str):
-            if m['content'].startswith('Error: max_steps exceeded'):
-                continue
             return m['content']
     for m in reversed(agent.messages):
         if not isinstance(m, dict) or m.get('role') != 'user':
@@ -398,7 +394,7 @@ def last_assistant(agent: Agent, *, start: int = 0) -> str:
     return ''
 
 
-def create_team(name: str, client=None, client_factory=None, max_steps: int = 20,
+def create_team(name: str, client=None, client_factory=None,
                 lead_instruction: str = '', **kw) -> Team:
     return Team(name, client=client, client_factory=client_factory,
-                max_steps=max_steps, lead_instruction=lead_instruction, **kw)
+                lead_instruction=lead_instruction, **kw)

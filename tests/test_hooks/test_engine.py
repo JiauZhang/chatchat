@@ -155,6 +155,8 @@ def test_user_prompt_submit_block_reaches_turn(team):
 
 def test_pre_tool_block_reaches_agent_as_tool_result(team):
     async def respond(messages, tools):
+        if any(isinstance(m.get('content'), list) for m in messages):
+            return 'stop'
         return [ToolUse('send_message', {'to': 'nobody'}, 't1')]
 
     async def main():
