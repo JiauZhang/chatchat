@@ -371,3 +371,19 @@ def test_create_agent_tool_name_spawns_persistent_teammate():
     assert persistent is True
     assert one_shot == 'done'
     assert single_out == 'done'
+
+
+
+def test_compact_threshold_is_exposed():
+    async def respond(messages, tools=None, *, stream_cb=None):
+        return 'ok'
+
+    async def main():
+        team = Team('ct',
+                    client_factory=lambda inst: MockClient(handler=respond),
+                    compact_tokens=1234)
+        assert team.compact_threshold == 1234
+        team.set_compact_strategy(lambda messages: messages, threshold=999)
+        assert team.compact_threshold == 999
+
+    asyncio.run(main())

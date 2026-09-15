@@ -280,6 +280,10 @@ class Team:
     def provided_tools(self):
         return list(self._injected_tools)
 
+    @property
+    def compact_threshold(self) -> int:
+        return int(self._compact_threshold or 0)
+
     async def query(self, prompt: str, timeout: float | None = None) -> str:
         if not self._session_started:
             self._session_started = True
