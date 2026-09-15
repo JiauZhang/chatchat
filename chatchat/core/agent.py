@@ -16,7 +16,8 @@ from chatchat.hooks.events import (AGENT_PROGRESS, AGENT_REASON_START,
 class Agent:
     def __init__(self, agent_id, name, team, client, ctx, *,
                  instruction: str = '',
-                 internal: bool = False, depth: int = 0,
+                 internal: bool = False, hookless: bool = False,
+                 depth: int = 0,
                  tool_exec=None, model_timeout: float = 120.0,
                  inbox=None):
         self.agent_id = agent_id
@@ -26,6 +27,7 @@ class Agent:
         self.ctx = ctx
         self.instruction = instruction
         self._internal = internal
+        self.hookless = hookless
         self.depth = depth
         self.model_timeout = model_timeout
         self.tool_exec = tool_exec if tool_exec is not None else team
@@ -203,18 +205,27 @@ class Agent:
         self._work_abort = AbortSignal()
         if user_block:
             self.messages.append({'role': 'user', 'content': user_block})
-        if not self._internal:
+        if not self.hookless:
             await self.team.hooks.execute_instructions_loaded_hooks(
                 self, self.instruction)
-        if not self._internal and user_block:
+        if not self.hookless and user_block:
             pre = await self.team.hooks.execute_user_prompt_submit_hooks(
                 self, user_block)
             if pre.blocking_error is not None:
-                text = ('UserPromptSubmit operation blocked by hook:\n'
-                        + pre.blocking_error.blocking_error)
-                self.messages.append({'role': 'assistant', 'content': text})
+                from chatchat.hooks.output import (
+                    get_user_prompt_submit_hook_blocking_message)
+                if self.messages and self.messages[-1].get('role') == 'user' \
+                        and self.messages[-1].get('content') == user_block:
+                    self.messages.pop()
+                text = get_user_prompt_submit_hook_blocking_message(
+                    pre.blocking_error)
+                emit(AGENT_WARN, agent=self.name, text=text)
                 emit(AGENT_TURN_FINISHED, agent=self.name)
                 return text
+            if pre.additional_context:
+                self.messages[-1] = {
+                    'role': 'user',
+                    'content': f'{user_block}\n\n{pre.additional_context}'}
 
         await self.poll_inbox()
 

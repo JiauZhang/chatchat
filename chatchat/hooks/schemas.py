@@ -76,6 +76,7 @@ class AggregatedHookResult:
     continue_loop: bool = True
     suppress_output: bool = False
     blocking_error: HookBlockingError | None = None
+    additional_context: str = ''
     updated_input: dict | None = None
     total_duration_ms: int = 0
 

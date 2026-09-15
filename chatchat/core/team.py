@@ -199,7 +199,21 @@ class Team:
             return await agent.chat(prompt)
         finally:
             emit(AGENT_PROGRESS, agent=agent.name, done=True)
+            await self.hooks.execute_subagent_stop_hooks(agent, LEAD_NAME)
             agent._finalize('completed')
+
+    async def spawn_child(self, parent_name: str, instruction: str, *,
+                          internal: bool = True) -> Agent:
+        from chatchat.core.task import rand_name
+        self._counter += 1
+        name = rand_name('hook')
+        agent_id = self.agent_id(name)
+        ctx = AgentContext(agent_id=agent_id, agent_name=name,
+                           team_name=self.name, abort=AbortSignal(),
+                           leader=False)
+        return Agent(agent_id, name, self, self._client_for(instruction),
+                     ctx, instruction=instruction, internal=internal,
+                     hookless=True, model_timeout=self._model_timeout)
 
     async def stop_agent(self, agent: Agent):
         agent_id = agent.agent_id
@@ -340,7 +354,7 @@ class Team:
 
     async def execute_tool(self, name: str, input: dict, agent: Agent,
                            tool_use_id: str = '') -> str:
-        if agent is not None and not agent._internal:
+        if agent is not None and not agent.hookless:
             pre = await self.hooks.execute_pre_tool_hooks(
                 agent, tool_use_id, name, input)
             if pre.blocking_error is not None:
@@ -362,22 +376,22 @@ class Team:
                     out = await out
                 out = out if isinstance(out, str) else str(out)
             except Exception as e:
-                if agent is not None and not agent._internal:
+                if agent is not None and not agent.hookless:
                     await self.hooks.execute_post_tool_failure_hooks(
                         agent, tool_use_id, name, input, e)
                 return f'Error calling tool "{name}": {type(e).__name__}: {e}'
-            if agent is not None and not agent._internal:
+            if agent is not None and not agent.hookless:
                 await self.hooks.execute_post_tool_hooks(
                     agent, tool_use_id, name, input, out)
             return out
         try:
             out = await fn(self, agent, input)
         except Exception as e:
-            if agent is not None and not agent._internal:
+            if agent is not None and not agent.hookless:
                 await self.hooks.execute_post_tool_failure_hooks(
                     agent, tool_use_id, name, input, e)
             return f'Error calling tool "{name}": {type(e).__name__}: {e}'
-        if agent is not None and not agent._internal:
+        if agent is not None and not agent.hookless:
             await self.hooks.execute_post_tool_hooks(
                 agent, tool_use_id, name, input, out)
         return out

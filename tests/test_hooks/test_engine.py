@@ -143,14 +143,35 @@ def test_once_runs_single_time(team):
     asyncio.run(main())
 
 
-def test_user_prompt_submit_block_reaches_turn(team):
+def test_user_prompt_submit_block_drops_the_prompt(team):
     async def main():
         t = team()
         t.hooks.on('UserPromptSubmit', fn=lambda inp: False)
         answer = await t.query('go')
-        assert 'blocked by hook' in answer
+        return t, answer
+
+    t, answer = asyncio.run(main())
+    assert answer == ''
+    assert all(m.get('role') != 'assistant' for m in t.lead.messages)
+    assert all(m.get('content') != 'go' for m in t.lead.messages
+               if isinstance(m.get('content'), str))
+
+
+def test_user_prompt_submit_additional_context_reaches_the_model(team):
+    seen = []
+
+    def handler(messages, tools=None, *, stream_cb=None):
+        seen.append([m.get('content') for m in messages])
+        return 'ok'
+
+    async def main():
+        t = team(handler=handler)
+        t.hooks.on('UserPromptSubmit', fn=lambda inp: {
+            'decision': 'allow', 'additionalContext': 'extra context'})
+        return await t.query('go')
 
     asyncio.run(main())
+    assert any('extra context' in str(entry) for entry in seen[0])
 
 
 def test_stop_hook_blocking_feedback_continues_turn(team):
@@ -215,14 +236,28 @@ def test_pre_tool_block_reaches_agent_as_tool_result(team):
     asyncio.run(main())
 
 
-def test_internal_agent_skips_emits(team):
+def test_hookless_agent_skips_emits(team):
     async def main():
         t = team()
         seen = []
         t.hooks.on('UserPromptSubmit', fn=lambda inp: seen.append(1) or True)
-        t.lead._internal = True
+        t.lead.hookless = True
         await t.query('go')
         assert seen == []
+
+    asyncio.run(main())
+
+
+def test_execute_tool_skips_hooks_only_for_hookless_agents(team):
+    async def main():
+        t = team()
+        seen = []
+        t.hooks.on('PreToolUse', fn=lambda inp: seen.append(1) or True)
+        sub = await t.spawn_child('lead', 'inst')
+        await t.execute_tool('unknown_tool', {}, sub)
+        assert seen == []
+        await t.execute_tool('unknown_tool', {}, t.lead)
+        assert seen == [1]
 
     asyncio.run(main())
 

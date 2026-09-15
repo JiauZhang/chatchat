@@ -103,11 +103,14 @@ def aggregate_results(results: list[HookResult],
     blocking = next((r for r in results if r.outcome == 'blocking'), None)
     updated = next((r.updated_input for r in results
                     if r.updated_input is not None), None)
+    context = '\n'.join(r.additional_context for r in results
+                        if r.additional_context)
     return AggregatedHookResult(
         results=results, decision=decision,
         continue_loop=all(r.outcome != 'cancel' for r in results),
         suppress_output=any(r.suppress_output for r in results),
         blocking_error=blocking.blocking_error if blocking else None,
+        additional_context=context,
         updated_input=updated, total_duration_ms=total_ms)
 
 
