@@ -28,6 +28,7 @@ class Agent:
         self.instruction = instruction
         self._internal = internal
         self.hookless = hookless
+        self._instructions_loaded = False
         self.depth = depth
         self.model_timeout = model_timeout
         self.tool_exec = tool_exec if tool_exec is not None else team
@@ -205,9 +206,13 @@ class Agent:
         self._work_abort = AbortSignal()
         if user_block:
             self.messages.append({'role': 'user', 'content': user_block})
-        if not self.hookless:
-            await self.team.hooks.execute_instructions_loaded_hooks(
-                self, self.instruction)
+        if not self.hookless and not self._instructions_loaded:
+            self._instructions_loaded = True
+            for item in self.team.instruction_files:
+                await self.team.hooks.execute_instructions_loaded_hooks(
+                    self, item.get('content', ''),
+                    load_reason=item.get('load_reason', 'init'),
+                    path=item.get('path', ''))
         if not self.hookless and user_block:
             pre = await self.team.hooks.execute_user_prompt_submit_hooks(
                 self, user_block)

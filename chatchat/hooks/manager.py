@@ -310,10 +310,13 @@ class HookManager:
     async def execute_teammate_idle_hooks(self, agent):
         return await self.run('TeammateIdle', agent=agent)
 
-    async def execute_instructions_loaded_hooks(self, agent, instructions: str):
+    async def execute_instructions_loaded_hooks(self, agent, instructions: str,
+                                                *, load_reason: str = 'init',
+                                                path: str = ''):
         return await self.run(
-            'InstructionsLoaded', query='init',
-            input={'instructions': instructions, 'load_reason': 'init'},
+            'InstructionsLoaded', query=load_reason,
+            input={'instructions': instructions, 'load_reason': load_reason,
+                   'path': path},
             agent=agent)
 
     async def execute_pre_compact_hooks(self, agent=None, trigger: str = 'manual'):

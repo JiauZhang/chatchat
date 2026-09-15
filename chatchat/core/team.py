@@ -52,6 +52,7 @@ class Team:
         self._thinking = thinking
         self._client_kw = client_kw
         self._injected_tools = list(tools or [])
+        self.instruction_files: list[dict] = []
         self._mailbox_dir = (Path(mailbox_dir) / self.name / 'inboxes'
                              if mailbox_dir else None)
         self._factory = client_factory
@@ -247,6 +248,9 @@ class Team:
 
     def reset_usage(self):
         self.lead.total_usage = type(self.lead.total_usage)()
+
+    def set_instruction_files(self, files: list[dict]):
+        self.instruction_files = list(files or [])
 
     def set_lead_instruction(self, instruction: str):
         lead = self.get_by_name(LEAD_NAME)

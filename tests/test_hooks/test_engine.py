@@ -174,6 +174,39 @@ def test_user_prompt_submit_additional_context_reaches_the_model(team):
     assert any('extra context' in str(entry) for entry in seen[0])
 
 
+def test_instructions_loaded_hook_receives_the_file_content(team):
+    seen = []
+
+    async def main():
+        t = team()
+        t.set_instruction_files([{'path': '/tmp/PYCLAW.md',
+                                  'content': 'project rules',
+                                  'load_reason': 'project'}])
+        t.hooks.on('InstructionsLoaded',
+                   fn=lambda inp: seen.append(inp) or True)
+        await t.query('go')
+        return seen
+
+    seen = asyncio.run(main())
+    assert seen and seen[0]['instructions'] == 'project rules'
+    assert seen[0]['path'] == '/tmp/PYCLAW.md'
+    assert seen[0]['load_reason'] == 'project'
+
+
+def test_instructions_loaded_hook_fires_once_per_session(team):
+    calls = []
+
+    async def main():
+        t = team()
+        t.set_instruction_files([{'path': 'p', 'content': 'c'}])
+        t.hooks.on('InstructionsLoaded', fn=lambda inp: calls.append(1) or True)
+        await t.query('first')
+        await t.query('second')
+        return calls
+
+    assert len(asyncio.run(main())) == 1
+
+
 def test_stop_hook_blocking_feedback_continues_turn(team):
     """对齐 claude：Stop hook 阻断时反馈回流为新 turn，turn 不结束。"""
     calls = []
