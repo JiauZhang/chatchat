@@ -131,3 +131,7 @@ dmypy.json
 # MacOS
 .DS_Store
 **/.DS_Store
+
+# Local agent tooling
+.trae/
+.codebuddy/
