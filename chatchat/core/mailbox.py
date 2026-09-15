@@ -72,8 +72,6 @@ class Mailbox:
 
 
 class FileMailbox(Mailbox):
-    """claude teammateMailbox 等价：JSON 文件持久化 + lockfile 串行化，
-    跨进程可读（teammate 可能在不同进程/会话中读取同一收件箱）。"""
 
     def __init__(self, path):
         super().__init__()

@@ -36,7 +36,6 @@ def test_poll_interval_matches_claude(tmp_path):
 
 
 def test_unhandled_protocol_message_is_delivered_not_swallowed(tmp_path):
-    """对齐 claude：无 handler 的协议消息照常投递进上下文（C11）。"""
     seen = []
 
     async def respond(messages, tools=None, *, stream_cb=None):

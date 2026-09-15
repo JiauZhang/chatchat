@@ -72,14 +72,13 @@ def test_model_call_timeout_degrades_gracefully():
         return ans, elapsed, list(team.lead.messages)
 
     ans, elapsed, messages = asyncio.run(main())
-    assert ans == ''                       # 超时不再伪造 assistant 消息
+    assert ans == ''
     assert elapsed < 8
     assert not any(m.get('role') == 'assistant' and 'timed out' in str(m.get('content'))
                    for m in messages if isinstance(m, dict))
 
 
 def test_default_auto_compaction_summarizes_middle():
-    """C13：auto-compact 默认开启；C12：按 token 估算阈值。"""
     calls = []
 
     async def respond(messages, tools=None, *, stream_cb=None):
@@ -101,7 +100,6 @@ def test_default_auto_compaction_summarizes_middle():
     result = asyncio.run(main())
     assert any('conversation summary' in str(m.get('content'))
                for m in result)
-    # 头部与近期消息保留
     assert result[0]['content'] == 'm0'
     assert 'm13' in str(result[-1]['content'])
 

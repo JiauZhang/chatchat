@@ -106,9 +106,6 @@ class Agent:
         self._queue.put_nowait(text)
 
     def enqueue_attachment(self, text: str):
-        """排入待注入附件（如后台任务完成通知）。对齐 claude：通知入队为
-        command，可驱动 turn——闲置 agent 被唤醒立即处理；忙碌时在本轮
-        后续模型调用前注入。"""
         self._attachments.append(text)
         if not self.busy and self._queue.empty() and self._pending == self._done:
             self._pending += 1
@@ -175,9 +172,6 @@ class Agent:
                 self._set_idle()
             self._emit_state()
             if not self._internal:
-                # 对齐 claude：Stop hook 可阻断——反馈重新排队为本轮延续，
-                # _done 不推进（外部 wait/query 继续等待）；防失控由 hook
-                # 通过 stop_hook_active 自行判断。
                 stop_res = await self.team.hooks.execute_stop_hooks(
                     self, stop_hook_active=self._stop_hook_active)
                 if stop_res.blocking_error is not None:
@@ -284,8 +278,6 @@ class Agent:
                     except (asyncio.CancelledError, Exception):
                         pass
             if resp is None:
-                # 对齐 claude：请求层超时向用户可见（AGENT_WARN），但不伪造
-                # assistant 消息进 transcript——用户重试即是新轮次。
                 msg = f'Error: model call timed out after {self.model_timeout}s'
                 emit(AGENT_WARN, agent=self.name, text=msg)
                 emit(AGENT_TURN_FINISHED, agent=self.name)

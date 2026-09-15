@@ -41,9 +41,6 @@ class Team:
                  mailbox_dir=None,
                  multi_agent: bool = True, **client_kw):
         self.name = name
-        # 对齐 claude：协作工具（send_message/task_stop）只在 multi_agent 的
-        # team 上存在；create_agent（一次性 subagent，claude 的 Agent 工具）
-        # 是常态能力，两种模式都有。
         self.multi_agent = multi_agent
         self._client = client
         self._model_timeout = model_timeout
@@ -66,8 +63,6 @@ class Team:
         self._compact_threshold = compact_tokens
         self._compact_fn = self._builtin_compact
         self.agent_defs = AgentRegistry()
-        # 默认 general-purpose 子代理继承团队工具（claude：general-purpose
-        # 拥有全部工具）；否则一次性子代理工具池为空，什么都干不了。
         self.agent_defs.define(GENERAL_PURPOSE,
                                tools=list(self._injected_tools), default=True,
                                description='General-purpose agent that '
@@ -94,7 +89,6 @@ class Team:
         return await self.maybe_compact(messages, force=force)
 
     async def _builtin_compact(self, messages: list[dict]) -> list[dict]:
-        """claude auto-compact 的最小等价：摘要中间段，保留头部与近期消息。"""
         keep_recent = 8
         if len(messages) <= keep_recent + 2:
             return messages
@@ -109,7 +103,6 @@ class Team:
         return head + [marker] + tail
 
     async def maybe_compact(self, messages: list[dict], force: bool = False) -> list[dict]:
-        # 对齐 claude：按 token 估算阈值（字符/4），且 auto-compact 默认开启
         if not force and (self._compact_fn is None
                           or -(-_msgs_chars(messages) // 4) < self._compact_threshold):
             return messages
@@ -294,8 +287,6 @@ class Team:
             await self.hooks.execute_session_start_hooks()
         self.lead.submit(prompt)
         start = len(self.lead.messages)
-        # 对齐 claude：agentic 循环没有整轮超时——轮次跑到完为止（abort/
-        # 模型层错误才有终态）。timeout 仅作兼容参数，None = 无限等。
         if timeout is None:
             await self.lead.wait_idle()
         else:
@@ -303,8 +294,6 @@ class Team:
                 await asyncio.wait_for(self.lead.wait_idle(), timeout)
             except asyncio.TimeoutError:
                 pass
-        # 只返回本轮切片内的助手文本：跨轮捞 last_assistant 会把上一轮的
-        # 旧回复当成本轮结果交给外壳渲染。
         return last_assistant(self.lead, start=start)
 
     def _create_agent_description(self) -> str:

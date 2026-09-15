@@ -70,5 +70,4 @@ class InboxPoller:
         if handler is not None:
             asyncio.get_running_loop().call_soon(handler, m)
             return True
-        # 无 handler 的协议消息按 claude 语义照常投递进上下文，不静默吞掉
         return False

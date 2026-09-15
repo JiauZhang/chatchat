@@ -208,7 +208,6 @@ def test_instructions_loaded_hook_fires_once_per_session(team):
 
 
 def test_stop_hook_blocking_feedback_continues_turn(team):
-    """对齐 claude：Stop hook 阻断时反馈回流为新 turn，turn 不结束。"""
     calls = []
 
     async def respond(messages, tools=None, *, stream_cb=None):
@@ -221,7 +220,6 @@ def test_stop_hook_blocking_feedback_continues_turn(team):
 
     async def main():
         t = team(handler=respond)
-        # claude 协议：hook 通过 stop_hook_active 防止无限续聊
         t.hooks.on('Stop', fn=lambda inp: False if not inp.get('stop_hook_active')
                    else True)
         return await t.query('go'), len(calls)
