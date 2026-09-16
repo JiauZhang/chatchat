@@ -37,6 +37,7 @@ class Team:
     def __init__(self, name: str, client=None, hooks: bool = True,
                  client_factory=None,
                  lead_instruction: str = '', model_timeout: float = 120.0,
+                 model_retries: int = 2,
                  provider: str = None, model: str = None,
                  thinking: bool = True, tools: list = None,
                  compact_tokens: int = 160_000,
@@ -46,6 +47,7 @@ class Team:
         self.multi_agent = multi_agent
         self._client = client
         self._model_timeout = model_timeout
+        self._model_retries = model_retries
         self._provider = provider
         self._model = model
         self._thinking = thinking
@@ -148,7 +150,7 @@ class Team:
             inbox = FileMailbox(self._mailbox_dir / f'{name}.json')
         agent = Agent(agent_id, name, self, self._client_for(instruction),
                       ctx, instruction=instruction, inbox=inbox,
-                      depth=depth, model_timeout=self._model_timeout)
+                      depth=depth, model_timeout=self._model_timeout, model_retries=self._model_retries)
         self.agents[agent_id] = agent
         agent.start()
         return agent
@@ -186,7 +188,7 @@ class Team:
         agent = Agent(agent_id, name, self, self._client_for(sys_prompt),
                       ctx, instruction=sys_prompt,
                       depth=depth, internal=True, tool_exec=defn,
-                      model_timeout=self._model_timeout)
+                      model_timeout=self._model_timeout, model_retries=self._model_retries)
         if fork_msgs:
             agent.messages = list(fork_msgs)
         emit(AGENT_PROGRESS, agent=agent.name,
@@ -209,7 +211,7 @@ class Team:
                            leader=False)
         return Agent(agent_id, name, self, self._client_for(instruction),
                      ctx, instruction=instruction, internal=internal,
-                     hookless=True, model_timeout=self._model_timeout)
+                     hookless=True, model_timeout=self._model_timeout, model_retries=self._model_retries)
 
     async def stop_agent(self, agent: Agent):
         agent_id = agent.agent_id

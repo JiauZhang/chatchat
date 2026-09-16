@@ -19,6 +19,7 @@ class Agent:
                  internal: bool = False, hookless: bool = False,
                  depth: int = 0,
                  tool_exec=None, model_timeout: float = 120.0,
+                 model_retries: int = 2,
                  inbox=None):
         self.agent_id = agent_id
         self.name = name
@@ -31,6 +32,7 @@ class Agent:
         self._instructions_loaded = False
         self.depth = depth
         self.model_timeout = model_timeout
+        self.model_retries = model_retries
         self.tool_exec = tool_exec if tool_exec is not None else team
 
         self.total_usage = Usage()
@@ -243,6 +245,7 @@ class Agent:
                     stream_state['reason_emitted'] = True
                 thinking_parts.append(text)
             elif kind == 'text':
+                stream_state['text_emitted'] = True
                 emit(AGENT_TEXT, agent=self.name, delta=text)
 
         self.ctx.abort.check()
@@ -253,35 +256,46 @@ class Agent:
             attachment = self._drain_attachments()
             if attachment:
                 self.messages.append({'role': 'user', 'content': attachment})
-            thinking_parts.clear()
-            respond_task = asyncio.create_task(self.client.respond(
-                self.messages, self.tool_exec.tool_schemas(), stream_cb=stream))
-            abort_waiter = asyncio.create_task(self._work_abort.wait())
-            resp = None
-            try:
-                await asyncio.wait_for(
-                    asyncio.wait({respond_task, abort_waiter},
-                                 return_when=asyncio.FIRST_COMPLETED),
-                    timeout=self.model_timeout)
-                if self._work_abort.aborted:
-                    self._work_abort.check()
-                resp = await respond_task
-            except asyncio.TimeoutError:
-                pass
-            finally:
-                if not abort_waiter.done():
-                    abort_waiter.cancel()
-                if not respond_task.done():
-                    respond_task.cancel()
-                    try:
-                        await respond_task
-                    except (asyncio.CancelledError, Exception):
-                        pass
-            if resp is None:
-                msg = f'Error: model call timed out after {self.model_timeout}s'
-                emit(AGENT_WARN, agent=self.name, text=msg)
-                emit(AGENT_TURN_FINISHED, agent=self.name)
-                return ''
+            attempt = 0
+            while True:
+                self.ctx.abort.check()
+                self._work_abort.check()
+                thinking_parts.clear()
+                stream_state['text_emitted'] = False
+                respond_task = asyncio.create_task(self.client.respond(
+                    self.messages, self.tool_exec.tool_schemas(), stream_cb=stream))
+                abort_waiter = asyncio.create_task(self._work_abort.wait())
+                resp = None
+                try:
+                    await asyncio.wait_for(
+                        asyncio.wait({respond_task, abort_waiter},
+                                     return_when=asyncio.FIRST_COMPLETED),
+                        timeout=self.model_timeout)
+                    if self._work_abort.aborted:
+                        self._work_abort.check()
+                    resp = await respond_task
+                except asyncio.TimeoutError:
+                    pass
+                finally:
+                    if not abort_waiter.done():
+                        abort_waiter.cancel()
+                    if not respond_task.done():
+                        respond_task.cancel()
+                        try:
+                            await respond_task
+                        except (asyncio.CancelledError, Exception):
+                            pass
+                if resp is not None:
+                    break
+                attempt += 1
+                if stream_state['text_emitted'] or attempt > self.model_retries:
+                    msg = f'Error: model call timed out after {self.model_timeout}s'
+                    emit(AGENT_WARN, agent=self.name, text=msg)
+                    emit(AGENT_TURN_FINISHED, agent=self.name)
+                    return ''
+                emit(AGENT_WARN, agent=self.name, text=(
+                    f'model call timed out after {self.model_timeout}s, '
+                    f'retrying ({attempt}/{self.model_retries})'))
             self.total_usage.add(getattr(self.client, '_last_usage', None))
             if isinstance(resp, str):
                 msg = {'role': 'assistant', 'content': resp}

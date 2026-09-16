@@ -308,6 +308,85 @@ def test_general_purpose_subagent_inherits_team_tools():
     assert out == 'done'
 
 
+def test_model_timeout_retries_the_request_and_completes_the_turn():
+    events = []
+    register_runtime_handler(lambda ev: events.append(ev))
+    calls = 0
+
+    async def respond(messages, tools=None, *, stream_cb=None):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            await asyncio.sleep(2)
+            return 'late'
+        return 'recovered'
+
+    async def main():
+        team = Team('rt', client_factory=lambda inst: MockClient(handler=respond),
+                    model_timeout=0.2)
+        out = await team.query('hi')
+        return out, team
+
+    try:
+        out, team = asyncio.run(main())
+    finally:
+        clear_runtime_sinks()
+    assert out == 'recovered'
+    assert calls == 2
+    retry_warns = [ev for ev in events if ev.kind == AGENT_WARN
+                   and 'retrying' in str(ev.data.get('text', ''))]
+    assert len(retry_warns) == 1
+
+
+def test_model_timeout_gives_up_after_retries_are_exhausted():
+    events = []
+    register_runtime_handler(lambda ev: events.append(ev))
+    calls = 0
+
+    async def respond(messages, tools=None, *, stream_cb=None):
+        nonlocal calls
+        calls += 1
+        await asyncio.sleep(2)
+        return 'late'
+
+    async def main():
+        team = Team('rg', client_factory=lambda inst: MockClient(handler=respond),
+                    model_timeout=0.1, model_retries=1)
+        out = await team.query('hi')
+        return out, team
+
+    try:
+        out, team = asyncio.run(main())
+    finally:
+        clear_runtime_sinks()
+    assert out == ''
+    assert calls == 2
+    terminal = [ev for ev in events if ev.kind == AGENT_WARN
+                and str(ev.data.get('text', '')).startswith('Error: model call timed out')]
+    assert len(terminal) == 1
+
+
+def test_model_timeout_does_not_retry_after_text_was_streamed():
+    calls = 0
+
+    async def respond(messages, tools=None, *, stream_cb=None):
+        nonlocal calls
+        calls += 1
+        if stream_cb is not None:
+            stream_cb('partial ', 'text')
+        await asyncio.sleep(2)
+        return 'late'
+
+    async def main():
+        team = Team('rp', client_factory=lambda inst: MockClient(handler=respond),
+                    model_timeout=0.1)
+        return await team.query('hi')
+
+    out = asyncio.run(main())
+    assert out == ''
+    assert calls == 1
+
+
 def test_model_timeout_is_visible_and_query_never_returns_stale_text():
     events = []
     register_runtime_handler(lambda ev: events.append(ev))

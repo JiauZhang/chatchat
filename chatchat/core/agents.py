@@ -51,7 +51,8 @@ async def run_agent(prompt: str, *, provider: str = None, model: str = None,
                     addenda: str = '', thinking: bool = True,
                     client=None, agent_type: str | None = None,
                     fork_msgs: list | None = None,
-                    model_timeout: float = 120.0) -> str:
+                    model_timeout: float = 120.0,
+                    model_retries: int = 2) -> str:
     from chatchat.client import Client
     from chatchat.core.abort import AbortSignal
     from chatchat.core.agent import Agent
@@ -70,7 +71,7 @@ async def run_agent(prompt: str, *, provider: str = None, model: str = None,
                        abort=AbortSignal(), leader=False)
     agent = Agent(name, name, None, client, ctx, instruction=sys_prompt,
                   internal=True, tool_exec=defn,
-                  model_timeout=model_timeout)
+                  model_timeout=model_timeout, model_retries=model_retries)
     if fork_msgs:
         agent.messages = list(fork_msgs)
     return await agent.chat(prompt)
