@@ -33,6 +33,23 @@ def test_description_may_be_resolved_from_context():
     assert callable_.describe(CTX) == 'searches work only'
 
 
+def test_capabilities_fail_closed_when_a_tool_declares_none():
+    t = Tool(tool=lambda context: 'ok', name='Fetch', description='f')
+    assert t.read_only is False
+    assert t.get_path is None
+
+
+def test_read_only_is_a_capability_of_the_tool():
+    def reader(context, file_path: str = ''):
+        return ''
+
+    t = Tool(tool=reader, name='Read', description='r', read_only=True,
+             get_path=lambda args: args.get('file_path'))
+    assert t.read_only is True
+    assert t.get_path({'file_path': 'a.py'}) == 'a.py'
+    assert t.get_path({}) is None
+
+
 def test_tool_failure_reports_the_real_reason():
     def boom(context, path: str = ''):
         raise ValueError('no such directory')

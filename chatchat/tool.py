@@ -19,11 +19,14 @@ class ToolResult:
 class Tool:
 
     def __init__(self, *, tool, name, description, parameters=None,
+                 read_only=False, get_path=None,
                  on_start=None, on_end=None, on_error=None):
         self.tool = tool
         self.name = name
         self.description = description
         self.parameters = parameters
+        self.read_only = bool(read_only)
+        self.get_path = get_path
         self.on_start = on_start
         self.on_end = on_end
         self.on_error = on_error
@@ -60,11 +63,12 @@ class Tool:
         }
 
 
-def tool(*, name, description, parameters=None, on_start=None, on_end=None,
-         on_error=None):
+def tool(*, name, description, parameters=None, read_only=False,
+         get_path=None, on_start=None, on_end=None, on_error=None):
     def decorator(func):
         return Tool(
             tool=func, name=name, description=description, parameters=parameters,
+            read_only=read_only, get_path=get_path,
             on_start=on_start, on_end=on_end, on_error=on_error,
         )
     return decorator
