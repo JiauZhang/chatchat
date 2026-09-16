@@ -60,6 +60,10 @@ class Agent:
         self.on_message = on_message
         self.task: Task | None = None
 
+    @property
+    def tool_context(self):
+        return self.team.tool_context
+
     def _record(self, message: dict):
         if self.on_message is not None:
             self.on_message(message)
@@ -276,7 +280,8 @@ class Agent:
                 thinking_parts.clear()
                 stream_state['text_emitted'] = False
                 respond_task = asyncio.create_task(self.client.respond(
-                    self.messages, self.tool_exec.tool_schemas(), stream_cb=stream))
+                    self.messages, self.tool_exec.tool_schemas(
+                    self.tool_context), stream_cb=stream))
                 abort_waiter = asyncio.create_task(self._work_abort.wait())
                 resp = None
                 try:

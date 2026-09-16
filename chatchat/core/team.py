@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 from pathlib import Path
 
 import chatchat.core.tools as _tools
-from chatchat.tool import ToolResult
+from chatchat.tool import ToolContext, ToolResult
 from chatchat.core.abort import AbortSignal
 from chatchat.core.agent import Agent
 from chatchat.core.agents import GENERAL_PURPOSE, AgentDefinition, AgentRegistry
@@ -40,6 +39,7 @@ class Team:
                  model_retries: int = 2,
                  provider: str = None, model: str = None,
                  thinking: bool = True, tools: list = None,
+                 tool_context: ToolContext = None,
                  compact_tokens: int = 160_000,
                  mailbox_dir=None, sidechain_dir=None,
                  multi_agent: bool = True, **client_kw):
@@ -53,6 +53,7 @@ class Team:
         self._thinking = thinking
         self._client_kw = client_kw
         self._injected_tools = list(tools or [])
+        self.tool_context = tool_context or ToolContext(cwd=Path.cwd())
         self.instruction_files: list[dict] = []
         self._mailbox_dir = (Path(mailbox_dir) / self.name / 'inboxes'
                              if mailbox_dir else None)
@@ -335,7 +336,7 @@ class Team:
             text += '\nAvailable subagent types:\n' + '\n'.join(lines)
         return text
 
-    def tool_schemas(self) -> list[dict]:
+    def tool_schemas(self, context: ToolContext) -> list[dict]:
         team_tools = [
             {'name': 'create_agent',
              'description': self._create_agent_description(),
@@ -373,7 +374,7 @@ class Team:
                                   'properties': {'agent_id': {'type': 'string'}},
                                   'required': ['agent_id']}},
             ]
-        return team_tools + [{'name': t.name, 'description': t.description,
+        return team_tools + [{'name': t.name, 'description': t.describe(context),
                               'input_schema': t.parameters or {}}
                              for t in self._injected_tools]
 
@@ -396,9 +397,7 @@ class Team:
             if tool is None:
                 return f'Error: unknown tool "{name}"'
             try:
-                out = tool(**input)
-                if inspect.iscoroutine(out):
-                    out = await out
+                out = await tool(agent.tool_context, **input)
                 if isinstance(out, ToolResult):
                     emit(AGENT_TOOL_RESULT,
                          agent=getattr(agent, 'name', ''),

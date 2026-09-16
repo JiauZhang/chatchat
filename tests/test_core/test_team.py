@@ -264,7 +264,7 @@ def test_attachment_enqueued_mid_turn_reaches_next_model_call():
 def test_tool_schemas_differ_by_multi_agent():
     async def names(**kw):
         team = Team('m', client_factory=lambda inst, model=None: MockClient(handler=_ok), **kw)
-        return {t['name'] for t in team.tool_schemas()}
+        return {t['name'] for t in team.tool_schemas(team.tool_context)}
 
     async def _ok(messages, tools=None, *, stream_cb=None):
         return 'ok'
@@ -283,7 +283,7 @@ def test_general_purpose_subagent_inherits_team_tools():
 
     @ctool(name='mytool', description='d',
            parameters={'type': 'object', 'properties': {}})
-    def mytool():
+    def mytool(context):
         calls.append(1)
         return 'tool-ok'
 
@@ -298,7 +298,7 @@ def test_general_purpose_subagent_inherits_team_tools():
     async def main():
         team = Team('gp', client_factory=lambda inst, model=None: MockClient(handler=respond),
                     tools=[mytool])
-        schema = next(t for t in team.tool_schemas()
+        schema = next(t for t in team.tool_schemas(team.tool_context)
                       if t['name'] == 'create_agent')
         assert 'general-purpose' in schema['description']
         out = await team.query('spawn and run')
@@ -342,7 +342,7 @@ def test_create_agent_tool_passes_model_and_schema_exposes_it():
         out = await team.execute_tool('create_agent',
                                       {'prompt': 'x', 'model': 'm2'},
                                       team.lead, 't1')
-        schema = team.tool_schemas()[0]['input_schema']['properties']
+        schema = team.tool_schemas(team.tool_context)[0]['input_schema']['properties']
         return out, seen, schema
 
     out, seen, schema = asyncio.run(main())
@@ -578,7 +578,7 @@ def test_execute_tool_toolresult_emits_meta_and_returns_text():
     clear_runtime_sinks()
     register_runtime_handler(lambda ev: events.append(ev))
 
-    def greppy(file_path: str = '') -> ToolResult:
+    def greppy(context, file_path: str = '') -> ToolResult:
         return ToolResult(text='a.py:1: x', meta={'num_files': 1,
                                                   'num_lines': 1})
 
@@ -611,7 +611,7 @@ def test_execute_tool_plain_str_no_event():
     clear_runtime_sinks()
     register_runtime_handler(lambda ev: events.append(ev))
 
-    def plain() -> str:
+    def plain(context) -> str:
         return 'hello'
 
     async def main():

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 from dataclasses import dataclass, field
 
 GENERAL_PURPOSE = 'general-purpose'
@@ -18,9 +17,9 @@ class AgentDefinition:
     addenda: str = ''
     description: str = ''
 
-    def tool_schemas(self) -> list[dict]:
+    def tool_schemas(self, context) -> list[dict]:
         return [{'name': t.name,
-                 'description': t.description,
+                 'description': t.describe(context),
                  'input_schema': t.parameters or {}}
                 for t in self.tools]
 
@@ -30,9 +29,7 @@ class AgentDefinition:
         if tool is None:
             return f'Error: unknown tool "{name}"'
         try:
-            out = tool(**input)
-            if inspect.iscoroutine(out):
-                out = await out
+            out = await tool(agent.tool_context, **input)
             return out if isinstance(out, str) else str(out)
         except Exception as e:
             return f'Error calling tool "{name}": {type(e).__name__}: {e}'

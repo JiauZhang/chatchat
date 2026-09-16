@@ -49,7 +49,7 @@ def test_spawn_subagent_emits_progress_with_usage():
 def test_team_members_run_injected_tools():
     called = {'ping': 0}
 
-    def ping(**kw):
+    def ping(context, **kw):
         called['ping'] += 1
         return f"pong:{kw.get('x')}"
 
@@ -66,7 +66,7 @@ def test_team_members_run_injected_tools():
                     tools=[Tool(tool=ping, name='ping', description='ping',
                                 parameters={'type': 'object',
                                             'properties': {'x': {'type': 'int'}}})])
-        names = [t['name'] for t in team.tool_schemas()]
+        names = [t['name'] for t in team.tool_schemas(team.tool_context)]
         ans = await team.query('hi', timeout=10)
         return names, ans
 
@@ -79,7 +79,7 @@ def test_team_members_run_injected_tools():
 def test_standalone_subagent_uses_its_own_definition_tools():
     called = {'my_tool': 0}
 
-    def my_tool(**kw):
+    def my_tool(context, **kw):
         called['my_tool'] += 1
         return f"tool 结果: {kw.get('x')}"
 

@@ -24,7 +24,7 @@ args = parser.parse_args()
         "required": ["command"],
     },
 )
-def execute_shell_command(command):
+def execute_shell_command(context, command):
     print(f'execute shell command: {command}')
     try:
         result = subprocess.run(
@@ -59,7 +59,7 @@ def execute_shell_command(command):
         "required": ["file_path", "content"],
     },
 )
-def write_file(file_path, content):
+def write_file(context, file_path, content):
     print(f'execute write_file: {file_path}, {len(content)}')
     try:
         os.makedirs(os.path.dirname(os.path.abspath(file_path)), exist_ok=True)
