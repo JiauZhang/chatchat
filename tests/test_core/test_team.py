@@ -1,4 +1,5 @@
 import asyncio
+import json
 
 from chatchat.client import MockClient, ToolUse
 from chatchat.core.inbox_poller import InboxPoller
@@ -306,6 +307,51 @@ def test_general_purpose_subagent_inherits_team_tools():
     out, calls = asyncio.run(main())
     assert calls >= 1
     assert out == 'done'
+
+
+def test_spawn_subagent_writes_sidechain_transcript(tmp_path):
+    async def sub_respond(messages, tools=None, *, stream_cb=None):
+        return 'sub done'
+
+    async def main():
+        team = Team('sc', client_factory=lambda inst: MockClient(handler=sub_respond),
+                    sidechain_dir=tmp_path)
+        return await team.spawn_subagent('do it', subagent_type='general-purpose')
+
+    out = asyncio.run(main())
+    assert out == 'sub done'
+    files = list(tmp_path.glob('agent-*.jsonl'))
+    assert len(files) == 1
+    records = [json.loads(line) for line in
+               files[0].read_text(encoding='utf-8').splitlines() if line.strip()]
+    assert records, 'sidechain file must not be empty'
+    assert all(r['isSidechain'] is True for r in records)
+    agent_id = records[0]['agentId']
+    assert agent_id.endswith('@sc')
+    uuids = [r['uuid'] for r in records]
+    assert len(set(uuids)) == len(uuids)
+    for prev, nxt in zip(records, records[1:]):
+        assert nxt['parentUuid'] == prev['uuid']
+    assert records[0]['role'] == 'user' and records[0]['content'] == 'do it'
+    assert records[-1]['role'] == 'assistant'
+    assert records[-1]['content'] == 'sub done'
+    meta_file = tmp_path / files[0].name.replace('.jsonl', '.meta.json')
+    meta = json.loads(meta_file.read_text(encoding='utf-8'))
+    assert meta['agentId'] == agent_id
+    assert meta['status'] == 'completed'
+    assert meta['prompt'] == 'do it'
+
+
+def test_spawn_subagent_without_sidechain_dir_writes_nothing(tmp_path):
+    async def sub_respond(messages, tools=None, *, stream_cb=None):
+        return 'sub done'
+
+    async def main():
+        team = Team('ns', client_factory=lambda inst: MockClient(handler=sub_respond))
+        return await team.spawn_subagent('do it', subagent_type='general-purpose')
+
+    asyncio.run(main())
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_model_timeout_retries_the_request_and_completes_the_turn():

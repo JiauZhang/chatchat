@@ -20,6 +20,7 @@ class Agent:
                  depth: int = 0,
                  tool_exec=None, model_timeout: float = 120.0,
                  model_retries: int = 2,
+                 on_message=None,
                  inbox=None):
         self.agent_id = agent_id
         self.name = name
@@ -54,7 +55,12 @@ class Agent:
         self._stop_hook_active = False
         self._work_abort = AbortSignal()
         self._in_tool: str | None = None
+        self.on_message = on_message
         self.task: Task | None = None
+
+    def _record(self, message: dict):
+        if self.on_message is not None:
+            self.on_message(message)
 
     def start(self):
         if self._loop_task is not None and not self._loop_task.done():
@@ -228,6 +234,9 @@ class Agent:
                     'role': 'user',
                     'content': f'{user_block}\n\n{pre.additional_context}'}
 
+        if user_block:
+            self._record(self.messages[-1])
+
         await self.poll_inbox()
 
         if not self._internal:
@@ -255,7 +264,9 @@ class Agent:
             self._work_abort.check()
             attachment = self._drain_attachments()
             if attachment:
-                self.messages.append({'role': 'user', 'content': attachment})
+                msg = {'role': 'user', 'content': attachment}
+                self.messages.append(msg)
+                self._record(msg)
             attempt = 0
             while True:
                 self.ctx.abort.check()
@@ -303,6 +314,7 @@ class Agent:
                     msg['thinking'] = ''.join(thinking_parts)
                 self._emit_progress(msg, usage=self.client._last_usage.to_dict())
                 self.messages.append(msg)
+                self._record(msg)
                 emit(AGENT_TURN_FINISHED, agent=self.name)
                 return resp
             assistant_msg = {'role': 'assistant',
@@ -312,6 +324,7 @@ class Agent:
             self._emit_progress(assistant_msg,
                                 usage=self.client._last_usage.to_dict())
             self.messages.append(assistant_msg)
+            self._record(assistant_msg)
             results = []
             for tu in resp:
                 emit(AGENT_TOOL_CALL, agent=self.name, tool=tu.name,
@@ -325,7 +338,9 @@ class Agent:
                 results.append({'type': 'tool_result',
                                 'tool_use_id': tu.id, 'content': out})
             self._emit_progress({'role': 'user', 'content': results})
-            self.messages.append({'role': 'user', 'content': results})
+            results_msg = {'role': 'user', 'content': results}
+            self.messages.append(results_msg)
+            self._record(results_msg)
 
     async def poll_inbox(self):
         text = await self.poller.poll_once()

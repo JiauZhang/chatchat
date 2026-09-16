@@ -41,7 +41,7 @@ class Team:
                  provider: str = None, model: str = None,
                  thinking: bool = True, tools: list = None,
                  compact_tokens: int = 160_000,
-                 mailbox_dir=None,
+                 mailbox_dir=None, sidechain_dir=None,
                  multi_agent: bool = True, **client_kw):
         self.name = name
         self.multi_agent = multi_agent
@@ -65,6 +65,7 @@ class Team:
         self._session_started = False
         self._compact_fn = None
         self._compact_threshold = compact_tokens
+        self.sidechain_dir = sidechain_dir
         self._compact_fn = self._builtin_compact
         self.agent_defs = AgentRegistry()
         self.agent_defs.define(GENERAL_PURPOSE,
@@ -185,16 +186,29 @@ class Team:
         abort = AbortSignal()
         ctx = AgentContext(agent_id=agent_id, agent_name=name,
                            team_name=self.name, abort=abort, leader=False)
+        writer = None
+        if self.sidechain_dir is not None:
+            from chatchat.core.sidechain import SidechainWriter
+            writer = SidechainWriter(self.sidechain_dir, name, self.name,
+                                     subagent_type or '', prompt)
         agent = Agent(agent_id, name, self, self._client_for(sys_prompt),
                       ctx, instruction=sys_prompt,
                       depth=depth, internal=True, tool_exec=defn,
-                      model_timeout=self._model_timeout, model_retries=self._model_retries)
+                      model_timeout=self._model_timeout, model_retries=self._model_retries,
+                      on_message=None if writer is None else writer.append)
         if fork_msgs:
             agent.messages = list(fork_msgs)
         emit(AGENT_PROGRESS, agent=agent.name,
              prompt=prompt, subagent_type=subagent_type or '')
         try:
-            return await agent.chat(prompt)
+            result = await agent.chat(prompt)
+            if writer is not None:
+                writer.finish('completed')
+            return result
+        except BaseException:
+            if writer is not None:
+                writer.finish('failed')
+            raise
         finally:
             emit(AGENT_PROGRESS, agent=agent.name, done=True)
             await self.hooks.execute_subagent_stop_hooks(agent, LEAD_NAME)
