@@ -5,13 +5,15 @@ import inspect
 from pathlib import Path
 
 import chatchat.core.tools as _tools
+from chatchat.tool import ToolResult
 from chatchat.core.abort import AbortSignal
 from chatchat.core.agent import Agent
 from chatchat.core.agents import GENERAL_PURPOSE, AgentDefinition, AgentRegistry
 from chatchat.core.mailbox import FileMailbox
 from chatchat.core.context import AgentContext
 from chatchat.core.mailbox import idle_notification as _idle_msg
-from chatchat.hooks.events import AGENT_PROGRESS, emit
+from chatchat.hooks.events import (AGENT_PROGRESS, AGENT_TOOL_RESULT,
+                                  emit)
 from chatchat.hooks.manager import HookManager
 
 LEAD_NAME = 'team-lead'
@@ -371,7 +373,14 @@ class Team:
                 out = tool(**input)
                 if inspect.iscoroutine(out):
                     out = await out
-                out = out if isinstance(out, str) else str(out)
+                if isinstance(out, ToolResult):
+                    emit(AGENT_TOOL_RESULT,
+                         agent=getattr(agent, 'name', ''),
+                         tool=name, tool_use_id=tool_use_id,
+                         **(out.meta or {}))
+                    out = out.text
+                elif not isinstance(out, str):
+                    out = str(out)
             except Exception as e:
                 if agent is not None and not agent.hookless:
                     await self.hooks.execute_post_tool_failure_hooks(

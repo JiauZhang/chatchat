@@ -1,3 +1,12 @@
+from dataclasses import dataclass
+
+
+@dataclass
+class ToolResult:
+    text: str
+    meta: dict | None = None
+
+
 class Tool:
     def __init__(self, *, tool, name, description, parameters=None, on_start=None, on_end=None, on_error=None):
         self.name = name

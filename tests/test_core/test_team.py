@@ -387,3 +387,62 @@ def test_compact_threshold_is_exposed():
         assert team.compact_threshold == 999
 
     asyncio.run(main())
+
+
+def test_execute_tool_toolresult_emits_meta_and_returns_text():
+    from chatchat.hooks.events import AGENT_TOOL_RESULT
+    from chatchat.tool import Tool, ToolResult
+
+    events = []
+    clear_runtime_sinks()
+    register_runtime_handler(lambda ev: events.append(ev))
+
+    def greppy(file_path: str = '') -> ToolResult:
+        return ToolResult(text='a.py:1: x', meta={'num_files': 1,
+                                                  'num_lines': 1})
+
+    async def main():
+        team = Team(
+            'demo',
+            client_factory=lambda i: MockClient(handler=lambda m, t=None,
+                                                stream_cb=None: 'ok'),
+            lead_instruction=LEAD,
+            tools=[Tool(tool=greppy, name='Grep', description='grep')],
+        )
+        text = await team.execute_tool('Grep', {'file_path': 'a.py'},
+                                       team.lead, 't1')
+        return text, team
+
+    text, team = asyncio.run(main())
+    assert text == 'a.py:1: x'
+    tr = [e for e in events if e.kind == AGENT_TOOL_RESULT]
+    assert tr and tr[0].data['num_files'] == 1
+    assert tr[0].data['num_lines'] == 1
+    assert tr[0].data['tool'] == 'Grep'
+    assert tr[0].data['tool_use_id'] == 't1'
+
+
+def test_execute_tool_plain_str_no_event():
+    from chatchat.hooks.events import AGENT_TOOL_RESULT
+    from chatchat.tool import Tool
+
+    events = []
+    clear_runtime_sinks()
+    register_runtime_handler(lambda ev: events.append(ev))
+
+    def plain() -> str:
+        return 'hello'
+
+    async def main():
+        team = Team(
+            'demo',
+            client_factory=lambda i: MockClient(handler=lambda m, t=None,
+                                                stream_cb=None: None),
+            lead_instruction=LEAD,
+            tools=[Tool(tool=plain, name='Plain', description='plain')],
+        )
+        return await team.execute_tool('Plain', {}, team.lead, 't9')
+
+    out = asyncio.run(main())
+    assert out == 'hello'
+    assert not [e for e in events if e.kind == AGENT_TOOL_RESULT]
