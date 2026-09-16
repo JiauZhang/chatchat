@@ -50,6 +50,30 @@ def test_read_only_is_a_capability_of_the_tool():
     assert t.get_path({}) is None
 
 
+def test_a_result_over_the_budget_is_cut_with_a_note_saying_so():
+    from chatchat.tool import DEFAULT_MAX_RESULT_CHARS
+
+    def long(context, filler: str = ''):
+        return 'x' * 5000
+
+    t = Tool(tool=long, name='Dump', description='d', max_result_chars=1000)
+    out = asyncio.run(t(CTX))
+    assert len(out) <= 1000
+    assert 'truncated' in out
+    assert Tool(tool=long, name='D', description='d').max_result_chars \
+        == DEFAULT_MAX_RESULT_CHARS
+
+
+def test_a_result_inside_the_budget_is_untouched():
+    def short(context):
+        return ToolResult(text='exactly this', meta={'num_lines': 1})
+
+    t = Tool(tool=short, name='S', description='s', max_result_chars=1000)
+    out = asyncio.run(t(CTX))
+    assert out.text == 'exactly this'
+    assert out.meta == {'num_lines': 1}
+
+
 def test_tool_failure_reports_the_real_reason():
     def boom(context, path: str = ''):
         raise ValueError('no such directory')

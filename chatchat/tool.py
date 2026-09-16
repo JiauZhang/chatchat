@@ -5,6 +5,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+DEFAULT_MAX_RESULT_CHARS = 50_000
+_TRUNCATED = ('\n\n... [output exceeded {limit} characters and was '
+              'truncated] ...')
+
+
 @dataclass
 class ToolContext:
     cwd: Path
@@ -20,6 +25,7 @@ class Tool:
 
     def __init__(self, *, tool, name, description, parameters=None,
                  read_only=False, get_path=None,
+                 max_result_chars: int = DEFAULT_MAX_RESULT_CHARS,
                  on_start=None, on_end=None, on_error=None):
         self.tool = tool
         self.name = name
@@ -27,6 +33,7 @@ class Tool:
         self.parameters = parameters
         self.read_only = bool(read_only)
         self.get_path = get_path
+        self.max_result_chars = int(max_result_chars)
         self.on_start = on_start
         self.on_end = on_end
         self.on_error = on_error
@@ -36,6 +43,18 @@ class Tool:
             return self.description(context)
         return self.description
 
+    def _fit(self, result):
+        text = result.text if isinstance(result, ToolResult) else result
+        if not isinstance(text, str) or len(text) <= self.max_result_chars:
+            return result
+        note = _TRUNCATED.format(limit=self.max_result_chars)
+        kept = text[:max(0, self.max_result_chars - len(note))] + note
+        if isinstance(result, ToolResult):
+            result.text = kept
+        else:
+            result = kept
+        return result
+
     async def __call__(self, context: ToolContext, **kwargs):
         if self.on_start:
             self.on_start(self, **kwargs)
@@ -43,6 +62,7 @@ class Tool:
             result = self.tool(context, **kwargs)
             if inspect.isawaitable(result):
                 result = await result
+            result = self._fit(result)
         except Exception as e:
             if self.on_error:
                 self.on_error(self, e)
@@ -64,11 +84,13 @@ class Tool:
 
 
 def tool(*, name, description, parameters=None, read_only=False,
-         get_path=None, on_start=None, on_end=None, on_error=None):
+         get_path=None, max_result_chars: int = DEFAULT_MAX_RESULT_CHARS,
+         on_start=None, on_end=None, on_error=None):
     def decorator(func):
         return Tool(
             tool=func, name=name, description=description, parameters=parameters,
             read_only=read_only, get_path=get_path,
+            max_result_chars=max_result_chars,
             on_start=on_start, on_end=on_end, on_error=on_error,
         )
     return decorator
