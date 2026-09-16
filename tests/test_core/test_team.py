@@ -132,8 +132,7 @@ def test_report_surfaces_when_lead_never_writes_text():
                           else sub_respond)
 
     async def main():
-        team = Team('rep', client_factory=factory, lead_instruction=LEAD_INST,
-                    max_steps=3)
+        team = Team('rep', client_factory=factory, lead_instruction=LEAD_INST)
         ans = await team.query('给我一份 deepseek 报告', timeout=15)
         return ans
 
