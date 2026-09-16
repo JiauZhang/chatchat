@@ -31,7 +31,7 @@ def test_file_mailbox_lockfile_serializes_writers(tmp_path):
     assert not path.with_suffix(path.suffix + '.lock').exists()
 
 
-def test_poll_interval_matches_claude(tmp_path):
+def test_poll_interval_is_half_second(tmp_path):
     assert DEFAULT_INTERVAL == 0.5
 
 
