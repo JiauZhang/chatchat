@@ -17,7 +17,7 @@ def test_spawn_subagent_emits_progress_with_usage():
             return [ToolUse('ping', {'x': 1}, 't1')]
         return '子任务完成'
 
-    def factory(instruction):
+    def factory(instruction, model=None):
         return MockClient(handler=respond,
                           usage={'prompt_tokens': 100, 'completion_tokens': 20,
                                  'total_tokens': 120,
@@ -58,7 +58,7 @@ def test_team_members_run_injected_tools():
             return [ToolUse('ping', {'x': 1}, 't1')]
         return 'done'
 
-    def factory(instruction):
+    def factory(instruction, model=None):
         return MockClient(handler=respond)
 
     async def main():
@@ -88,7 +88,7 @@ def test_standalone_subagent_uses_its_own_definition_tools():
             return [ToolUse('my_tool', {'x': 1}, 't1')]
         return 'subagent 完成.'
 
-    def factory(instruction):
+    def factory(instruction, model=None):
         return MockClient(handler=sub_respond)
 
     async def main():
@@ -109,7 +109,7 @@ def test_standalone_subagent_uses_its_own_definition_tools():
 def test_spawn_subagent_defaults_general_purpose():
     async def respond(messages, tools=None, *, stream_cb=None):
         return '默认答复'
-    factory = lambda inst: MockClient(handler=respond)
+    factory = lambda inst, model=None: MockClient(handler=respond)
 
     async def main():
         team = Team('gp', client_factory=factory)
@@ -119,4 +119,4 @@ def test_spawn_subagent_defaults_general_purpose():
 
     result, n = asyncio.run(main())
     assert result == '默认答复'
-    assert n == 1
+    assert n == 2

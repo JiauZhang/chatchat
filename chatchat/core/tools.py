@@ -41,7 +41,8 @@ async def create_agent(team, agent, input: dict) -> str:
             return ('Error: Teammates cannot spawn other teammates — '
                     'the team roster is flat.')
         teammate = team.create_agent(
-            str(name), instruction=cfg, depth=getattr(agent, 'depth', 0) + 1)
+            str(name), instruction=cfg, model=input.get('model'),
+            depth=getattr(agent, 'depth', 0) + 1)
         team.parents[teammate.agent_id] = agent.agent_id
         team.children.setdefault(agent.agent_id, set()).add(teammate.agent_id)
         teammate.submit(prompt)
@@ -54,7 +55,8 @@ async def create_agent(team, agent, input: dict) -> str:
     try:
         result = await team.spawn_subagent(
             prompt, subagent_type=input.get('subagent_type'),
-            instruction=cfg, depth=getattr(agent, 'depth', 0) + 1)
+            instruction=cfg, model=input.get('model'),
+            depth=getattr(agent, 'depth', 0) + 1)
     except Exception:
         if agent is not None and not agent._internal:
             await team.hooks.execute_task_completed_hooks(

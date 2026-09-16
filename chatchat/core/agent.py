@@ -21,7 +21,8 @@ class Agent:
                  tool_exec=None, model_timeout: float = 120.0,
                  model_retries: int = 2,
                  on_message=None,
-                 inbox=None):
+                 inbox=None,
+                 agent_type: str = ''):
         self.agent_id = agent_id
         self.name = name
         self.team = team
@@ -32,6 +33,7 @@ class Agent:
         self.hookless = hookless
         self._instructions_loaded = False
         self.depth = depth
+        self.agent_type = agent_type
         self.model_timeout = model_timeout
         self.model_retries = model_retries
         self.tool_exec = tool_exec if tool_exec is not None else team

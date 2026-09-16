@@ -26,7 +26,7 @@ def make_team():
         return [ToolUse('send_message', {'to': 'team-lead',
                                          'message': '结论：DeepSeek 优秀'}, 'm2')]
 
-    def factory(instruction):
+    def factory(instruction, model=None):
         if 'researcher' in instruction:
             return MockClient(handler=researcher_respond)
         return MockClient(handler=lead_respond)
@@ -56,7 +56,7 @@ def test_wait_idle_not_satisfied_by_stale_idle_set():
         return 'ok'
 
     async def main():
-        team = Team('race', client_factory=lambda inst: MockClient(handler=respond))
+        team = Team('race', client_factory=lambda inst, model=None: MockClient(handler=respond))
         lead = team.lead
         lead.submit('new')
         lead._set_idle()
@@ -81,7 +81,7 @@ def test_interrupt_and_submit_aborts_running_cancelable_tool():
         await asyncio.sleep(10)
 
     async def main():
-        team = Team('int', client_factory=lambda inst: MockClient(handler=respond))
+        team = Team('int', client_factory=lambda inst, model=None: MockClient(handler=respond))
         lead = team.lead
         lead.submit('start')
         lead._in_tool = 'sleep_long'
@@ -103,7 +103,7 @@ def test_interrupt_and_submit_queues_for_non_cancelable_tool():
         return [ToolUse('bash', {}, 'b1')]
 
     async def main():
-        team = Team('int2', client_factory=lambda inst: MockClient(handler=respond))
+        team = Team('int2', client_factory=lambda inst, model=None: MockClient(handler=respond))
         lead = team.lead
         lead.submit('start')
         lead._in_tool = 'bash'
@@ -128,7 +128,7 @@ def test_report_surfaces_when_lead_never_writes_text():
     async def sub_respond(messages, tools=None, *, stream_cb=None):
         return report
 
-    def factory(instruction):
+    def factory(instruction, model=None):
         return MockClient(handler=lead_respond if instruction == LEAD_INST
                           else sub_respond)
 
@@ -150,7 +150,7 @@ def test_inbox_frame_is_counted_as_pending():
             await release.wait()
             return 'ok'
 
-        team = Team('inbox', client_factory=lambda inst: MockClient(
+        team = Team('inbox', client_factory=lambda inst, model=None: MockClient(
             handler=respond))
         lead = team.lead
         lead.inbox.write('peer@inbox', 'hello from peer')
@@ -196,7 +196,7 @@ def test_attachment_wakes_idle_agent():
         return 'ack'
 
     async def main():
-        team = Team('wake', client_factory=lambda inst: MockClient(handler=respond))
+        team = Team('wake', client_factory=lambda inst, model=None: MockClient(handler=respond))
         lead = team.lead
         lead.enqueue_attachment('<task-notification>b9</task-notification>')
         await lead.wait_idle(3.0)
@@ -220,7 +220,7 @@ def test_attachment_injected_before_next_model_call():
         return 'ok'
 
     async def main():
-        team = Team('att', client_factory=lambda inst: MockClient(handler=respond))
+        team = Team('att', client_factory=lambda inst, model=None: MockClient(handler=respond))
         lead = team.lead
         lead.enqueue_attachment('<task-notification>b1</task-notification>')
         await lead.wait_idle(3.0)
@@ -250,7 +250,7 @@ def test_attachment_enqueued_mid_turn_reaches_next_model_call():
         return 'done'
 
     async def main():
-        team = Team('att2', client_factory=lambda inst: MockClient(handler=respond))
+        team = Team('att2', client_factory=lambda inst, model=None: MockClient(handler=respond))
         holder['lead'] = team.lead
         return await team.query('go')
 
@@ -263,7 +263,7 @@ def test_attachment_enqueued_mid_turn_reaches_next_model_call():
 
 def test_tool_schemas_differ_by_multi_agent():
     async def names(**kw):
-        team = Team('m', client_factory=lambda inst: MockClient(handler=_ok), **kw)
+        team = Team('m', client_factory=lambda inst, model=None: MockClient(handler=_ok), **kw)
         return {t['name'] for t in team.tool_schemas()}
 
     async def _ok(messages, tools=None, *, stream_cb=None):
@@ -296,7 +296,7 @@ def test_general_purpose_subagent_inherits_team_tools():
         return [ToolUse('create_agent', {'prompt': 'run-it'}, 't1')]
 
     async def main():
-        team = Team('gp', client_factory=lambda inst: MockClient(handler=respond),
+        team = Team('gp', client_factory=lambda inst, model=None: MockClient(handler=respond),
                     tools=[mytool])
         schema = next(t for t in team.tool_schemas()
                       if t['name'] == 'create_agent')
@@ -309,12 +309,69 @@ def test_general_purpose_subagent_inherits_team_tools():
     assert out == 'done'
 
 
+def test_subagent_model_resolution_param_over_def_over_inherit():
+    from chatchat.core.agents import AgentDefinition
+    seen = []
+
+    def factory(instruction, model=None):
+        seen.append(model)
+        return MockClient(handler=lambda messages, tools=None: 'ok')
+
+    async def main():
+        team = Team('mr', client_factory=factory)
+        team.register_agent_definition(AgentDefinition(
+            'reader', system_prompt='read stuff', model='def-model'))
+        await team.spawn_subagent('go', subagent_type='reader')
+        await team.spawn_subagent('go', subagent_type='reader',
+                                  model='param-model')
+        await team.spawn_subagent('go')
+        return seen
+
+    assert asyncio.run(main()) == [None, 'def-model', 'param-model', None]
+
+
+def test_create_agent_tool_passes_model_and_schema_exposes_it():
+    seen = []
+
+    def factory(instruction, model=None):
+        seen.append(model)
+        return MockClient(handler=lambda messages, tools=None: 'ok')
+
+    async def main():
+        team = Team('cm', client_factory=factory)
+        out = await team.execute_tool('create_agent',
+                                      {'prompt': 'x', 'model': 'm2'},
+                                      team.lead, 't1')
+        schema = team.tool_schemas()[0]['input_schema']['properties']
+        return out, seen, schema
+
+    out, seen, schema = asyncio.run(main())
+    assert 'ok' in out
+    assert seen == [None, 'm2']
+    assert 'model' in schema
+
+
+def test_spawned_subagent_carries_definition_agent_type():
+    from chatchat.core.agents import AgentDefinition
+
+    async def main():
+        team = Team('at', client_factory=lambda inst, model=None: MockClient(
+            handler=lambda messages, tools=None: 'ok'))
+        team.register_agent_definition(AgentDefinition(
+            'reader', system_prompt='read stuff'))
+        await team.spawn_subagent('go', subagent_type='reader')
+        subs = [a for a in team.agents.values() if a._internal]
+        return [a.agent_type for a in subs]
+
+    assert asyncio.run(main()) == ['reader']
+
+
 def test_spawn_subagent_writes_sidechain_transcript(tmp_path):
     async def sub_respond(messages, tools=None, *, stream_cb=None):
         return 'sub done'
 
     async def main():
-        team = Team('sc', client_factory=lambda inst: MockClient(handler=sub_respond),
+        team = Team('sc', client_factory=lambda inst, model=None: MockClient(handler=sub_respond),
                     sidechain_dir=tmp_path)
         return await team.spawn_subagent('do it', subagent_type='general-purpose')
 
@@ -347,7 +404,7 @@ def test_spawn_subagent_without_sidechain_dir_writes_nothing(tmp_path):
         return 'sub done'
 
     async def main():
-        team = Team('ns', client_factory=lambda inst: MockClient(handler=sub_respond))
+        team = Team('ns', client_factory=lambda inst, model=None: MockClient(handler=sub_respond))
         return await team.spawn_subagent('do it', subagent_type='general-purpose')
 
     asyncio.run(main())
@@ -368,7 +425,7 @@ def test_model_timeout_retries_the_request_and_completes_the_turn():
         return 'recovered'
 
     async def main():
-        team = Team('rt', client_factory=lambda inst: MockClient(handler=respond),
+        team = Team('rt', client_factory=lambda inst, model=None: MockClient(handler=respond),
                     model_timeout=0.2)
         out = await team.query('hi')
         return out, team
@@ -396,7 +453,7 @@ def test_model_timeout_gives_up_after_retries_are_exhausted():
         return 'late'
 
     async def main():
-        team = Team('rg', client_factory=lambda inst: MockClient(handler=respond),
+        team = Team('rg', client_factory=lambda inst, model=None: MockClient(handler=respond),
                     model_timeout=0.1, model_retries=1)
         out = await team.query('hi')
         return out, team
@@ -424,7 +481,7 @@ def test_model_timeout_does_not_retry_after_text_was_streamed():
         return 'late'
 
     async def main():
-        team = Team('rp', client_factory=lambda inst: MockClient(handler=respond),
+        team = Team('rp', client_factory=lambda inst, model=None: MockClient(handler=respond),
                     model_timeout=0.1)
         return await team.query('hi')
 
@@ -442,7 +499,7 @@ def test_model_timeout_is_visible_and_query_never_returns_stale_text():
         return 'late'
 
     async def main():
-        team = Team('to', client_factory=lambda inst: MockClient(handler=respond),
+        team = Team('to', client_factory=lambda inst, model=None: MockClient(handler=respond),
                     model_timeout=0.2)
         out1 = await team.query('first')
         out2 = await team.query('second')
@@ -469,7 +526,7 @@ def test_create_agent_tool_name_spawns_persistent_teammate():
                         {'prompt': 'do work', 'name': 'worker'}, 't1')]
 
     async def main():
-        team = Team('m2', client_factory=lambda inst: MockClient(handler=respond))
+        team = Team('m2', client_factory=lambda inst, model=None: MockClient(handler=respond))
         lead = team.lead
         out = await team.execute_tool(
             'create_agent', {'prompt': 'do work', 'name': 'worker'}, lead)
@@ -482,7 +539,7 @@ def test_create_agent_tool_name_spawns_persistent_teammate():
             one_shot = await team.execute_tool(
                 'create_agent', {'prompt': 'quick'}, lead)
             team_single = Team(
-                'm3', client_factory=lambda inst: MockClient(handler=respond),
+                'm3', client_factory=lambda inst, model=None: MockClient(handler=respond),
                 multi_agent=False)
             single_out = await team_single.execute_tool(
                 'create_agent', {'prompt': 'quick', 'name': 'w'}, team_single.lead)
@@ -504,7 +561,7 @@ def test_compact_threshold_is_exposed():
 
     async def main():
         team = Team('ct',
-                    client_factory=lambda inst: MockClient(handler=respond),
+                    client_factory=lambda inst, model=None: MockClient(handler=respond),
                     compact_tokens=1234)
         assert team.compact_threshold == 1234
         team.set_compact_strategy(lambda messages: messages, threshold=999)
@@ -528,7 +585,7 @@ def test_execute_tool_toolresult_emits_meta_and_returns_text():
     async def main():
         team = Team(
             'demo',
-            client_factory=lambda i: MockClient(handler=lambda m, t=None,
+            client_factory=lambda inst, model=None: MockClient(handler=lambda m, t=None,
                                                 stream_cb=None: 'ok'),
             lead_instruction=LEAD,
             tools=[Tool(tool=greppy, name='Grep', description='grep')],
@@ -560,7 +617,7 @@ def test_execute_tool_plain_str_no_event():
     async def main():
         team = Team(
             'demo',
-            client_factory=lambda i: MockClient(handler=lambda m, t=None,
+            client_factory=lambda inst, model=None: MockClient(handler=lambda m, t=None,
                                                 stream_cb=None: None),
             lead_instruction=LEAD,
             tools=[Tool(tool=plain, name='Plain', description='plain')],

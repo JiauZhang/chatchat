@@ -120,13 +120,14 @@ class Team:
         await self.hooks.execute_post_compact_hooks()
         return list(result) if result else messages
 
-    def _client_for(self, instruction: str, thinking: bool | None = None):
+    def _client_for(self, instruction: str, thinking: bool | None = None,
+                    model: str | None = None):
         if self._factory is not None:
-            return self._factory(instruction)
+            return self._factory(instruction, model)
         if self._client is not None:
             return self._client
         from chatchat.client import Client
-        return Client(self._provider, model=self._model,
+        return Client(self._provider, model=model or self._model,
                       instruction=instruction,
                       thinking=self._thinking if thinking is None else thinking,
                       **self._client_kw)
@@ -149,7 +150,8 @@ class Team:
         inbox = None
         if self._mailbox_dir is not None:
             inbox = FileMailbox(self._mailbox_dir / f'{name}.json')
-        agent = Agent(agent_id, name, self, self._client_for(instruction),
+        agent = Agent(agent_id, name, self,
+                      self._client_for(instruction, model=model),
                       ctx, instruction=instruction, inbox=inbox,
                       depth=depth, model_timeout=self._model_timeout, model_retries=self._model_retries)
         self.agents[agent_id] = agent
@@ -191,11 +193,15 @@ class Team:
             from chatchat.core.sidechain import SidechainWriter
             writer = SidechainWriter(self.sidechain_dir, name, self.name,
                                      subagent_type or '', prompt)
-        agent = Agent(agent_id, name, self, self._client_for(sys_prompt),
+        model = model or defn.model
+        agent = Agent(agent_id, name, self,
+                      self._client_for(sys_prompt, model=model),
                       ctx, instruction=sys_prompt,
                       depth=depth, internal=True, tool_exec=defn,
                       model_timeout=self._model_timeout, model_retries=self._model_retries,
-                      on_message=None if writer is None else writer.append)
+                      on_message=None if writer is None else writer.append,
+                      agent_type=subagent_type or '')
+        self.agents[agent_id] = agent
         if fork_msgs:
             agent.messages = list(fork_msgs)
         emit(AGENT_PROGRESS, agent=agent.name,
@@ -344,7 +350,11 @@ class Team:
                                                       'stays alive with a '
                                                       'mailbox; message it via '
                                                       'send_message. Omit for '
-                                                      'a one-off sub-agent.'}},
+                                                      'a one-off sub-agent.'},
+                                             'model': {'type': 'string',
+                                                       'description': 'Optional '
+                                                       'model override for the '
+                                                       'spawned agent.'}},
                               'required': ['prompt']}},
         ]
         if self.multi_agent:

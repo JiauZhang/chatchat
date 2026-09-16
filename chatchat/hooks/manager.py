@@ -28,8 +28,10 @@ def build_hook_input(event: str, *, session_id: str, agent=None, cwd: str = '',
         'cwd': cwd,
         'permission_mode': None,
         'agent_id': agent.name if agent else None,
-        'agent_type': 'subagent' if agent and getattr(agent, '_internal', False)
-                      else None,
+        'agent_type': (getattr(agent, 'agent_type', '')
+                       or ('subagent' if getattr(agent, '_internal', False)
+                           else None)
+                       if agent else None),
         'hook_event_name': event,
     }
     hook_input.update(fields)

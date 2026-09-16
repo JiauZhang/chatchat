@@ -43,7 +43,7 @@ def test_unhandled_protocol_message_is_delivered_not_swallowed(tmp_path):
         return 'ok'
 
     async def main():
-        team = Team('p', client_factory=lambda inst: MockClient(handler=respond))
+        team = Team('p', client_factory=lambda inst, model=None: MockClient(handler=respond))
         lead = team.lead
         lead.inbox.write('peer', '{"type": "idle_notification", "from": "peer"}')
         text = await lead.poller.poll_once()
@@ -65,7 +65,7 @@ def test_handled_protocol_message_is_routed(tmp_path):
 
 def test_team_uses_file_mailboxes_under_dir(tmp_path):
     async def main():
-        team = Team('fm', client_factory=lambda inst: MockClient(handler=None),
+        team = Team('fm', client_factory=lambda inst, model=None: MockClient(handler=None),
                     mailbox_dir=tmp_path / 'teams')
         return team.lead.inbox
     inbox = asyncio.run(main())

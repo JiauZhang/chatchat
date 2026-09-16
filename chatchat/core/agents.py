@@ -13,6 +13,7 @@ class AgentDefinition:
     system_prompt: str = ''
     tools: list = field(default_factory=list)
     model: str | None = None
+    permission_mode: str | None = None
     default: bool = False
     addenda: str = ''
     description: str = ''
@@ -107,6 +108,9 @@ class AgentRegistry:
         if self._default is None:
             self.register(general_purpose())
         return self._default
+
+    def find(self, agent_type: str) -> AgentDefinition | None:
+        return self._defs.get(agent_type)
 
     def types(self) -> list[str]:
         return sorted(self._defs)

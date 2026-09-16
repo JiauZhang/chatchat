@@ -27,7 +27,7 @@ def test_usage_from_dict_none_keeps_zeros():
 def test_team_query_accumulates_usage():
     async def respond(messages, tools=None, *, stream_cb=None):
         return 'done'
-    factory = lambda inst: MockClient(handler=respond, usage={
+    factory = lambda inst, model=None: MockClient(handler=respond, usage={
         'prompt_tokens': 100, 'completion_tokens': 20, 'total_tokens': 120,
         'prompt_tokens_details': {'cached_tokens': 80}})
 
@@ -45,7 +45,7 @@ def test_team_query_accumulates_usage():
 
 
 def test_provider_without_usage_keeps_zeros():
-    factory = lambda inst: MockClient(handler=lambda m, t=None, **k: 'ok')
+    factory = lambda inst, model=None: MockClient(handler=lambda m, t=None, **k: 'ok')
 
     async def main():
         team = Team('u', client_factory=factory)
@@ -66,7 +66,7 @@ def test_thinking_stored_on_assistant_message():
         return '看好了'
 
     async def main():
-        team = Team('t', client_factory=lambda inst: MockClient(handler=respond))
+        team = Team('t', client_factory=lambda inst, model=None: MockClient(handler=respond))
         await team.query('现在天气如何')
         return team.transcript()
 

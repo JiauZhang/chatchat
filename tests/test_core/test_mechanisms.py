@@ -17,7 +17,7 @@ def test_two_level_abort_stops_only_current_turn():
             await asyncio.sleep(10)
         return '快答复'
 
-    def factory(instruction):
+    def factory(instruction, model=None):
         return MockClient(handler=responder)
 
     async def main():
@@ -40,7 +40,7 @@ def test_two_level_abort_stops_only_current_turn():
 
 
 def test_task_terminal_on_stop():
-    def factory(instruction):
+    def factory(instruction, model=None):
         return MockClient(handler=lambda m, t=None, **k: 'ok')
 
     async def main():
@@ -60,7 +60,7 @@ def test_model_call_timeout_degrades_gracefully():
         await asyncio.sleep(60)
         return 'x'
 
-    def factory(instruction):
+    def factory(instruction, model=None):
         return MockClient(handler=hang)
 
     async def main():
@@ -87,7 +87,7 @@ def test_default_auto_compaction_summarizes_middle():
             return 'conversation summary text'
         return 'ok'
 
-    def factory(instruction):
+    def factory(instruction, model=None):
         return MockClient(handler=respond)
 
     async def main():
@@ -110,7 +110,7 @@ def test_pluggable_compact_strategy():
     async def responder(messages, tools=None, *, stream_cb=None):
         return 'ok'
 
-    def factory(instruction):
+    def factory(instruction, model=None):
         return MockClient(handler=responder)
 
     def strategy(messages):
