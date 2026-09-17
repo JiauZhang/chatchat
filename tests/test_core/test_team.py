@@ -627,3 +627,133 @@ def test_execute_tool_plain_str_no_event():
     out = asyncio.run(main())
     assert out == 'hello'
     assert not [e for e in events if e.kind == AGENT_TOOL_RESULT]
+
+
+def test_create_agent_carries_tool_use_id_on_progress():
+    from chatchat.hooks.events import AGENT_PROGRESS
+
+    events = []
+    clear_runtime_sinks()
+    register_runtime_handler(lambda ev: events.append(ev))
+
+    def factory(instruction, model=None):
+        return MockClient(
+            handler=lambda m, t=None, stream_cb=None: 'sub answer')
+
+    async def main():
+        team = Team('demo', client_factory=factory, lead_instruction=LEAD)
+        return await team.execute_tool('create_agent', {'prompt': 'go'},
+                                       team.lead, 'tu-1')
+
+    out = asyncio.run(main())
+    assert out == 'sub answer'
+    started = [e for e in events
+               if e.kind == AGENT_PROGRESS and e.data.get('tool_use_id')]
+    assert started, 'the spawn must carry the spawning tool_use_id'
+    assert started[0].data['tool_use_id'] == 'tu-1'
+    assert started[0].data['prompt'] == 'go'
+    assert isinstance(started[0].data['started_at'], float)
+
+
+def test_agent_state_reports_busy_when_a_teammate_starts_a_turn():
+    from chatchat.core.mailbox import Mailbox
+    from chatchat.hooks.events import AGENT_STATE
+
+    states = []
+    clear_runtime_sinks()
+    register_runtime_handler(
+        lambda ev: states.append(ev.data.get('busy'))
+        if ev.kind == AGENT_STATE else None)
+
+    async def main():
+        team = Team('demo',
+                    client_factory=lambda inst, model=None: MockClient(
+                        handler=lambda m, t=None, stream_cb=None: 'done'),
+                    lead_instruction=LEAD)
+        worker = team.create_agent('worker', instruction='w', depth=1)
+        worker.submit('start')
+        await worker.wait_idle()
+        await asyncio.sleep(0.05)
+        return worker
+
+    worker = asyncio.run(main())
+    assert True in states, 'busy must be observable while the turn runs'
+    assert states[-1] is False
+    assert isinstance(worker, object)
+
+
+def test_every_dispatched_tool_accepts_the_spawning_tool_use_id():
+    """execute_tool hands `tool_use_id` to every built-in tool positionally."""
+    import inspect
+
+    import chatchat.core.team as ct
+
+    names = ('send_message', 'create_agent', 'task_stop')
+    for name in names:
+        fn = getattr(ct._tools, name)
+        params = list(inspect.signature(fn).parameters)
+        assert params[-1] == 'tool_use_id', f'{name} dropped tool_use_id'
+        assert inspect.signature(fn).parameters['tool_use_id'].default == ''
+
+
+def test_task_stop_stops_a_teammate_created_through_create_agent():
+    async def idle(messages, tools=None, *, stream_cb=None):
+        return 'idle'
+
+    async def main():
+        team = Team('demo',
+                    client_factory=lambda inst, model=None: MockClient(
+                        handler=idle),
+                    lead_instruction=LEAD, multi_agent=True)
+        spawned = await team.execute_tool('create_agent',
+                                          {'prompt': 'watch the build',
+                                           'name': 'watcher'},
+                                          team.lead, 'tu-1')
+        assert 'spawned and idle' in spawned
+        watcher = team.get_by_name('watcher')
+        assert watcher is not None
+        assert team.children[team.lead.agent_id] == {watcher.agent_id}
+
+        out = await team.execute_tool('task_stop', {'name': 'watcher'},
+                                      team.lead, 'tu-2')
+        return team, watcher, out
+
+    team, watcher, out = asyncio.run(main())
+    assert 'is not your sub-agent' not in out
+    assert out == f'agent {watcher.agent_id} stopped'
+    assert team.children[team.lead.agent_id] == set()
+    assert watcher.agent_id not in team.parents
+
+
+def test_task_stop_refuses_an_agent_that_is_not_your_child():
+    async def idle(messages, tools=None, *, stream_cb=None):
+        return 'idle'
+
+    async def main():
+        team = Team('demo',
+                    client_factory=lambda inst, model=None: MockClient(
+                        handler=idle),
+                    lead_instruction=LEAD, multi_agent=True)
+        stray = team.create_agent('stray', instruction='x', depth=1)
+        return await team.execute_tool('task_stop', {'name': 'stray'},
+                                       team.lead, 'tu-3')
+
+    assert asyncio.run(main()) == 'Error: "stray" is not your sub-agent'
+
+
+def test_spawn_teammate_files_children_under_the_lead_agent_id():
+    async def idle(messages, tools=None, *, stream_cb=None):
+        return 'idle'
+
+    async def main():
+        team = Team('demo',
+                    client_factory=lambda inst, model=None: MockClient(
+                        handler=idle),
+                    lead_instruction=LEAD, multi_agent=True)
+        worker = team.spawn_teammate('worker', 'go', instruction='x')
+        await asyncio.sleep(0.05)
+        return team, worker
+
+    team, worker = asyncio.run(main())
+    assert team.children[team.lead.agent_id] == {worker.agent_id}
+    assert team.parents[worker.agent_id] == team.lead.agent_id

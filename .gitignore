@@ -135,3 +135,4 @@ dmypy.json
 # Local agent tooling
 .trae/
 .codebuddy/
+.pyclaw

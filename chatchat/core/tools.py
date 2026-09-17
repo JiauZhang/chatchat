@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 
-async def send_message(team, agent, input: dict) -> str:
+async def send_message(team, agent, input: dict, tool_use_id: str = '') -> str:
     to = input.get('to', '')
     message = input.get('message', '') or ''
     note = ('Do NOT re-send or poll them; wait for their teammate_message back.')
@@ -30,7 +30,7 @@ async def send_message(team, agent, input: dict) -> str:
             f'next idle turn. {note}')
 
 
-async def create_agent(team, agent, input: dict) -> str:
+async def create_agent(team, agent, input: dict, tool_use_id: str = '') -> str:
     prompt = input.get('prompt', '')
     cfg = input.get('instruction') or (
         'You are an autonomous sub-agent. Complete the task and give your '
@@ -56,7 +56,8 @@ async def create_agent(team, agent, input: dict) -> str:
         result = await team.spawn_subagent(
             prompt, subagent_type=input.get('subagent_type'),
             instruction=cfg, model=input.get('model'),
-            depth=getattr(agent, 'depth', 0) + 1)
+            depth=getattr(agent, 'depth', 0) + 1,
+            tool_use_id=tool_use_id)
     except Exception:
         if agent is not None and not agent._internal:
             await team.hooks.execute_task_completed_hooks(
@@ -68,12 +69,12 @@ async def create_agent(team, agent, input: dict) -> str:
     return result
 
 
-async def task_stop(team, agent, input: dict) -> str:
+async def task_stop(team, agent, input: dict, tool_use_id: str = '') -> str:
     target = input.get('agent_id') or input.get('name')
     if target is None:
         return 'Error: no agent_id given'
     agent_id = target if '@' in str(target) else team.agent_id(str(target))
-    if agent_id not in team.children.get(agent.name, set()):
+    if agent_id not in team.children.get(agent.agent_id, set()):
         return f'Error: "{target}" is not your sub-agent'
     sub = team.agents.get(agent_id)
     if sub is not None:

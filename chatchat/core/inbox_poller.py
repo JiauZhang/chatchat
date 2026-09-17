@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 
 from chatchat.core.mailbox import (Mailbox, Message, format_teammate_batch,
                                    is_structured_protocol_message)
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_INTERVAL = 0.5
 
@@ -56,7 +59,13 @@ class InboxPoller:
     async def _loop(self):
         while not self._stop.is_set():
             await asyncio.sleep(self.interval)
-            text = await self.poll_once()
+            if self._stop.is_set():
+                break
+            try:
+                text = await self.poll_once()
+            except Exception:
+                logger.exception('inbox poll failed; retrying next tick')
+                continue
             if text is not None and self.queue is not None:
                 if self.on_enqueue is not None:
                     self.on_enqueue()

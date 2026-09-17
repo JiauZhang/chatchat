@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 
 from chatchat.client import Usage
 from chatchat.core.abort import Abort, AbortSignal
@@ -11,6 +12,8 @@ from chatchat.core.task import Task, generate_task_id
 from chatchat.hooks.events import (AGENT_PROGRESS, AGENT_REASON_START,
                                    AGENT_TEXT, AGENT_TOOL_CALL,
                                    AGENT_TURN_FINISHED, AGENT_WARN, emit)
+
+logger = logging.getLogger(__name__)
 
 
 class Agent:
@@ -166,6 +169,7 @@ class Agent:
                 break
             self._clear_idle()
             self.busy = True
+            self._emit_state()
             reason = 'available'
             error = ''
             try:
@@ -177,6 +181,7 @@ class Agent:
             except Exception as e:
                 reason = 'failed'
                 error = str(e)
+                logger.exception('agent %s failed a turn: %s', self.name, e)
                 if not self._internal:
                     await self.team.hooks.execute_stop_failure_hooks(self, e)
             finally:
@@ -308,6 +313,7 @@ class Agent:
                 attempt += 1
                 if stream_state['text_emitted'] or attempt > self.model_retries:
                     msg = f'Error: model call timed out after {self.model_timeout}s'
+                    logger.warning('agent %s: %s', self.name, msg)
                     emit(AGENT_WARN, agent=self.name, text=msg)
                     emit(AGENT_TURN_FINISHED, agent=self.name)
                     return ''

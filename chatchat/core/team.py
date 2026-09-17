@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from pathlib import Path
 
 import chatchat.core.tools as _tools
@@ -164,7 +165,11 @@ class Team:
 
     def spawn_teammate(self, name: str, prompt: str, *,
                        instruction: str = '', model=None,
-                       parent: str = LEAD_NAME, depth: int = 0) -> Agent:
+                       parent: str | None = None, depth: int = 0) -> Agent:
+        # `children`/`parents` are keyed by agent_id everywhere else
+        # (tools.create_agent, tools.task_stop, Team.stop_agent), so default
+        # the parent to the lead's agent_id rather than its bare name.
+        parent = parent or self.lead.agent_id
         self._counter += 1
         agent = self.create_agent(name, instruction=instruction, model=model,
                                   depth=depth)
@@ -178,7 +183,8 @@ class Team:
 
     async def spawn_subagent(self, prompt: str, *, subagent_type: str | None = None,
                              instruction: str = '', model=None, depth: int = 0,
-                             fork_msgs: list | None = None) -> str:
+                             fork_msgs: list | None = None,
+                             tool_use_id: str = '') -> str:
         defn = self.agent_defs.get(subagent_type)
         sys_prompt = '\n'.join(p for p in (defn.full_prompt(), instruction)
                                if p) or defn.system_prompt
@@ -206,7 +212,8 @@ class Team:
         if fork_msgs:
             agent.messages = list(fork_msgs)
         emit(AGENT_PROGRESS, agent=agent.name,
-             prompt=prompt, subagent_type=subagent_type or '')
+             prompt=prompt, subagent_type=subagent_type or '',
+             tool_use_id=tool_use_id, started_at=time.time())
         try:
             result = await agent.chat(prompt)
             if writer is not None:
@@ -416,7 +423,7 @@ class Team:
                     agent, tool_use_id, name, input, out)
             return out
         try:
-            out = await fn(self, agent, input)
+            out = await fn(self, agent, input, tool_use_id)
         except Exception as e:
             if agent is not None and not agent.hookless:
                 await self.hooks.execute_post_tool_failure_hooks(
