@@ -1,5 +1,5 @@
 from conippets import json
-from chatchat.providers import __providers__
+from chatchat.providers import __providers__, __custom_providers__
 from chatchat.client import __secret_file__
 
 def parse_config(args, secret_file=None):
@@ -14,9 +14,9 @@ def parse_config(args, secret_file=None):
             return
 
         (provider, key), value = provider_key, cfg[1]
-        if provider not in __providers__:
+        if provider not in __providers__ and provider not in __custom_providers__:
             print(f'provider `{provider}` is currently NOT supported!')
-            print(f'supported providers: {__providers__}')
+            print(f'supported providers: {list(__custom_providers__) + __providers__}')
             return
 
         secret_file = secret_file if secret_file else __secret_file__

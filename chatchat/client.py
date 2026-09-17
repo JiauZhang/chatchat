@@ -11,7 +11,7 @@ from typing import Optional
 
 import aiohttp
 
-from chatchat.providers import __providers__
+from chatchat.providers import __providers__, __custom_providers__
 
 __secret_file__ = os.environ.get('CHATCHAT_SECRET_FILE', str(Path.home() / '.chatchat.json'))
 
@@ -198,8 +198,11 @@ class BaseClient:
 
 
 def dynamic_import_client(provider):
+    if provider in __custom_providers__:
+        return __custom_providers__[provider]
     if provider not in __providers__:
-        raise RuntimeError(f'provider `{provider}` 不受支持，支持的 providers: {__providers__}')
+        supported = list(__custom_providers__) + __providers__
+        raise RuntimeError(f'provider `{provider}` 不受支持，支持的 providers: {supported}')
     import_module(f'chatchat.providers.{provider}')
     module = import_module(f'chatchat.providers.{provider}')
     return getattr(module, provider.capitalize() + 'Client')
