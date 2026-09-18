@@ -85,8 +85,8 @@ def test_tool_failure_reports_the_real_reason():
         return await team.execute_tool('Boom', {}, team.lead, 't1')
 
     out = asyncio.run(main())
-    assert 'no such directory' in out
-    assert 'ValueError' in out
+    assert 'no such directory' in out.text
+    assert 'ValueError' in out.text
 
 
 def test_on_end_sees_the_awaited_result_of_an_async_tool():

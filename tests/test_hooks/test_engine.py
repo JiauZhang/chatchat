@@ -267,6 +267,55 @@ def test_pre_tool_block_reaches_agent_as_tool_result(team):
     asyncio.run(main())
 
 
+def test_pre_tool_additional_context_sits_beside_the_tool_result(team):
+    async def respond(messages, tools):
+        if any(isinstance(m.get('content'), list) for m in messages):
+            return 'stop'
+        return [ToolUse('send_message', {'to': 'nobody'}, 't1')]
+
+    async def main():
+        t = team(handler=respond)
+        t.hooks.on('PreToolUse', fn=lambda inp: {
+            'decision': 'allow', 'additionalContext': 'run the tests first'})
+        await t.query('go')
+        return [m['content'] for m in t.lead.messages
+                if isinstance(m.get('content'), list)
+                and any(b.get('type') == 'tool_result' for b in m['content'])]
+
+    results = asyncio.run(main())
+    assert len(results) == 1
+    assert results[0][0]['type'] == 'tool_result'
+    assert results[0][-1] == {'type': 'text', 'text': 'run the tests first'}
+
+
+def test_a_tool_result_without_extra_context_stands_alone(team):
+    async def respond(messages, tools):
+        if any(isinstance(m.get('content'), list) for m in messages):
+            return 'stop'
+        return [ToolUse('send_message', {'to': 'nobody'}, 't1')]
+
+    async def main():
+        t = team(handler=respond)
+        await t.query('go')
+        return [m['content'] for m in t.lead.messages
+                if isinstance(m.get('content'), list)
+                and any(b.get('type') == 'tool_result' for b in m['content'])]
+
+    assert len(asyncio.run(main())[0]) == 1
+
+
+def test_execute_tool_reports_the_tool_text_and_the_hook_context(team):
+    async def main():
+        t = team()
+        t.hooks.on('PreToolUse', fn=lambda inp: {
+            'decision': 'allow', 'additionalContext': 'extra'})
+        return await t.execute_tool('unknown_tool', {}, t.lead, 't1')
+
+    outcome = asyncio.run(main())
+    assert outcome.text == 'Error: unknown tool "unknown_tool"'
+    assert outcome.additional_context == 'extra'
+
+
 def test_hookless_agent_skips_emits(team):
     async def main():
         t = team()

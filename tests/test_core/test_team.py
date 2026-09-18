@@ -346,7 +346,7 @@ def test_create_agent_tool_passes_model_and_schema_exposes_it():
         return out, seen, schema
 
     out, seen, schema = asyncio.run(main())
-    assert 'ok' in out
+    assert 'ok' in out.text
     assert seen == [None, 'm2']
     assert 'model' in schema
 
@@ -535,7 +535,7 @@ def test_create_agent_tool_name_spawns_persistent_teammate():
         try:
             persistent = (teammate is not None
                           and teammate_id in team.children.get(lead.agent_id, set())
-                          and 'send_message' in out)
+                          and 'send_message' in out.text)
             one_shot = await team.execute_tool(
                 'create_agent', {'prompt': 'quick'}, lead)
             team_single = Team(
@@ -550,8 +550,8 @@ def test_create_agent_tool_name_spawns_persistent_teammate():
 
     persistent, one_shot, single_out = asyncio.run(main())
     assert persistent is True
-    assert one_shot == 'done'
-    assert single_out == 'done'
+    assert one_shot.text == 'done'
+    assert single_out.text == 'done'
 
 
 
@@ -590,12 +590,12 @@ def test_execute_tool_toolresult_emits_meta_and_returns_text():
             lead_instruction=LEAD,
             tools=[Tool(tool=greppy, name='Grep', description='grep')],
         )
-        text = await team.execute_tool('Grep', {'file_path': 'a.py'},
-                                       team.lead, 't1')
-        return text, team
+        outcome = await team.execute_tool('Grep', {'file_path': 'a.py'},
+                                          team.lead, 't1')
+        return outcome, team
 
-    text, team = asyncio.run(main())
-    assert text == 'a.py:1: x'
+    outcome, team = asyncio.run(main())
+    assert outcome.text == 'a.py:1: x'
     tr = [e for e in events if e.kind == AGENT_TOOL_RESULT]
     assert tr and tr[0].data['num_files'] == 1
     assert tr[0].data['num_lines'] == 1
@@ -625,7 +625,7 @@ def test_execute_tool_plain_str_no_event():
         return await team.execute_tool('Plain', {}, team.lead, 't9')
 
     out = asyncio.run(main())
-    assert out == 'hello'
+    assert out.text == 'hello'
     assert not [e for e in events if e.kind == AGENT_TOOL_RESULT]
 
 
@@ -646,7 +646,7 @@ def test_create_agent_carries_tool_use_id_on_progress():
                                        team.lead, 'tu-1')
 
     out = asyncio.run(main())
-    assert out == 'sub answer'
+    assert out.text == 'sub answer'
     started = [e for e in events
                if e.kind == AGENT_PROGRESS and e.data.get('tool_use_id')]
     assert started, 'the spawn must carry the spawning tool_use_id'
@@ -709,7 +709,7 @@ def test_task_stop_stops_a_teammate_created_through_create_agent():
                                           {'prompt': 'watch the build',
                                            'name': 'watcher'},
                                           team.lead, 'tu-1')
-        assert 'spawned and idle' in spawned
+        assert 'spawned and idle' in spawned.text
         watcher = team.get_by_name('watcher')
         assert watcher is not None
         assert team.children[team.lead.agent_id] == {watcher.agent_id}
@@ -719,8 +719,8 @@ def test_task_stop_stops_a_teammate_created_through_create_agent():
         return team, watcher, out
 
     team, watcher, out = asyncio.run(main())
-    assert 'is not your sub-agent' not in out
-    assert out == f'agent {watcher.agent_id} stopped'
+    assert 'is not your sub-agent' not in out.text
+    assert out.text == f'agent {watcher.agent_id} stopped'
     assert team.children[team.lead.agent_id] == set()
     assert watcher.agent_id not in team.parents
 
@@ -738,7 +738,7 @@ def test_task_stop_refuses_an_agent_that_is_not_your_child():
         return await team.execute_tool('task_stop', {'name': 'stray'},
                                        team.lead, 'tu-3')
 
-    assert asyncio.run(main()) == 'Error: "stray" is not your sub-agent'
+    assert asyncio.run(main()).text == 'Error: "stray" is not your sub-agent'
 
 
 def test_spawn_teammate_files_children_under_the_lead_agent_id():

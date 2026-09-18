@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 
+from chatchat.tool import ToolOutcome
+
 GENERAL_PURPOSE = 'general-purpose'
 
 
@@ -24,15 +26,16 @@ class AgentDefinition:
                 for t in self.tools]
 
     async def execute_tool(self, name: str, input: dict, agent=None,
-                           tool_use_id: str = '') -> str:
+                           tool_use_id: str = '') -> ToolOutcome:
         tool = next((t for t in self.tools if t.name == name), None)
         if tool is None:
-            return f'Error: unknown tool "{name}"'
+            return ToolOutcome(f'Error: unknown tool "{name}"')
         try:
             out = await tool(agent.tool_context, **input)
-            return out if isinstance(out, str) else str(out)
+            return ToolOutcome(out if isinstance(out, str) else str(out))
         except Exception as e:
-            return f'Error calling tool "{name}": {type(e).__name__}: {e}'
+            return ToolOutcome(f'Error calling tool "{name}": '
+                               f'{type(e).__name__}: {e}')
 
     def full_prompt(self) -> str:
         parts = [p.strip() for p in (self.system_prompt, self.addenda) if p.strip()]

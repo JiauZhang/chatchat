@@ -344,12 +344,15 @@ class Agent:
                      input=tu.input, tool_use_id=tu.id)
                 self._in_tool = tu.name
                 try:
-                    out = await self.tool_exec.execute_tool(tu.name, tu.input,
-                                                            self, tu.id)
+                    outcome = await self.tool_exec.execute_tool(
+                        tu.name, tu.input, self, tu.id)
                 finally:
                     self._in_tool = None
                 results.append({'type': 'tool_result',
-                                'tool_use_id': tu.id, 'content': out})
+                                'tool_use_id': tu.id, 'content': outcome.text})
+                if outcome.additional_context:
+                    results.append({'type': 'text',
+                                    'text': outcome.additional_context})
             self._emit_progress({'role': 'user', 'content': results})
             results_msg = {'role': 'user', 'content': results}
             self.messages.append(results_msg)

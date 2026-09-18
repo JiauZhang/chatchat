@@ -21,6 +21,14 @@ class ToolResult:
     meta: dict | None = None
 
 
+@dataclass
+class ToolOutcome:
+    """What one tool call puts back into the conversation: the result the
+    model sees, plus anything the human or a hook said alongside it."""
+    text: str
+    additional_context: str = ''
+
+
 class Tool:
 
     def __init__(self, *, tool, name, description, parameters=None,

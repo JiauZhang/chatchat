@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 
 import chatchat.core.tools as _tools
-from chatchat.tool import ToolContext, ToolResult
+from chatchat.tool import ToolContext, ToolOutcome, ToolResult
 from chatchat.core.abort import AbortSignal
 from chatchat.core.agent import Agent
 from chatchat.core.agents import GENERAL_PURPOSE, AgentDefinition, AgentRegistry
@@ -386,15 +386,18 @@ class Team:
                              for t in self._injected_tools]
 
     async def execute_tool(self, name: str, input: dict, agent: Agent,
-                           tool_use_id: str = '') -> str:
+                           tool_use_id: str = '') -> ToolOutcome:
+        extra = ''
         if agent is not None and not agent.hookless:
             pre = await self.hooks.execute_pre_tool_hooks(
                 agent, tool_use_id, name, input)
             if pre.blocking_error is not None:
-                return (f'Error: hook blocked tool "{name}": '
-                        f'{pre.blocking_error.blocking_error}')
+                return ToolOutcome(
+                    f'Error: hook blocked tool "{name}": '
+                    f'{pre.blocking_error.blocking_error}')
             if pre.updated_input is not None:
                 input = {**input, **pre.updated_input}
+            extra = pre.additional_context
         fn = {'send_message': _tools.send_message,
               'create_agent': _tools.create_agent,
               'task_stop': _tools.task_stop}.get(name)
@@ -402,7 +405,7 @@ class Team:
             tool = next((t for t in self._injected_tools if t.name == name),
                         None)
             if tool is None:
-                return f'Error: unknown tool "{name}"'
+                return ToolOutcome(f'Error: unknown tool "{name}"', extra)
             try:
                 out = await tool(agent.tool_context, **input)
                 if isinstance(out, ToolResult):
@@ -417,22 +420,25 @@ class Team:
                 if agent is not None and not agent.hookless:
                     await self.hooks.execute_post_tool_failure_hooks(
                         agent, tool_use_id, name, input, e)
-                return f'Error calling tool "{name}": {type(e).__name__}: {e}'
+                return ToolOutcome(
+                    f'Error calling tool "{name}": {type(e).__name__}: {e}',
+                    extra)
             if agent is not None and not agent.hookless:
                 await self.hooks.execute_post_tool_hooks(
                     agent, tool_use_id, name, input, out)
-            return out
+            return ToolOutcome(out, extra)
         try:
             out = await fn(self, agent, input, tool_use_id)
         except Exception as e:
             if agent is not None and not agent.hookless:
                 await self.hooks.execute_post_tool_failure_hooks(
                     agent, tool_use_id, name, input, e)
-            return f'Error calling tool "{name}": {type(e).__name__}: {e}'
+            return ToolOutcome(
+                f'Error calling tool "{name}": {type(e).__name__}: {e}', extra)
         if agent is not None and not agent.hookless:
             await self.hooks.execute_post_tool_hooks(
                 agent, tool_use_id, name, input, out)
-        return out
+        return ToolOutcome(out, extra)
 
     def send_control(self, recipient_name: str, payload: str):
         recipient = self.get_by_name(recipient_name)
