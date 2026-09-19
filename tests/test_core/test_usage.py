@@ -44,6 +44,72 @@ def test_team_query_accumulates_usage():
     assert usage.prompt_tokens_details['cached_tokens'] == 160
 
 
+def test_team_last_usage_is_one_response_not_the_session_total():
+    async def respond(messages, tools=None, *, stream_cb=None):
+        return 'done'
+    factory = lambda inst, model=None: MockClient(handler=respond, usage={
+        'prompt_tokens': 100, 'completion_tokens': 20, 'total_tokens': 120})
+
+    async def main():
+        team = Team('one', client_factory=factory)
+        await team.query('hi')
+        await team.query('again')
+        return team.last_usage(), team.usage()
+
+    last, total = asyncio_run(main())
+    assert (last.prompt_tokens, last.completion_tokens) == (100, 20)
+    assert total.total_tokens == 240
+
+
+_SUBAGENT_USAGE = {'prompt_tokens': 100, 'completion_tokens': 20,
+                   'total_tokens': 120,
+                   'prompt_tokens_details': {'cached_tokens': 80}}
+
+
+def _subagent_team():
+    return Team('sub', client_factory=lambda inst, model=None: MockClient(
+        handler=lambda messages, tools=None, **kw: 'done',
+        usage=dict(_SUBAGENT_USAGE)))
+
+
+def test_team_usage_adds_up_what_the_subagents_spent():
+    """A sub-agent's tokens were spent on this session, so the session total has
+    to include them; `last_usage` stays the lead's because it measures the
+    context window the lead is actually filling."""
+    async def main():
+        team = _subagent_team()
+        await team.query('hi')
+        await team.spawn_subagent('go')
+        return team.usage(), team.last_usage()
+
+    total, last = asyncio_run(main())
+    assert (total.prompt_tokens, total.completion_tokens) == (200, 40)
+    assert total.total_tokens == 240
+    assert total.prompt_tokens_details['cached_tokens'] == 160
+    assert last.total_tokens == 120
+
+
+def test_resetting_usage_clears_the_whole_team():
+    async def main():
+        team = _subagent_team()
+        await team.query('hi')
+        await team.spawn_subagent('go')
+        team.reset_usage()
+        return team.usage()
+
+    assert asyncio_run(main()).total_tokens == 0
+
+
+def test_team_last_usage_is_zero_for_a_client_that_never_reports():
+    async def main():
+        team = Team('z', client_factory=lambda inst, model=None: MockClient())
+        del team.lead.client._last_usage
+        await team.query('hi')
+        return team.last_usage()
+
+    assert asyncio_run(main()).total_tokens == 0
+
+
 def test_provider_without_usage_keeps_zeros():
     factory = lambda inst, model=None: MockClient(handler=lambda m, t=None, **k: 'ok')
 

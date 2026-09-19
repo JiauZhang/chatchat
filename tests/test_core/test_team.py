@@ -570,6 +570,23 @@ def test_compact_threshold_is_exposed():
     asyncio.run(main())
 
 
+def test_context_occupancy_uses_the_same_estimate_as_compaction():
+    async def respond(messages, tools=None, *, stream_cb=None):
+        return 'ok'
+
+    async def main():
+        team = Team('co', client_factory=lambda inst, model=None:
+                    MockClient(handler=respond), compact_tokens=1000)
+        assert team.auto_compact is True
+        assert team.context_tokens == 0
+        team.lead.messages.append({'role': 'user', 'content': 'x' * 400})
+        assert team.context_tokens == 100
+        team.set_compact_strategy(None, threshold=1000)
+        assert team.auto_compact is False
+
+    asyncio.run(main())
+
+
 def test_execute_tool_toolresult_emits_meta_and_returns_text():
     from chatchat.hooks.events import AGENT_TOOL_RESULT
     from chatchat.tool import Tool, ToolResult

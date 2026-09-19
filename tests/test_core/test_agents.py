@@ -120,3 +120,35 @@ def test_spawn_subagent_defaults_general_purpose():
     result, n = asyncio.run(main())
     assert result == '默认答复'
     assert n == 2
+
+
+def test_agent_registry_remove_drops_the_type():
+    from chatchat.core.agents import AgentRegistry
+    registry = AgentRegistry()
+    registry.define('coder', system_prompt='p')
+    assert registry.remove('coder')
+    assert not registry.remove('coder')
+    assert registry.find('coder') is None
+    assert 'coder' not in registry.types()
+
+
+def test_removing_the_default_repoints_the_default():
+    from chatchat.core.agents import AgentRegistry
+    registry = AgentRegistry()
+    registry.define('coder', system_prompt='p')
+    registry.define('reviewer', system_prompt='p', default=True)
+    registry.remove('reviewer')
+    assert registry.get(None).agent_type == 'coder'
+
+
+def test_team_remove_agent_definition():
+    factory = lambda inst, model=None: MockClient(handler=lambda *a, **k: 'x')
+
+    async def main():
+        team = Team('rm', client_factory=factory)
+        team.define_agent('coder', system_prompt='p')
+        assert team.remove_agent_definition('coder')
+        assert team.agent_defs.find('coder') is None
+        assert not team.remove_agent_definition('coder')
+
+    asyncio.run(main())

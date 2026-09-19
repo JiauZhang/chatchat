@@ -81,6 +81,9 @@ class Team:
     def register_agent_definition(self, defn) -> AgentDefinition:
         return self.agent_defs.register(defn)
 
+    def remove_agent_definition(self, agent_type: str) -> bool:
+        return self.agent_defs.remove(agent_type)
+
     def define_agent(self, agent_type: str, *, system_prompt: str = '',
                      tools: list = None, model: str | None = None,
                      addenda: str = '', default: bool = False) -> AgentDefinition:
@@ -269,10 +272,21 @@ class Team:
         self.lead.messages = [m for m in messages if isinstance(m, dict)]
 
     def usage(self):
-        return self.lead.total_usage
+        """Everything this session has cost: the lead plus every sub-agent.
+        Each agent keeps its own running total, so the sum survives an agent
+        that has already finished and left the transcript."""
+        total = type(self.lead.total_usage)()
+        for agent in self.agents.values():
+            total.add(agent.total_usage)
+        return total
+
+    def last_usage(self):
+        return getattr(self.lead.client, '_last_usage', None) \
+            or type(self.lead.total_usage)()
 
     def reset_usage(self):
-        self.lead.total_usage = type(self.lead.total_usage)()
+        for agent in self.agents.values():
+            agent.total_usage = type(self.lead.total_usage)()
 
     def set_instruction_files(self, files: list[dict]):
         self.instruction_files = list(files or [])
@@ -315,6 +329,14 @@ class Team:
     @property
     def compact_threshold(self) -> int:
         return int(self._compact_threshold or 0)
+
+    @property
+    def auto_compact(self) -> bool:
+        return self._compact_fn is not None
+
+    @property
+    def context_tokens(self) -> int:
+        return -(-_msgs_chars(self.transcript()) // 4)
 
     async def query(self, prompt: str, timeout: float | None = None) -> str:
         if not self._session_started:

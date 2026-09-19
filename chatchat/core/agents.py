@@ -112,6 +112,13 @@ class AgentRegistry:
     def find(self, agent_type: str) -> AgentDefinition | None:
         return self._defs.get(agent_type)
 
+    def remove(self, agent_type: str) -> bool:
+        if self._defs.pop(agent_type, None) is None:
+            return False
+        if self._default is not None and self._default.agent_type == agent_type:
+            self._default = next(iter(self._defs.values()), None)
+        return True
+
     def types(self) -> list[str]:
         return sorted(self._defs)
 
