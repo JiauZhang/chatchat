@@ -1,8 +1,9 @@
 import asyncio
 
 from chatchat.core.abort import AbortSignal
-from chatchat.core.context import AgentContext, current_agent, is_in_process, \
-    spawn_task, run_with_context
+from chatchat.core.context import AgentContext, current_agent, spawn_task
+from chatchat.core.team import token_count
+from helpers import mock_team
 
 
 def _make_ctx(name):
@@ -10,27 +11,11 @@ def _make_ctx(name):
                         abort=AbortSignal(), leader=(name == 'team-lead'))
 
 
-def test_run_with_context_sets_and_restores():
-    outer = _make_ctx('a')
-    inner = _make_ctx('b')
-    assert current_agent() is None
-
-    async def main():
-        async def probe():
-            return current_agent().agent_name
-        res = await run_with_context(inner, probe())
-        assert res == 'b'
-        assert current_agent() is None
-
-    asyncio.run(main())
-
-
 def test_spawn_task_isolates_concurrent_contexts():
     async def main():
         seen = {}
 
         async def work(name):
-            agent = _make_ctx(name)
             await asyncio.sleep(0.01 if name == 'x' else 0.02)
             seen[name] = current_agent().agent_name
 
@@ -42,6 +27,49 @@ def test_spawn_task_isolates_concurrent_contexts():
     asyncio.run(main())
 
 
-def test_no_context_means_not_in_process():
+def test_there_is_no_ambient_agent_outside_a_task():
     assert current_agent() is None
-    assert not is_in_process()
+
+
+def test_context_size_anchors_on_the_last_measured_response():
+    msgs = [{'role': 'user', 'content': 'q'},
+            {'role': 'assistant', 'content': 'a',
+             'usage': {'prompt_tokens': 900, 'completion_tokens': 100}},
+            {'role': 'user', 'content': 'x' * 400}]
+    assert token_count(msgs) == 1000 + 100
+
+
+def test_context_size_estimates_everything_until_the_first_response():
+    assert token_count([{'role': 'user', 'content': 'x' * 400}]) == 100
+
+
+def test_an_older_response_does_not_replace_a_newer_one():
+    msgs = [{'role': 'assistant', 'content': 'a',
+             'usage': {'prompt_tokens': 10, 'completion_tokens': 1}},
+            {'role': 'user', 'content': 'more'},
+            {'role': 'assistant', 'content': 'b',
+             'usage': {'prompt_tokens': 50, 'completion_tokens': 5}}]
+    assert token_count(msgs) == 55
+
+
+def test_compaction_triggers_on_measured_context_near_the_window():
+    async def summarize(messages, tools=None, *, stream_cb=None):
+        return 'short'
+
+    async def main():
+        team = mock_team('ctx', handler=summarize,
+                         context_window=8_000, compact_reserve=2_000)
+        team.lead.messages = [
+            {'role': 'user', 'content': 'hi'},
+            {'role': 'assistant', 'content': 'a',
+             'usage': {'prompt_tokens': 7_000, 'completion_tokens': 50}}]
+        untouched = await team.maybe_compact(team.lead.messages)
+        assert untouched is team.lead.messages or len(untouched) == 2
+        team.lead.messages.append(
+            {'role': 'assistant', 'content': 'b',
+             'usage': {'prompt_tokens': 6_500, 'completion_tokens': 50}})
+        return team, await team.maybe_compact(team.lead.messages)
+
+    team, compacted = asyncio.run(main())
+    assert team.compact_threshold == 6_000
+    assert compacted is not team.lead.messages

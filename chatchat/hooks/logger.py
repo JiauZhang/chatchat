@@ -14,8 +14,6 @@ def default_hook_logger(event):
         if event.outcome not in ('success', '') and event.stderr:
             line += f' stderr={event.stderr[:80]}'
         print(line, flush=True)
-    elif event.type == 'progress':
-        print(f'{prefix} progress {event.output[:80]}', flush=True)
 
 
 def install_default_logger():

@@ -5,7 +5,8 @@ import time
 from pathlib import Path
 
 import chatchat.core.tools as _tools
-from chatchat.tool import ToolContext, ToolOutcome, ToolResult
+from chatchat.tool import (ToolContext, ToolOutcome, ToolResult,
+                           describe_tools)
 from chatchat.core.abort import AbortSignal
 from chatchat.core.agent import Agent
 from chatchat.core.agents import GENERAL_PURPOSE, AgentDefinition, AgentRegistry
@@ -19,7 +20,10 @@ from chatchat.hooks.manager import HookManager
 LEAD_NAME = 'team-lead'
 
 
-def _msgs_chars(messages: list[dict]) -> int:
+DEFAULT_COMPACT_RESERVE = 40_000
+
+
+def _estimate_tokens(messages: list[dict]) -> int:
     total = 0
     for m in messages:
         c = m.get('content')
@@ -30,7 +34,17 @@ def _msgs_chars(messages: list[dict]) -> int:
                 if isinstance(b, dict):
                     total += len(b.get('content', '')) if isinstance(
                         b.get('content', ''), str) else 200
-    return total
+    return -(-total // 4)
+
+
+def token_count(messages: list[dict]) -> int:
+    for i in range(len(messages) - 1, -1, -1):
+        usage = messages[i].get('usage')
+        if isinstance(usage, dict):
+            return (int(usage.get('prompt_tokens', 0))
+                    + int(usage.get('completion_tokens', 0))
+                    + _estimate_tokens(messages[i + 1:]))
+    return _estimate_tokens(messages)
 
 
 class Team:
@@ -41,7 +55,8 @@ class Team:
                  provider: str = None, model: str = None,
                  thinking: bool = True, tools: list = None,
                  tool_context: ToolContext = None,
-                 compact_tokens: int = 160_000,
+                 context_window: int = 0,
+                 compact_reserve: int = DEFAULT_COMPACT_RESERVE,
                  mailbox_dir=None, sidechain_dir=None,
                  multi_agent: bool = True, **client_kw):
         self.name = name
@@ -65,8 +80,11 @@ class Team:
         self.parents: dict[str, str] = {}
         self._counter = 0
         self._session_started = False
-        self._compact_fn = None
-        self._compact_threshold = compact_tokens
+        self._session_setup_done = False
+        self._session_source = 'startup'
+        self.context_window = int(context_window or 0)
+        self._compact_threshold = max(0, self.context_window
+                                       - int(compact_reserve))
         self.sidechain_dir = sidechain_dir
         self._compact_fn = self._builtin_compact
         self.agent_defs = AgentRegistry()
@@ -91,10 +109,6 @@ class Team:
                                       tools=tools, model=model, addenda=addenda,
                                       default=default)
 
-    def set_compact_strategy(self, fn, *, threshold: int = 50_000):
-        self._compact_fn = fn
-        self._compact_threshold = threshold
-
     async def compact(self, messages: list[dict], force: bool = False) -> list[dict]:
         return await self.maybe_compact(messages, force=force)
 
@@ -113,16 +127,17 @@ class Team:
         return head + [marker] + tail
 
     async def maybe_compact(self, messages: list[dict], force: bool = False) -> list[dict]:
-        if not force and (self._compact_fn is None
-                          or -(-_msgs_chars(messages) // 4) < self._compact_threshold):
+        if not force and (not self.auto_compact
+                          or token_count(messages) < self._compact_threshold):
             return messages
-        await self.hooks.execute_pre_compact_hooks()
+        trigger = 'manual' if force else 'auto'
+        await self.hooks.execute_pre_compact_hooks(trigger=trigger)
         result = self._compact_fn(messages)
         if asyncio.iscoroutine(result):
             result = await result
         emit('agent.compact', agent='',
              before=len(messages), after=len(result or []))
-        await self.hooks.execute_post_compact_hooks()
+        await self.hooks.execute_post_compact_hooks(trigger=trigger)
         return list(result) if result else messages
 
     def _client_for(self, instruction: str, thinking: bool | None = None,
@@ -166,24 +181,6 @@ class Team:
     def add(self, name: str, instruction: str = '') -> Agent:
         return self.create_agent(name, instruction=instruction)
 
-    def spawn_teammate(self, name: str, prompt: str, *,
-                       instruction: str = '', model=None,
-                       parent: str | None = None, depth: int = 0) -> Agent:
-        # `children`/`parents` are keyed by agent_id everywhere else
-        # (tools.create_agent, tools.task_stop, Team.stop_agent), so default
-        # the parent to the lead's agent_id rather than its bare name.
-        parent = parent or self.lead.agent_id
-        self._counter += 1
-        agent = self.create_agent(name, instruction=instruction, model=model,
-                                  depth=depth)
-        self.parents[agent.agent_id] = parent
-        self.children.setdefault(parent, set()).add(agent.agent_id)
-        if not agent._internal:
-            asyncio.get_running_loop().create_task(
-                self.hooks.execute_subagent_start_hooks(agent, parent))
-        agent.submit(prompt)
-        return agent
-
     async def spawn_subagent(self, prompt: str, *, subagent_type: str | None = None,
                              instruction: str = '', model=None, depth: int = 0,
                              fork_msgs: list | None = None,
@@ -207,7 +204,7 @@ class Team:
         agent = Agent(agent_id, name, self,
                       self._client_for(sys_prompt, model=model),
                       ctx, instruction=sys_prompt,
-                      depth=depth, internal=True, tool_exec=defn,
+                      depth=depth, internal=True, tools=list(defn.tools),
                       model_timeout=self._model_timeout, model_retries=self._model_retries,
                       on_message=None if writer is None else writer.append,
                       agent_type=subagent_type or '')
@@ -217,6 +214,12 @@ class Team:
         emit(AGENT_PROGRESS, agent=agent.name,
              prompt=prompt, subagent_type=subagent_type or '',
              tool_use_id=tool_use_id, started_at=time.time())
+        start = await self.hooks.execute_subagent_start_hooks(
+            agent, defn.agent_type)
+        if start.additional_context:
+            message = {'role': 'user', 'content': start.additional_context}
+            agent.messages.append(message)
+            agent._record(message)
         try:
             result = await agent.chat(prompt)
             if writer is not None:
@@ -228,7 +231,7 @@ class Team:
             raise
         finally:
             emit(AGENT_PROGRESS, agent=agent.name, done=True)
-            await self.hooks.execute_subagent_stop_hooks(agent, LEAD_NAME)
+            await self.hooks.execute_subagent_stop_hooks(agent, defn.agent_type)
             agent._finalize('completed')
 
     async def spawn_child(self, parent_name: str, instruction: str, *,
@@ -250,7 +253,8 @@ class Team:
         if parent and agent_id in self.children.get(parent, set()):
             self.children[parent].discard(agent_id)
             if not agent._internal:
-                await self.hooks.execute_subagent_stop_hooks(agent, parent)
+                await self.hooks.execute_subagent_stop_hooks(
+                    agent, agent.agent_type)
         await agent.stop()
 
     async def wait_for_idle(self, agent_id: str, timeout: float | None = None):
@@ -270,11 +274,29 @@ class Team:
 
     def restore(self, messages: list[dict]):
         self.lead.messages = [m for m in messages if isinstance(m, dict)]
+        if self.lead.messages:
+            self._session_source = 'resume'
+
+    async def end_session(self, reason: str):
+        await self.hooks.execute_session_end_hooks(reason)
+
+    def begin_new_session(self, source: str = 'clear'):
+        self._session_source = source
+        self._session_started = False
+
+    async def _open_session(self):
+        aggs = []
+        if not self._session_setup_done:
+            self._session_setup_done = True
+            aggs.append(await self.hooks.execute_setup_hooks())
+        aggs.append(await self.hooks.execute_session_start_hooks(
+            self._session_source))
+        for agg in aggs:
+            if agg.additional_context:
+                self.lead.messages.append(
+                    {'role': 'user', 'content': agg.additional_context})
 
     def usage(self):
-        """Everything this session has cost: the lead plus every sub-agent.
-        Each agent keeps its own running total, so the sum survives an agent
-        that has already finished and left the transcript."""
         total = type(self.lead.total_usage)()
         for agent in self.agents.values():
             total.add(agent.total_usage)
@@ -332,17 +354,16 @@ class Team:
 
     @property
     def auto_compact(self) -> bool:
-        return self._compact_fn is not None
+        return self._compact_fn is not None and self.context_window > 0
 
     @property
     def context_tokens(self) -> int:
-        return -(-_msgs_chars(self.transcript()) // 4)
+        return token_count(self.transcript())
 
     async def query(self, prompt: str, timeout: float | None = None) -> str:
         if not self._session_started:
             self._session_started = True
-            await self.hooks.execute_setup_hooks()
-            await self.hooks.execute_session_start_hooks()
+            await self._open_session()
         self.lead.submit(prompt)
         start = len(self.lead.messages)
         if timeout is None:
@@ -403,12 +424,29 @@ class Team:
                                   'properties': {'agent_id': {'type': 'string'}},
                                   'required': ['agent_id']}},
             ]
-        return team_tools + [{'name': t.name, 'description': t.describe(context),
-                              'input_schema': t.parameters or {}}
-                             for t in self._injected_tools]
+        return team_tools + describe_tools(self._injected_tools, context)
+
+    async def _post_tool_context(self, agent, tool_use_id: str, name: str,
+                                 input: dict, value,
+                                 failed: bool = False) -> str:
+        if agent is None or agent.hookless:
+            return ''
+        if failed:
+            agg = await self.hooks.execute_post_tool_failure_hooks(
+                agent, tool_use_id, name, input, value)
+        else:
+            agg = await self.hooks.execute_post_tool_hooks(
+                agent, tool_use_id, name, input, value)
+        return agg.additional_context
 
     async def execute_tool(self, name: str, input: dict, agent: Agent,
                            tool_use_id: str = '') -> ToolOutcome:
+        pool = self._injected_tools if (agent is None
+                                        or agent.tools is None) else agent.tools
+        team_fns = ({} if agent is not None and agent.tools is not None
+                    else {'send_message': _tools.send_message,
+                          'create_agent': _tools.create_agent,
+                          'task_stop': _tools.task_stop})
         extra = ''
         if agent is not None and not agent.hookless:
             pre = await self.hooks.execute_pre_tool_hooks(
@@ -420,14 +458,13 @@ class Team:
             if pre.updated_input is not None:
                 input = {**input, **pre.updated_input}
             extra = pre.additional_context
-        fn = {'send_message': _tools.send_message,
-              'create_agent': _tools.create_agent,
-              'task_stop': _tools.task_stop}.get(name)
+        fn = team_fns.get(name)
         if fn is None:
-            tool = next((t for t in self._injected_tools if t.name == name),
-                        None)
+            tool = next((t for t in pool if t.name == name), None)
             if tool is None:
-                return ToolOutcome(f'Error: unknown tool "{name}"', extra)
+                return ToolOutcome(
+                    f'Error: tool "{name}" is not available to this agent',
+                    extra)
             try:
                 out = await tool(agent.tool_context, **input)
                 if isinstance(out, ToolResult):
@@ -439,28 +476,21 @@ class Team:
                 elif not isinstance(out, str):
                     out = str(out)
             except Exception as e:
-                if agent is not None and not agent.hookless:
-                    await self.hooks.execute_post_tool_failure_hooks(
-                        agent, tool_use_id, name, input, e)
                 return ToolOutcome(
                     f'Error calling tool "{name}": {type(e).__name__}: {e}',
-                    extra)
-            if agent is not None and not agent.hookless:
-                await self.hooks.execute_post_tool_hooks(
-                    agent, tool_use_id, name, input, out)
-            return ToolOutcome(out, extra)
+                    _joined(extra, await self._post_tool_context(
+                        agent, tool_use_id, name, input, e, True)))
+            return ToolOutcome(out, _joined(extra, await self._post_tool_context(
+                agent, tool_use_id, name, input, out)))
         try:
             out = await fn(self, agent, input, tool_use_id)
         except Exception as e:
-            if agent is not None and not agent.hookless:
-                await self.hooks.execute_post_tool_failure_hooks(
-                    agent, tool_use_id, name, input, e)
             return ToolOutcome(
-                f'Error calling tool "{name}": {type(e).__name__}: {e}', extra)
-        if agent is not None and not agent.hookless:
-            await self.hooks.execute_post_tool_hooks(
-                agent, tool_use_id, name, input, out)
-        return ToolOutcome(out, extra)
+                f'Error calling tool "{name}": {type(e).__name__}: {e}',
+                _joined(extra, await self._post_tool_context(
+                    agent, tool_use_id, name, input, e, True)))
+        return ToolOutcome(out, _joined(extra, await self._post_tool_context(
+            agent, tool_use_id, name, input, out)))
 
     def send_control(self, recipient_name: str, payload: str):
         recipient = self.get_by_name(recipient_name)
@@ -487,6 +517,10 @@ class Team:
         agent = self.agents.get(agent_id)
         if agent is not None:
             asyncio.get_running_loop().create_task(agent.stop())
+
+
+def _joined(*parts: str) -> str:
+    return '\n'.join(p for p in parts if p)
 
 
 def last_assistant(agent: Agent, *, start: int = 0) -> str:

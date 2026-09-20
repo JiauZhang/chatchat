@@ -1,30 +1,40 @@
 import asyncio
 
-from chatchat.client import MockClient, ToolUse
-from chatchat.hooks.events import AGENT_PROGRESS, clear_runtime_sinks, \
-    register_runtime_handler
-from chatchat.team import Team
+from chatchat.client import ToolUse
+from chatchat.core.agents import AgentRegistry
+from chatchat.hooks.events import AGENT_PROGRESS, register_runtime_handler
 from chatchat.tool import Tool
+from helpers import mock_team
+
+_USAGE = {'prompt_tokens': 100, 'completion_tokens': 20, 'total_tokens': 120,
+          'prompt_tokens_details': {'cached_tokens': 40}}
+
+
+def _call_tool_once(tool_name, reply, **args):
+    def respond(messages, tools=None, *, stream_cb=None):
+        if not any(isinstance(m.get('content'), list) for m in messages):
+            return [ToolUse(tool_name, args, 't1')]
+        return reply
+
+    return respond
+
+
+def _counting_tool(name, calls):
+    def run(context, **kw):
+        calls[name] = calls.get(name, 0) + 1
+        return f"{name}:{kw.get('x')}"
+
+    return Tool(tool=run, name=name, description=name,
+                parameters={'type': 'object', 'properties': {'x': {'type': 'int'}}})
 
 
 def test_spawn_subagent_emits_progress_with_usage():
     events = []
-    clear_runtime_sinks()
     register_runtime_handler(lambda ev: events.append(ev))
 
-    async def respond(messages, tools=None, *, stream_cb=None):
-        if not any(isinstance(m.get('content'), list) for m in messages):
-            return [ToolUse('ping', {'x': 1}, 't1')]
-        return '子任务完成'
-
-    def factory(instruction, model=None):
-        return MockClient(handler=respond,
-                          usage={'prompt_tokens': 100, 'completion_tokens': 20,
-                                 'total_tokens': 120,
-                                 'prompt_tokens_details': {'cached_tokens': 40}})
-
     async def main():
-        team = Team('prog', client_factory=factory)
+        team = mock_team('prog', handler=_call_tool_once('ping', '子任务完成', x=1),
+                         usage=_USAGE)
         team.define_agent('coder', system_prompt='你是编码 agent')
         result = await team.spawn_subagent('干活', subagent_type='coder')
         return result, team
@@ -47,75 +57,40 @@ def test_spawn_subagent_emits_progress_with_usage():
 
 
 def test_team_members_run_injected_tools():
-    called = {'ping': 0}
-
-    def ping(context, **kw):
-        called['ping'] += 1
-        return f"pong:{kw.get('x')}"
-
-    async def respond(messages, tools=None, *, stream_cb=None):
-        if not any(isinstance(m.get('content'), list) for m in messages):
-            return [ToolUse('ping', {'x': 1}, 't1')]
-        return 'done'
-
-    def factory(instruction, model=None):
-        return MockClient(handler=respond)
+    calls = {}
 
     async def main():
-        team = Team('t', client_factory=factory,
-                    tools=[Tool(tool=ping, name='ping', description='ping',
-                                parameters={'type': 'object',
-                                            'properties': {'x': {'type': 'int'}}})])
+        team = mock_team('t', handler=_call_tool_once('ping', 'done', x=1),
+                         tools=[_counting_tool('ping', calls)])
         names = [t['name'] for t in team.tool_schemas(team.tool_context)]
-        ans = await team.query('hi', timeout=10)
-        return names, ans
+        return names, await team.query('hi', timeout=10)
 
     names, ans = asyncio.run(main())
     assert 'ping' in names
     assert 'send_message' in names
-    assert called['ping'] == 1
+    assert ans == 'done'
+    assert calls == {'ping': 1}
 
 
 def test_standalone_subagent_uses_its_own_definition_tools():
-    called = {'my_tool': 0}
-
-    def my_tool(context, **kw):
-        called['my_tool'] += 1
-        return f"tool 结果: {kw.get('x')}"
-
-    async def sub_respond(messages, tools=None, *, stream_cb=None):
-        if not any(isinstance(m.get('content'), list) for m in messages):
-            return [ToolUse('my_tool', {'x': 1}, 't1')]
-        return 'subagent 完成.'
-
-    def factory(instruction, model=None):
-        return MockClient(handler=sub_respond)
+    calls = {}
 
     async def main():
-        team = Team('sa', client_factory=factory)
+        team = mock_team('sa', handler=_call_tool_once('my_tool',
+                                                       'subagent 完成.', x=1))
         team.define_agent('coder', system_prompt='你是编码 agent',
-                          tools=[Tool(tool=my_tool, name='my_tool',
-                                      description='a tool',
-                                      parameters={'type': 'object',
-                                                  'properties': {'x': {'type': 'int'}}})],
-                          default=False)
-        result = await team.spawn_subagent('帮我算', subagent_type='coder')
-        return result
+                          tools=[_counting_tool('my_tool', calls)], default=False)
+        return await team.spawn_subagent('帮我算', subagent_type='coder')
 
     assert asyncio.run(main()).endswith('subagent 完成.')
-    assert called['my_tool'] == 1
+    assert calls == {'my_tool': 1}
 
 
 def test_spawn_subagent_defaults_general_purpose():
-    async def respond(messages, tools=None, *, stream_cb=None):
-        return '默认答复'
-    factory = lambda inst, model=None: MockClient(handler=respond)
-
     async def main():
-        team = Team('gp', client_factory=factory)
+        team = mock_team('gp', handler=lambda m, t=None, **kw: '默认答复')
         result = await team.spawn_subagent('hi')
-        n = len(team.agents)
-        return result, n
+        return result, len(team.agents)
 
     result, n = asyncio.run(main())
     assert result == '默认答复'
@@ -123,7 +98,6 @@ def test_spawn_subagent_defaults_general_purpose():
 
 
 def test_agent_registry_remove_drops_the_type():
-    from chatchat.core.agents import AgentRegistry
     registry = AgentRegistry()
     registry.define('coder', system_prompt='p')
     assert registry.remove('coder')
@@ -133,7 +107,6 @@ def test_agent_registry_remove_drops_the_type():
 
 
 def test_removing_the_default_repoints_the_default():
-    from chatchat.core.agents import AgentRegistry
     registry = AgentRegistry()
     registry.define('coder', system_prompt='p')
     registry.define('reviewer', system_prompt='p', default=True)
@@ -142,10 +115,8 @@ def test_removing_the_default_repoints_the_default():
 
 
 def test_team_remove_agent_definition():
-    factory = lambda inst, model=None: MockClient(handler=lambda *a, **k: 'x')
-
     async def main():
-        team = Team('rm', client_factory=factory)
+        team = mock_team('rm', handler=lambda *a, **k: 'x')
         team.define_agent('coder', system_prompt='p')
         assert team.remove_agent_definition('coder')
         assert team.agent_defs.find('coder') is None

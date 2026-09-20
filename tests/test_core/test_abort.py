@@ -5,38 +5,24 @@ import pytest
 from chatchat.core.abort import Abort, AbortSignal
 
 
-def test_abort_initial():
+def test_a_fresh_signal_passes_and_aborting_twice_stays_aborted():
     s = AbortSignal()
-    assert not s.aborted
     s.check()
-
-
-def test_abort_raises():
-    s = AbortSignal()
+    s.abort()
     s.abort()
     assert s.aborted
     with pytest.raises(Abort):
         s.check()
 
 
-def test_abort_idempotent():
-    s = AbortSignal()
-    s.abort()
-    s.abort()
-    assert s.aborted
-
-
-def test_abort_wait_wakes():
+def test_wait_wakes_on_abort_and_returns_at_once_afterwards():
     async def main():
         s = AbortSignal()
-
-        async def waiter():
-            await s.wait()
-            return True
-
-        t = asyncio.create_task(waiter())
+        waiter = asyncio.create_task(s.wait())
         await asyncio.sleep(0)
+        assert not waiter.done()
         s.abort()
-        assert await t is True
+        await waiter
+        await s.wait()
 
     asyncio.run(main())

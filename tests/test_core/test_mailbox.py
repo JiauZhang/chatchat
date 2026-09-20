@@ -1,9 +1,9 @@
 import asyncio
 
-from chatchat.core.inbox_poller import DEFAULT_INTERVAL, InboxPoller
+from chatchat.core.inbox_poller import InboxPoller
 from chatchat.core.mailbox import FileMailbox
 from chatchat.core.team import Team
-from chatchat.client import MockClient, ToolUse
+from chatchat.client import MockClient
 
 
 def test_file_mailbox_persists_across_instances(tmp_path):
@@ -31,11 +31,7 @@ def test_file_mailbox_lockfile_serializes_writers(tmp_path):
     assert not path.with_suffix(path.suffix + '.lock').exists()
 
 
-def test_poll_interval_is_half_second(tmp_path):
-    assert DEFAULT_INTERVAL == 0.5
-
-
-def test_unhandled_protocol_message_is_delivered_not_swallowed(tmp_path):
+def test_unhandled_protocol_message_is_delivered_not_swallowed():
     seen = []
 
     async def respond(messages, tools=None, *, stream_cb=None):
@@ -59,6 +55,7 @@ def test_handled_protocol_message_is_routed(tmp_path):
     box.write('peer', '{"type": "shutdown_request", "request_id": "r1"}')
     poller = InboxPoller(box, handlers={'shutdown_request':
                                         lambda m: routed.append(m)})
+    assert poller.interval == 0.5
     text = asyncio.run(poller.poll_once())
     assert text is None and len(routed) == 1
 

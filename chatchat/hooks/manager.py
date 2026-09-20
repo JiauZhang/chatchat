@@ -3,11 +3,12 @@ import os
 import time
 import uuid
 
-from chatchat.client import Client
-from chatchat.hooks.events import emit_response, emit_started
-from chatchat.hooks.executors import (exec_agent_hook, exec_callback_hook,
-                                      exec_command_hook, exec_function_hook,
-                                      exec_http_hook, exec_prompt_hook)
+from chatchat.hooks.events import (AGENT_WARN, emit, emit_response,
+                                emit_started)
+from chatchat.hooks.executors import (EVALUATOR_INSTRUCTION, exec_agent_hook,
+                                      exec_callback_hook, exec_command_hook,
+                                      exec_function_hook, exec_http_hook,
+                                      exec_prompt_hook)
 from chatchat.hooks.matchers import if_condition_applies, if_matches, \
     matches_pattern
 from chatchat.hooks.output import aggregate_results
@@ -21,12 +22,11 @@ DEFAULT_PARENT = 'team-lead'
 
 
 def build_hook_input(event: str, *, session_id: str, agent=None, cwd: str = '',
-                     **fields) -> dict:
+                     permission_mode: str = '', **fields) -> dict:
     hook_input = {
         'session_id': session_id,
         'transcript_path': '',
         'cwd': cwd,
-        'permission_mode': None,
         'agent_id': agent.name if agent else None,
         'agent_type': (getattr(agent, 'agent_type', '')
                        or ('subagent' if getattr(agent, '_internal', False)
@@ -34,8 +34,18 @@ def build_hook_input(event: str, *, session_id: str, agent=None, cwd: str = '',
                        if agent else None),
         'hook_event_name': event,
     }
+    if permission_mode:
+        hook_input['permission_mode'] = permission_mode
     hook_input.update(fields)
     return hook_input
+
+
+def _last_assistant_text(messages: list) -> str:
+    for m in reversed(messages):
+        if (isinstance(m, dict) and m.get('role') == 'assistant'
+                and isinstance(m.get('content'), str)):
+            return m['content']
+    return ''
 
 
 class HookManager:
@@ -44,13 +54,12 @@ class HookManager:
         self.enabled = enabled
         self._cwd = os.getcwd()
         self._session_id = uuid.uuid4().hex
+        self.permission_mode = ''
         self._session_hooks: dict[str, list] = {}
         self._settings_hooks = None
         self._consumed_once: set[str] = set()
         self._counter = 0
         self._background_tasks: dict[str, asyncio.Task] = {}
-        self._hook_client = None
-        self._hook_model = ''
 
     def register(self, event: str, matcher: str = '*', **kw) -> str:
         htype = kw.pop('type', None)
@@ -113,7 +122,7 @@ class HookManager:
         for h in all_hooks:
             if h.hook_id in self._consumed_once:
                 continue
-            if not matches_pattern(query or '', h.matcher):
+            if query and not matches_pattern(query, h.matcher):
                 continue
             if h.config.if_:
                 if not if_condition_applies(event):
@@ -126,13 +135,13 @@ class HookManager:
         return matched
 
     async def run(self, event: str, *, query: str = None, input: dict = None,
-                  agent=None, tool_use_id: str = '',
-                  blocking: bool = False) -> AggregatedHookResult:
+                  agent=None, tool_use_id: str = '') -> AggregatedHookResult:
         if not self.enabled:
             return AggregatedHookResult()
         hook_input = build_hook_input(
             event, session_id=self._session_id, agent=agent,
-            cwd=self._cwd, tool_use_id=tool_use_id, **(input or {}))
+            cwd=self._cwd, permission_mode=self.permission_mode,
+            tool_use_id=tool_use_id, **(input or {}))
         matched = self.get_matching_hooks(event, query, hook_input)
         if not matched:
             return AggregatedHookResult()
@@ -151,7 +160,13 @@ class HookManager:
         for hook in matched:
             if hook.config.once:
                 self._consumed_once.add(hook.hook_id)
-        return aggregate_results(results, int((time.monotonic() - start) * 1000))
+        agg = aggregate_results(results,
+                                int((time.monotonic() - start) * 1000))
+        if agg.system_message:
+            emit(AGENT_WARN,
+                 agent=getattr(agent, 'name', '') or DEFAULT_PARENT,
+                 text=agg.system_message)
+        return agg
 
     async def _run_one(self, hook, hook_input) -> HookResult:
         hook_id = hook.hook_id
@@ -199,8 +214,10 @@ class HookManager:
         if config.type == 'http':
             return await exec_http_hook(hook, hook_input)
         if config.type == 'prompt':
-            return await exec_prompt_hook(self._hook_client(config), hook,
-                                          hook_input)
+            return await exec_prompt_hook(
+                self._team._client_for(EVALUATOR_INSTRUCTION, thinking=False,
+                                       model=config.model or None),
+                hook, hook_input)
         if config.type == 'agent':
             parent = hook_input.get('agent_id') or DEFAULT_PARENT
             return await exec_agent_hook(self._team, parent, hook, hook_input)
@@ -212,19 +229,12 @@ class HookManager:
         return HookResult(hook=hook, outcome='non_blocking_error',
                           message=f'unknown hook type {config.type}')
 
-    def _hook_client(self, config):
-        model = config.model or self._team.client.model
-        if self._hook_client is None or model != self._hook_model:
-            self._hook_client = Client(self._team.client.provider, model=model)
-            self._hook_model = model
-        return self._hook_client
-
     async def execute_pre_tool_hooks(self, agent, tool_use_id: str,
                                      tool_name: str, tool_input: dict):
         return await self.run(
             'PreToolUse', query=tool_name,
             input={'tool_name': tool_name, 'tool_input': tool_input},
-            agent=agent, tool_use_id=tool_use_id, blocking=True)
+            agent=agent, tool_use_id=tool_use_id)
 
     async def execute_post_tool_hooks(self, agent, tool_use_id: str,
                                       tool_name: str, tool_input: dict,
@@ -241,84 +251,93 @@ class HookManager:
         return await self.run(
             'PostToolUseFailure', query=tool_name,
             input={'tool_name': tool_name, 'tool_input': tool_input,
-                   'tool_response': str(error)},
+                   'error': str(error)},
             agent=agent, tool_use_id=tool_use_id)
 
     async def execute_user_prompt_submit_hooks(self, agent, prompt: str):
         return await self.run('UserPromptSubmit',
-                              input={'prompt': prompt}, agent=agent,
-                              blocking=True)
+                              input={'prompt': prompt}, agent=agent)
 
-    async def execute_stop_hooks(self, agent, stop_hook_active: bool = False,
-                                 blocking: bool = True):
+    async def execute_stop_hooks(self, agent, stop_hook_active: bool = False):
         return await self.run('Stop',
-                              input={'stop_hook_active': stop_hook_active},
-                              agent=agent, blocking=blocking)
+                              input={'stop_hook_active': stop_hook_active,
+                                     'last_assistant_message':
+                                         _last_assistant_text(agent.messages)},
+                              agent=agent)
 
     async def execute_stop_failure_hooks(self, agent, error):
         return await self.run('StopFailure', input={'error': str(error)},
                               agent=agent)
 
     async def execute_notification_hooks(self, agent, notification_type: str,
-                                         teammate: str, messages):
+                                         message: str, title: str = ''):
         return await self.run(
             'Notification', query=notification_type,
             input={'notification_type': notification_type,
-                   'teammate': teammate, 'messages': messages},
+                   'message': message, 'title': title},
             agent=agent)
 
-    async def execute_session_start_hooks(self, source: str = 'team'):
+    async def execute_session_start_hooks(self, source: str = 'startup'):
         return await self.run('SessionStart', query=source,
                               input={'source': source})
 
-    async def execute_session_end_hooks(self, reason: str = 'shutdown'):
+    async def execute_session_end_hooks(self, reason: str = 'logout'):
         return await self.run('SessionEnd', query=reason,
                               input={'reason': reason})
 
-    async def execute_setup_hooks(self, trigger: str = 'team'):
+    async def execute_setup_hooks(self, trigger: str = 'init'):
         return await self.run('Setup', query=trigger,
                               input={'trigger': trigger})
 
-    async def execute_subagent_start_hooks(self, agent, parent_agent_id: str):
+    async def execute_subagent_start_hooks(self, agent, agent_type: str):
         return await self.run(
-            'SubagentStart', query='subagent',
-            input={'agent_id': agent.name, 'agent_type': 'subagent',
-                   'parent_agent_id': parent_agent_id},
+            'SubagentStart', query=agent_type,
+            input={'agent_id': agent.name, 'agent_type': agent_type},
             agent=agent)
 
-    async def execute_subagent_stop_hooks(self, agent, parent_agent_id: str):
+    async def execute_subagent_stop_hooks(self, agent, agent_type: str):
         return await self.run(
-            'SubagentStop', query='subagent',
-            input={'agent_id': agent.name, 'agent_type': 'subagent',
-                   'parent_agent_id': parent_agent_id},
+            'SubagentStop', query=agent_type,
+            input={'agent_id': agent.name, 'agent_type': agent_type,
+                   'stop_hook_active': agent._stop_hook_active,
+                   'last_assistant_message':
+                       _last_assistant_text(agent.messages)},
             agent=agent)
 
     async def execute_task_created_hooks(self, agent, task_id: str,
-                                         task_description: str,
-                                         parent_agent_id: str):
+                                         task_subject: str,
+                                         task_description: str = ''):
         return await self.run(
             'TaskCreated',
-            input={'task_id': task_id, 'task_description': task_description,
-                   'parent_agent_id': parent_agent_id},
+            input={'task_id': task_id, 'task_subject': task_subject,
+                   'task_description': task_description,
+                   'teammate_name': agent.name, 'team_name': self._team.name},
             agent=agent)
 
     async def execute_task_completed_hooks(self, agent, task_id: str,
-                                           task_status: str):
+                                           task_subject: str,
+                                           task_description: str = ''):
         return await self.run(
             'TaskCompleted',
-            input={'task_id': task_id, 'task_status': task_status},
+            input={'task_id': task_id, 'task_subject': task_subject,
+                   'task_description': task_description,
+                   'teammate_name': agent.name, 'team_name': self._team.name},
             agent=agent)
 
     async def execute_teammate_idle_hooks(self, agent):
-        return await self.run('TeammateIdle', agent=agent)
+        return await self.run(
+            'TeammateIdle',
+            input={'teammate_name': agent.name, 'team_name': self._team.name},
+            agent=agent)
 
-    async def execute_instructions_loaded_hooks(self, agent, instructions: str,
-                                                *, load_reason: str = 'init',
-                                                path: str = ''):
+    async def execute_instructions_loaded_hooks(self, agent, file_path: str,
+                                                memory_type: str, *,
+                                                load_reason: str =
+                                                'session_start'):
         return await self.run(
             'InstructionsLoaded', query=load_reason,
-            input={'instructions': instructions, 'load_reason': load_reason,
-                   'path': path},
+            input={'file_path': file_path, 'memory_type': memory_type,
+                   'load_reason': load_reason},
             agent=agent)
 
     async def execute_pre_compact_hooks(self, agent=None, trigger: str = 'manual'):
@@ -330,11 +349,15 @@ class HookManager:
                               input={'trigger': trigger}, agent=agent)
 
     async def execute_permission_request_hooks(self, agent, tool_name: str,
-                                               tool_input: dict):
+                                               tool_input: dict,
+                                               tool_use_id: str = '',
+                                               permission_suggestions=None):
+        input = {'tool_name': tool_name, 'tool_input': tool_input}
+        if permission_suggestions:
+            input['permission_suggestions'] = list(permission_suggestions)
         return await self.run('PermissionRequest', query=tool_name,
-                              input={'tool_name': tool_name,
-                                     'tool_input': tool_input},
-                              agent=agent)
+                              input=input, agent=agent,
+                              tool_use_id=tool_use_id)
 
     async def execute_permission_denied_hooks(self, agent, tool_name: str,
                                               tool_input: dict):

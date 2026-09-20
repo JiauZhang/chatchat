@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass, field
-
-from chatchat.tool import ToolOutcome
 
 GENERAL_PURPOSE = 'general-purpose'
 
@@ -19,24 +16,6 @@ class AgentDefinition:
     addenda: str = ''
     description: str = ''
 
-    def tool_schemas(self, context) -> list[dict]:
-        return [{'name': t.name,
-                 'description': t.describe(context),
-                 'input_schema': t.parameters or {}}
-                for t in self.tools]
-
-    async def execute_tool(self, name: str, input: dict, agent=None,
-                           tool_use_id: str = '') -> ToolOutcome:
-        tool = next((t for t in self.tools if t.name == name), None)
-        if tool is None:
-            return ToolOutcome(f'Error: unknown tool "{name}"')
-        try:
-            out = await tool(agent.tool_context, **input)
-            return ToolOutcome(out if isinstance(out, str) else str(out))
-        except Exception as e:
-            return ToolOutcome(f'Error calling tool "{name}": '
-                               f'{type(e).__name__}: {e}')
-
     def full_prompt(self) -> str:
         parts = [p.strip() for p in (self.system_prompt, self.addenda) if p.strip()]
         return '\n'.join(parts)
@@ -45,37 +24,6 @@ class AgentDefinition:
 def general_purpose(system_prompt: str = '', tools: list = None) -> AgentDefinition:
     return AgentDefinition(GENERAL_PURPOSE, system_prompt=system_prompt,
                            tools=list(tools or []), default=True)
-
-
-async def run_agent(prompt: str, *, provider: str = None, model: str = None,
-                    system_prompt: str = '', tools: list = None,
-                    addenda: str = '', thinking: bool = True,
-                    client=None, agent_type: str | None = None,
-                    fork_msgs: list | None = None,
-                    model_timeout: float = 120.0,
-                    model_retries: int = 2) -> str:
-    from chatchat.client import Client
-    from chatchat.core.abort import AbortSignal
-    from chatchat.core.agent import Agent
-    from chatchat.core.context import AgentContext
-    from chatchat.core.task import rand_name
-
-    defn = AgentDefinition(agent_type or GENERAL_PURPOSE,
-                           system_prompt=system_prompt, tools=list(tools or []),
-                           model=model, addenda=addenda)
-    sys_prompt = defn.full_prompt()
-    if client is None:
-        client = Client(provider, model=model or defn.model,
-                        instruction=sys_prompt, thinking=thinking)
-    name = rand_name('agent')
-    ctx = AgentContext(agent_id=name, agent_name=name, team_name='',
-                       abort=AbortSignal(), leader=False)
-    agent = Agent(name, name, None, client, ctx, instruction=sys_prompt,
-                  internal=True, tool_exec=defn,
-                  model_timeout=model_timeout, model_retries=model_retries)
-    if fork_msgs:
-        agent.messages = list(fork_msgs)
-    return await agent.chat(prompt)
 
 
 class AgentRegistry:

@@ -9,6 +9,8 @@ from chatchat.core.context import spawn_task
 from chatchat.core.inbox_poller import InboxPoller
 from chatchat.core.mailbox import Mailbox, parse_protocol
 from chatchat.core.task import Task, generate_task_id
+from chatchat.hooks.output import describe_blocking
+from chatchat.tool import describe_tools
 from chatchat.hooks.events import (AGENT_PROGRESS, AGENT_REASON_START,
                                    AGENT_TEXT, AGENT_TOOL_CALL,
                                    AGENT_TURN_FINISHED, AGENT_WARN, emit)
@@ -21,7 +23,8 @@ class Agent:
                  instruction: str = '',
                  internal: bool = False, hookless: bool = False,
                  depth: int = 0,
-                 tool_exec=None, model_timeout: float = 120.0,
+                 tools: list | None = None,
+                 model_timeout: float = 120.0,
                  model_retries: int = 2,
                  on_message=None,
                  inbox=None,
@@ -37,9 +40,9 @@ class Agent:
         self._instructions_loaded = False
         self.depth = depth
         self.agent_type = agent_type
+        self.tools = tools
         self.model_timeout = model_timeout
         self.model_retries = model_retries
-        self.tool_exec = tool_exec if tool_exec is not None else team
 
         self.total_usage = Usage()
         self.inbox = inbox if inbox is not None else Mailbox()
@@ -194,18 +197,32 @@ class Agent:
                 stop_res = await self.team.hooks.execute_stop_hooks(
                     self, stop_hook_active=self._stop_hook_active)
                 if stop_res.blocking_error is not None:
-                    from chatchat.hooks.output import get_stop_hook_message
                     self._stop_hook_active = True
-                    self._queue.put_nowait(get_stop_hook_message(
+                    self._queue.put_nowait(describe_blocking(
                         stop_res.blocking_error))
                     continue
                 self._stop_hook_active = False
+                if not stop_res.continue_loop:
+                    if stop_res.stop_reason:
+                        emit(AGENT_WARN, agent=self.name,
+                             text=stop_res.stop_reason)
+                    self._stop.set()
                 if not self.ctx.leader:
-                    await self.team.hooks.execute_teammate_idle_hooks(self)
+                    idle_res = await self.team.hooks.execute_teammate_idle_hooks(
+                        self)
+                    if idle_res.blocking_error is not None:
+                        self._queue.put_nowait(describe_blocking(
+                            idle_res.blocking_error))
+                        continue
                 await self.team.notify_idle(self, reason=reason,
                                             failure_reason=error or None)
             self._done += 1
             self._set_idle()
+
+    def tool_schemas(self, context) -> list[dict]:
+        if self.tools is None:
+            return self.team.tool_schemas(context)
+        return describe_tools(self.tools, context)
 
     def _emit_progress(self, msg: dict, usage: dict | None = None):
         if not self._internal:
@@ -223,20 +240,16 @@ class Agent:
             self._instructions_loaded = True
             for item in self.team.instruction_files:
                 await self.team.hooks.execute_instructions_loaded_hooks(
-                    self, item.get('content', ''),
-                    load_reason=item.get('load_reason', 'init'),
-                    path=item.get('path', ''))
+                    self, item.get('path', ''), item.get('memory_type', ''),
+                    load_reason=item.get('load_reason', 'session_start'))
         if not self.hookless and user_block:
             pre = await self.team.hooks.execute_user_prompt_submit_hooks(
                 self, user_block)
             if pre.blocking_error is not None:
-                from chatchat.hooks.output import (
-                    get_user_prompt_submit_hook_blocking_message)
                 if self.messages and self.messages[-1].get('role') == 'user' \
                         and self.messages[-1].get('content') == user_block:
                     self.messages.pop()
-                text = get_user_prompt_submit_hook_blocking_message(
-                    pre.blocking_error)
+                text = describe_blocking(pre.blocking_error)
                 emit(AGENT_WARN, agent=self.name, text=text)
                 emit(AGENT_TURN_FINISHED, agent=self.name)
                 return text
@@ -285,7 +298,7 @@ class Agent:
                 thinking_parts.clear()
                 stream_state['text_emitted'] = False
                 respond_task = asyncio.create_task(self.client.respond(
-                    self.messages, self.tool_exec.tool_schemas(
+                    self.messages, self.tool_schemas(
                     self.tool_context), stream_cb=stream))
                 abort_waiter = asyncio.create_task(self._work_abort.wait())
                 resp = None
@@ -322,7 +335,8 @@ class Agent:
                     f'retrying ({attempt}/{self.model_retries})'))
             self.total_usage.add(getattr(self.client, '_last_usage', None))
             if isinstance(resp, str):
-                msg = {'role': 'assistant', 'content': resp}
+                msg = {'role': 'assistant', 'content': resp,
+                       'usage': self.client._last_usage.to_dict()}
                 if thinking_parts:
                     msg['thinking'] = ''.join(thinking_parts)
                 self._emit_progress(msg, usage=self.client._last_usage.to_dict())
@@ -331,7 +345,8 @@ class Agent:
                 emit(AGENT_TURN_FINISHED, agent=self.name)
                 return resp
             assistant_msg = {'role': 'assistant',
-                              'content': [tu_todict(t) for t in resp]}
+                             'content': [tu_todict(t) for t in resp],
+                             'usage': self.client._last_usage.to_dict()}
             if thinking_parts:
                 assistant_msg['thinking'] = ''.join(thinking_parts)
             self._emit_progress(assistant_msg,
@@ -344,7 +359,7 @@ class Agent:
                      input=tu.input, tool_use_id=tu.id)
                 self._in_tool = tu.name
                 try:
-                    outcome = await self.tool_exec.execute_tool(
+                    outcome = await self.team.execute_tool(
                         tu.name, tu.input, self, tu.id)
                 finally:
                     self._in_tool = None

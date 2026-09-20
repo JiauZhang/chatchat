@@ -1,3 +1,4 @@
+import pytest
 from chatchat.client import BaseClient, dynamic_import_client
 from chatchat.providers import register_provider
 
@@ -15,9 +16,7 @@ def test_custom_provider_registration():
     assert dynamic_import_client('custom') is CustomClient
 
 
-def test_custom_provider_priority_and_error_list():
-    try:
+def test_custom_provider_error_lists_the_known_names():
+    with pytest.raises(RuntimeError) as excinfo:
         dynamic_import_client('does-not-exist')
-        assert False, 'expected RuntimeError'
-    except RuntimeError as e:
-        assert 'custom' in str(e)
+    assert 'custom' in str(excinfo.value)

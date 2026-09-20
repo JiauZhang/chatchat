@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from chatchat.hooks.output import describe_blocking
+
 
 async def send_message(team, agent, input: dict, tool_use_id: str = '') -> str:
     to = input.get('to', '')
@@ -13,21 +15,17 @@ async def send_message(team, agent, input: dict, tool_use_id: str = '') -> str:
             r.inbox.write(agent.name, message)
         if agent is not None and not agent._internal:
             await team.hooks.execute_notification_hooks(
-                agent, 'message', '*',
-                [{'teammate_id': r.name, 'message': message}
-                 for r in recipients])
+                agent, 'message', message, f'{agent.name} -> *')
         names = ', '.join(r.name for r in recipients)
-        return (f'Message broadcast to {len(recipients)} teammate(s): '
-                f'{names}. {note}')
+        return (f'Told {len(recipients)} teammate(s): {names}. {note}')
     recipient = team.get_by_name(to)
     if recipient is None:
         return f'Error: unknown teammate "{to}"'
     recipient.inbox.write(agent.name, message)
     if agent is not None and not agent._internal:
         await team.hooks.execute_notification_hooks(
-            agent, 'message', to, [{'teammate_id': to, 'message': message}])
-    return (f"Message delivered to {to}'s inbox; they'll read it on their "
-            f'next idle turn. {note}')
+            agent, 'message', message, f'{agent.name} -> {to}')
+    return (f"Sent to {to}, who reads it on their next idle turn. {note}")
 
 
 async def create_agent(team, agent, input: dict, tool_use_id: str = '') -> str:
@@ -50,22 +48,20 @@ async def create_agent(team, agent, input: dict, tool_use_id: str = '') -> str:
                 f'send_message (to: "{name}"); stop it with task_stop '
                 f'(agent_id: {teammate.agent_id}).')
     if agent is not None and not agent._internal:
-        await team.hooks.execute_task_created_hooks(
-            agent, f'{agent.name}:sub', '', agent.name)
-    try:
-        result = await team.spawn_subagent(
-            prompt, subagent_type=input.get('subagent_type'),
-            instruction=cfg, model=input.get('model'),
-            depth=getattr(agent, 'depth', 0) + 1,
-            tool_use_id=tool_use_id)
-    except Exception:
-        if agent is not None and not agent._internal:
-            await team.hooks.execute_task_completed_hooks(
-                agent, f'{agent.name}:sub', 'error')
-        raise
+        created = await team.hooks.execute_task_created_hooks(
+            agent, f'{agent.name}:sub', prompt)
+        if created.blocking_error is not None:
+            return f'Error: {describe_blocking(created.blocking_error)}'
+    result = await team.spawn_subagent(
+        prompt, subagent_type=input.get('subagent_type'),
+        instruction=cfg, model=input.get('model'),
+        depth=getattr(agent, 'depth', 0) + 1,
+        tool_use_id=tool_use_id)
     if agent is not None and not agent._internal:
-        await team.hooks.execute_task_completed_hooks(
-            agent, f'{agent.name}:sub', 'completed')
+        done = await team.hooks.execute_task_completed_hooks(
+            agent, f'{agent.name}:sub', prompt)
+        if done.blocking_error is not None:
+            return f'{result}\n{describe_blocking(done.blocking_error)}'
     return result
 
 

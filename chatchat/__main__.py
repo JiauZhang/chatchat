@@ -17,6 +17,7 @@ subparser = parser.add_subparsers()
 cli_config(subparser)
 cli_chat(subparser)
 cli_hooks(subparser)
+cli_team(subparser)
 
 args = parser.parse_args()
 

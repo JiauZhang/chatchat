@@ -65,8 +65,7 @@ class HookResult:
     decision: str = ''
     additional_context: str = ''
     updated_input: dict | None = None
-    initial_user_message: str = ''
-    retry: bool = False
+    stop_reason: str = ''
 
 
 @dataclass
@@ -74,6 +73,8 @@ class AggregatedHookResult:
     results: list = field(default_factory=list)
     decision: str = ''
     continue_loop: bool = True
+    stop_reason: str = ''
+    system_message: str = ''
     suppress_output: bool = False
     blocking_error: HookBlockingError | None = None
     additional_context: str = ''

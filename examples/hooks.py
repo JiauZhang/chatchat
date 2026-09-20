@@ -10,14 +10,14 @@ LEAD = '你是 team lead，负责把用户问题分解并发给合适的 teammat
 def on_hooks(team):
     team.hooks.on('PreToolUse', fn=lambda i: print(f'    [hook] pre-tool: {i["tool_name"]} input={i.get("tool_input")}'))
     team.hooks.on('PostToolUse', fn=lambda i: print(f'    [hook] post-tool: {i["tool_name"]} -> {str(i.get("tool_response"))[:60]}'))
-    team.hooks.on('PostToolUseFailure', fn=lambda i: print(f'    [hook] tool FAILED: {i["tool_name"]}: {i.get("tool_response")}'))
+    team.hooks.on('PostToolUseFailure', fn=lambda i: print(f'    [hook] tool FAILED: {i["tool_name"]}: {i.get("error")}'))
     team.hooks.on('UserPromptSubmit', fn=lambda i: print(f'    [hook] user-prompt: {i["prompt"][:40]}'))
     team.hooks.on('Stop', fn=lambda i: print('    [hook] agent stop'))
-    team.hooks.on('Notification', fn=lambda i: print(f'    [hook] notify {i["notification_type"]} to {i["teammate"]}'))
+    team.hooks.on('Notification', fn=lambda i: print(f'    [hook] notify {i["notification_type"]}: {i["title"]}'))
     team.hooks.on('SubagentStart', fn=lambda i: print(f'    [hook] subagent start: {i["agent_id"]}'))
     team.hooks.on('SubagentStop', fn=lambda i: print(f'    [hook] subagent stop: {i["agent_id"]}'))
     team.hooks.on('TaskCreated', fn=lambda i: print(f'    [hook] task created: {i["task_id"]}'))
-    team.hooks.on('TaskCompleted', fn=lambda i: print(f'    [hook] task completed: {i["task_id"]} {i["task_status"]}'))
+    team.hooks.on('TaskCompleted', fn=lambda i: print(f'    [hook] task completed: {i["task_id"]} {i["task_subject"]}'))
     team.hooks.on('TeammateIdle', fn=lambda i: print('    [hook] team idle'))
 
 

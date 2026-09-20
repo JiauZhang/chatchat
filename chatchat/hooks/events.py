@@ -24,17 +24,6 @@ class HookStartedEvent:
 
 
 @dataclass
-class HookProgressEvent:
-    type: str = 'progress'
-    hook_id: str = ''
-    hook_name: str = ''
-    hook_event: str = ''
-    stdout: str = ''
-    stderr: str = ''
-    output: str = ''
-
-
-@dataclass
 class HookResponseEvent:
     type: str = 'response'
     hook_id: str = ''
@@ -47,7 +36,7 @@ class HookResponseEvent:
     outcome: str = ''
 
 
-HookExecutionEvent = HookStartedEvent | HookProgressEvent | HookResponseEvent
+HookExecutionEvent = HookStartedEvent | HookResponseEvent
 
 _pending_events: list[HookExecutionEvent] = []
 _event_handler = None
@@ -118,12 +107,6 @@ def set_all_hook_events_enabled(enabled: bool):
     _all_hook_events_enabled = enabled
 
 
-def clear_hook_event_state():
-    global _event_handler
-    _event_handler = None
-    _pending_events.clear()
-
-
 def _should_emit(hook_event: str) -> bool:
     if hook_event in ALWAYS_EMITTED_HOOK_EVENTS:
         return True
@@ -143,14 +126,6 @@ def emit_started(hook_id: str, hook_name: str, hook_event: str):
     if _should_emit(hook_event):
         _emit(HookStartedEvent(hook_id=hook_id, hook_name=hook_name,
                                hook_event=hook_event))
-
-
-def emit_progress(hook_id: str, hook_name: str, hook_event: str,
-                  stdout: str = '', stderr: str = '', output: str = ''):
-    if _should_emit(hook_event):
-        _emit(HookProgressEvent(hook_id=hook_id, hook_name=hook_name,
-                                hook_event=hook_event, stdout=stdout,
-                                stderr=stderr, output=output))
 
 
 def emit_response(hook_id: str, hook_name: str, hook_event: str,

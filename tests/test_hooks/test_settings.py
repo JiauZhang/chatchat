@@ -1,6 +1,6 @@
 import json
 
-from chatchat.hooks.schemas import HookCommand
+from chatchat.hooks.schemas import HookCommand, IndividualHookConfig
 from chatchat.hooks.settings import (dedupe_hooks, get_all_hooks, is_hook_equal,
                                      hook_from_dict, settings_file_paths)
 
@@ -9,11 +9,9 @@ def _write(cwd, source, data):
     path = settings_file_paths(cwd)[source]
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data))
-    return path
 
 
-def test_hook_from_dict(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
+def test_hook_from_dict():
     hook = hook_from_dict({'type': 'command', 'command': 'echo hi',
                            'if': 'Bash(git *)', 'statusMessage': 'msg',
                            'async': True, 'timeout': 5})
@@ -75,9 +73,8 @@ def test_is_hook_equal_ignores_timeout():
     assert not is_hook_equal(a, HookCommand(type='prompt', prompt='c'))
 
 
-def test_malformed_settings_skipped(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    p = _write(tmp_path, 'projectSettings', {'hooks': {'Stop': [
+def test_malformed_settings_skipped(tmp_path):
+    _write(tmp_path, 'projectSettings', {'hooks': {'Stop': [
         {'hooks': [{'type': 'bogus'}]}, {'matcher': 'X'}]}})
     hooks = get_all_hooks(tmp_path)
     assert hooks == []

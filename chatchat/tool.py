@@ -15,6 +15,11 @@ class ToolContext:
     cwd: Path
 
 
+def describe_tools(tools, context: ToolContext) -> list[dict]:
+    return [{'name': t.name, 'description': t.describe(context),
+             'input_schema': t.parameters or {}} for t in tools]
+
+
 @dataclass
 class ToolResult:
     text: str
@@ -23,8 +28,6 @@ class ToolResult:
 
 @dataclass
 class ToolOutcome:
-    """What one tool call puts back into the conversation: the result the
-    model sees, plus anything the human or a hook said alongside it."""
     text: str
     additional_context: str = ''
 

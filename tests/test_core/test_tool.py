@@ -1,9 +1,10 @@
 import asyncio
 from pathlib import Path
 
-from chatchat.client import MockClient
 from chatchat.core.team import Team
-from chatchat.tool import Tool, ToolContext, ToolResult
+from chatchat.tool import (DEFAULT_MAX_RESULT_CHARS, Tool, ToolContext,
+                           ToolResult)
+from helpers import mock_team
 
 CTX = ToolContext(cwd=Path('/tmp/work'))
 
@@ -51,8 +52,6 @@ def test_read_only_is_a_capability_of_the_tool():
 
 
 def test_a_result_over_the_budget_is_cut_with_a_note_saying_so():
-    from chatchat.tool import DEFAULT_MAX_RESULT_CHARS
-
     def long(context, filler: str = ''):
         return 'x' * 5000
 
@@ -122,16 +121,14 @@ def test_team_schema_carries_the_resolved_description():
     def grep(context, pattern: str = ''):
         return 'no matches'
 
+    schema = Tool(tool=grep, name='Grep',
+                  description=lambda ctx: f'regex over {ctx.cwd}',
+                  parameters={'type': 'object',
+                              'properties': {'pattern': {'type': 'string'}}})
+
     async def main():
-        team = Team('t',
-                    client_factory=lambda inst, model=None: MockClient(
-                        handler=lambda m, tools=None, *, stream_cb=None: 'done'),
-                    tool_context=CTX,
-                    tools=[Tool(tool=grep, name='Grep',
-                                description=lambda ctx: f'regex over {ctx.cwd}',
-                                parameters={'type': 'object',
-                                            'properties': {
-                                                'pattern': {'type': 'string'}}})])
+        team = mock_team('t', tool_context=CTX, tools=[schema],
+                         handler=lambda m, tools=None, *, stream_cb=None: 'done')
         return {t['name']: t['description'] for t in team.tool_schemas(CTX)}
 
     schemas = asyncio.run(main())
