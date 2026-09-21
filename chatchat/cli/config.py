@@ -1,10 +1,13 @@
-from conippets import json
-from chatchat.providers import __providers__, __custom_providers__
-from chatchat.client import __secret_file__
+import json
+from pathlib import Path
 
-def parse_config(args, secret_file=None):
+from chatchat.client import secret_file
+from chatchat.providers import provider_names
+
+
+def parse_config(args):
     if args.list:
-        print(f'supported providers: {__providers__}')
+        print(f'supported providers: {provider_names()}')
     elif args.cfgs:
         cfg = args.cfgs.split('=')
         provider_key = cfg[0].split('.')
@@ -14,19 +17,28 @@ def parse_config(args, secret_file=None):
             return
 
         (provider, key), value = provider_key, cfg[1]
-        if provider not in __providers__ and provider not in __custom_providers__:
+        if provider not in provider_names():
             print(f'provider `{provider}` is currently NOT supported!')
-            print(f'supported providers: {list(__custom_providers__) + __providers__}')
+            print(f'supported providers: {provider_names()}')
             return
 
-        secret_file = secret_file if secret_file else __secret_file__
-        secret_data = json.read(secret_file)
+        path = secret_file()
+        secret_data = {}
+        if path.exists():
+            try:
+                secret_data = json.loads(path.read_text())
+            except ValueError:
+                print(f'cannot read {path}: not valid JSON, leaving it alone')
+                return
+        entry = secret_data.get(provider)
+        if not isinstance(entry, dict):
+            entry = secret_data[provider] = {}
+        entry[key] = value
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(secret_data, indent=4,
+                                   ensure_ascii=False) + '\n')
+        print(f'{provider}.{key} saved to {path}')
 
-        if provider in secret_data:
-            secret_data[provider][key] = value
-        else:
-            secret_data[provider] = {key: value}
-        json.write(secret_file, secret_data)
 
 def cli_config(subparser):
     config_parser = subparser.add_parser('config', help='config provider secret key')

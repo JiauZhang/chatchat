@@ -11,9 +11,7 @@ from typing import Optional
 
 import aiohttp
 
-from chatchat.providers import __providers__, __custom_providers__
-
-__secret_file__ = os.environ.get('CHATCHAT_SECRET_FILE', str(Path.home() / '.chatchat.json'))
+from chatchat.providers import get_provider, provider_names
 
 
 @dataclass
@@ -146,19 +144,22 @@ def to_openai_tools(schemas: list[dict]) -> list[dict]:
     }} for s in schemas]
 
 
-def _default_secret_paths(provider):
-    paths = [
-        Path(__secret_file__),
-        Path(os.environ.get('CHATCHAT_HOME', str(Path.home() / '.chatchat'))) / 'chatchat.json',
-    ]
-    return paths
+def secret_file() -> Path:
+    return Path(os.environ.get('CHATCHAT_SECRET_FILE',
+                               '~/.chatchat.json')).expanduser()
+
+
+def _default_secret_paths():
+    chatchat_home = Path(os.environ.get('CHATCHAT_HOME',
+                                        '~/.chatchat')).expanduser()
+    return [secret_file(), chatchat_home / 'chatchat.json']
 
 
 def load_secret(provider: str) -> dict:
     env = os.environ.get(f'CHATCHAT_{provider.upper()}_API_KEY')
     if env:
         return {'api_key': env}
-    for f in _default_secret_paths(provider):
+    for f in _default_secret_paths():
         if f.exists():
             try:
                 data = json.loads(f.read_text())
@@ -198,14 +199,11 @@ class BaseClient:
 
 
 def dynamic_import_client(provider):
-    if provider in __custom_providers__:
-        return __custom_providers__[provider]
-    if provider not in __providers__:
-        supported = list(__custom_providers__) + __providers__
-        raise RuntimeError(f'provider `{provider}` 不受支持，支持的 providers: {supported}')
-    import_module(f'chatchat.providers.{provider}')
-    module = import_module(f'chatchat.providers.{provider}')
-    return getattr(module, provider.capitalize() + 'Client')
+    client_class = get_provider(provider)
+    if client_class is None:
+        raise RuntimeError(f'provider `{provider}` 不受支持，'
+                           f'支持的 providers: {provider_names()}')
+    return client_class
 
 
 class Client:
