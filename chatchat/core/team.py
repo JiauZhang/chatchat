@@ -303,8 +303,11 @@ class Team:
         return total
 
     def last_usage(self):
-        return getattr(self.lead.client, '_last_usage', None) \
-            or type(self.lead.total_usage)()
+        for message in reversed(self.transcript()):
+            usage = message.get('usage')
+            if isinstance(usage, dict):
+                return type(self.lead.total_usage).from_dict(usage)
+        return None
 
     def reset_usage(self):
         for agent in self.agents.values():

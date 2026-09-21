@@ -300,15 +300,18 @@ class MockClient:
         self._handler = handler
         self.thinking = thinking
         self.name = name
-        self._last_usage = Usage.from_dict(usage) if usage else Usage()
+        self._usage = usage
+        self._last_usage = Usage()
 
     async def respond(self, messages: list[dict], tools: Optional[list[dict]] = None,
                       *, stream_cb=None):
-        if self._handler is None:
-            return 'ok'
-        params = signature(self._handler).parameters
-        if 'stream_cb' in params:
-            out = self._handler(messages, tools, stream_cb=stream_cb)
+        self._last_usage = Usage()
+        if self._handler is not None:
+            params = signature(self._handler).parameters
+            out = self._handler(messages, tools, stream_cb=stream_cb) if (
+                'stream_cb' in params) else self._handler(messages, tools)
+            out = await out if asyncio.iscoroutine(out) else out
         else:
-            out = self._handler(messages, tools)
-        return await out if asyncio.iscoroutine(out) else out
+            out = 'ok'
+        self._last_usage = Usage.from_dict(self._usage)
+        return out

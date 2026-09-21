@@ -56,6 +56,44 @@ def test_team_last_usage_is_one_response_not_the_session_total():
     assert total.total_tokens == 240
 
 
+def test_team_last_usage_survives_a_request_that_has_not_answered():
+    """A client clears its own counter when a request starts, so a reading taken
+    mid-request is nothing: the window is measured against the last response
+    that actually came back."""
+    started = asyncio.Event()
+    finish = asyncio.Event()
+    calls = []
+
+    async def respond(messages, tools=None, *, stream_cb=None):
+        calls.append(messages)
+        if len(calls) > 1:
+            started.set()
+            await finish.wait()
+        return 'ok'
+
+    async def main():
+        team = mock_team('in-flight', handler=respond, usage=_USAGE)
+        await team.query('hi')
+        turn = asyncio.create_task(team.query('again'))
+        await started.wait()
+        usage = team.last_usage()
+        finish.set()
+        await turn
+        return usage
+
+    usage = asyncio.run(main())
+    assert (usage.prompt_tokens, usage.completion_tokens,
+            usage.total_tokens) == (100, 20, 120)
+    assert usage.prompt_tokens_details == {'cached_tokens': 80}
+
+
+def test_team_last_usage_is_none_before_any_response():
+    async def main():
+        return mock_team('fresh').last_usage()
+
+    assert asyncio.run(main()) is None
+
+
 def test_team_usage_adds_up_what_the_subagents_spent():
     """A sub-agent's tokens were spent on this session, so the session total has
     to include them; `last_usage` stays the lead's because it measures the
@@ -87,7 +125,6 @@ def test_resetting_usage_clears_the_whole_team():
 def test_team_last_usage_is_zero_for_a_client_that_never_reports():
     async def main():
         team = mock_team('z')
-        del team.lead.client._last_usage
         await team.query('hi')
         return team.last_usage()
 
