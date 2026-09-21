@@ -23,28 +23,13 @@ LEAD_NAME = 'team-lead'
 DEFAULT_COMPACT_RESERVE = 40_000
 
 
-def _estimate_tokens(messages: list[dict]) -> int:
-    total = 0
-    for m in messages:
-        c = m.get('content')
-        if isinstance(c, str):
-            total += len(c)
-        elif isinstance(c, list):
-            for b in c:
-                if isinstance(b, dict):
-                    total += len(b.get('content', '')) if isinstance(
-                        b.get('content', ''), str) else 200
-    return -(-total // 4)
-
-
 def token_count(messages: list[dict]) -> int:
-    for i in range(len(messages) - 1, -1, -1):
-        usage = messages[i].get('usage')
+    for message in reversed(messages):
+        usage = message.get('usage')
         if isinstance(usage, dict):
             return (int(usage.get('prompt_tokens', 0))
-                    + int(usage.get('completion_tokens', 0))
-                    + _estimate_tokens(messages[i + 1:]))
-    return _estimate_tokens(messages)
+                    + int(usage.get('completion_tokens', 0)))
+    return 0
 
 
 class Team:

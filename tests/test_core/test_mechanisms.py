@@ -79,6 +79,8 @@ def test_default_auto_compaction_summarizes_middle():
                     context_window=40_001, compact_reserve=40_000)
         for i in range(14):
             team.lead.messages.append({'role': 'user', 'content': f'm{i}'})
+        team.lead.messages[1]['usage'] = {'prompt_tokens': 5_000,
+                                          'completion_tokens': 10}
         return await team.maybe_compact(list(team.lead.messages))
 
     result = asyncio.run(main())

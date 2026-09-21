@@ -32,15 +32,17 @@ def test_there_is_no_ambient_agent_outside_a_task():
 
 
 def test_context_size_anchors_on_the_last_measured_response():
+    """The API's own count of the request it answered is the whole measurement;
+    a message appended afterwards is not guessed at."""
     msgs = [{'role': 'user', 'content': 'q'},
             {'role': 'assistant', 'content': 'a',
              'usage': {'prompt_tokens': 900, 'completion_tokens': 100}},
             {'role': 'user', 'content': 'x' * 400}]
-    assert token_count(msgs) == 1000 + 100
+    assert token_count(msgs) == 900 + 100
 
 
-def test_context_size_estimates_everything_until_the_first_response():
-    assert token_count([{'role': 'user', 'content': 'x' * 400}]) == 100
+def test_context_size_is_zero_until_the_api_has_measured_it():
+    assert token_count([{'role': 'user', 'content': 'x' * 400}]) == 0
 
 
 def test_an_older_response_does_not_replace_a_newer_one():

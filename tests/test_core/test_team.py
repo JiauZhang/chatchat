@@ -471,7 +471,7 @@ def test_create_agent_tool_name_spawns_persistent_teammate():
     assert single_out.text == 'done'
 
 
-def test_the_context_budget_is_a_threshold_over_an_estimate_of_occupancy():
+def test_the_context_budget_is_a_threshold_over_the_measured_occupancy():
     async def main():
         threshold = mock_team('ct', context_window=1_634,
                           compact_reserve=400).compact_threshold
@@ -483,12 +483,12 @@ def test_the_context_budget_is_a_threshold_over_an_estimate_of_occupancy():
     assert team.auto_compact is True
     assert team.context_tokens == 0
     team.lead.messages.append({'role': 'user', 'content': 'x' * 400})
-    assert team.context_tokens == 100
+    assert team.context_tokens == 0
     team.lead.messages.append(
         {'role': 'assistant', 'content': 'a',
          'usage': {'prompt_tokens': 90, 'completion_tokens': 10}})
     team.lead.messages.append({'role': 'user', 'content': 'y' * 40})
-    assert team.context_tokens == 110
+    assert team.context_tokens == 100
 
 
 def test_execute_tool_forwards_a_toolresult_meta_into_the_result_event():
