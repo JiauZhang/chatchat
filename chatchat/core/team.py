@@ -17,6 +17,8 @@ from chatchat.core.filehistory import FileHistory
 from chatchat.core.mailbox import idle_notification as _idle_msg
 from chatchat.core.tasks import TaskList
 from chatchat.core.team_store import TeamStore
+from chatchat.core.worktrees import (create, generated_name, in_repository,
+                     remove)
 from chatchat.core.skills import SkillRegistry, listing_budget
 from chatchat.hooks.events import (AGENT_PROGRESS, AGENT_TOOL_RESULT,
                                   emit)
@@ -74,6 +76,9 @@ class Team:
             if file_history_dir else None)
         self.tool_context.files = self.file_history
         self.skills = skills or SkillRegistry()
+        self.worktree: dict | None = None
+        self._cwd_changed = None
+        self._worktrees = in_repository(self.tool_context.cwd)
         self._factory = client_factory
         self.hooks = HookManager(self, enabled=hooks)
         self.agents: dict[str, Agent] = {}
@@ -440,6 +445,53 @@ class Team:
             shutil.rmtree(self.tasks.directory, ignore_errors=True)
         self.team_context = None
 
+    def set_cwd(self, path):
+        cwd = Path(path)
+        self.tool_context.cwd = cwd
+        if self.file_history is not None:
+            self.file_history.cwd = cwd
+        if self._cwd_changed is not None:
+            self._cwd_changed(cwd)
+
+    async def enter_worktree(self, name: str = '') -> str:
+        if self.worktree is not None:
+            raise ValueError(f'already working in {self.worktree["name"]}')
+        if not self._worktrees:
+            return ('Error: this directory is not a git repository, so the '
+                    'work cannot be isolated in a worktree.')
+        name = str(name or '').strip() or generated_name()
+        try:
+            record = create(self.tool_context.cwd, name)
+        except ValueError as exc:
+            return f'Error: {exc}'
+        self.worktree = record
+        self.set_cwd(record['path'])
+        await self.hooks.execute_worktree_create_hooks(self.lead, name)
+        await self.hooks.execute_cwd_changed_hooks(self.lead,
+                                                    str(record['path']))
+        return (f'Working in {record["path"]} on branch {record["branch"]}. '
+                f'The session directory moved with it.')
+
+    async def exit_worktree(self, keep: bool = False) -> str:
+        if self.worktree is None:
+            return 'Error: this session is not in a worktree.'
+        record = self.worktree
+        self.worktree = None
+        self.set_cwd(record['origin'])
+        moved = ''
+        if not keep:
+            try:
+                remove(record)
+                moved = f' The worktree was removed; {record["branch"]} stays ' \
+                        f'in the repository.'
+            except ValueError as exc:
+                moved = f' The worktree could not be removed: {exc}'
+        await self.hooks.execute_worktree_remove_hooks(self.lead,
+                                                       record['name'])
+        await self.hooks.execute_cwd_changed_hooks(self.lead,
+                                                   str(record['origin']))
+        return f'Back at {record["origin"]}.' + moved
+
     def turns(self) -> list[tuple[int, str]]:
         if self.file_history is None:
             return []
@@ -579,6 +631,30 @@ class Team:
                                                              'type': 'string'}}},
                                   'required': ['task_id']}},
             ]
+        if self._worktrees:
+            team_tools += [
+                {'name': 'enter_worktree',
+                 'description': 'Only when the user asks for a worktree: make '
+                                'an isolated git worktree under '
+                                '.pyclaw/worktrees and move this session into '
+                                'it, so the work cannot touch the checked-out '
+                                'directory. Refuses outside a git repository.',
+                 'input_schema': {'type': 'object',
+                                  'properties': {
+                                      'name': {'type': 'string',
+                                               'description': 'Optional; a '
+                                                              'random one is '
+                                                              'picked.'}}}},
+                {'name': 'exit_worktree',
+                 'description': 'Leave the worktree this session moved into, '
+                                'back to the original directory. action '
+                                '"remove" also throws the worktree away, '
+                                'keeping its branch.',
+                 'input_schema': {'type': 'object',
+                                  'properties': {
+                                      'action': {'type': 'string',
+                                                 'enum': ['keep', 'remove']}}}},
+            ]
         skills = self.skills.all()
         if skills:
             team_tools.append(
@@ -651,6 +727,9 @@ class Team:
                          'team_delete': _tools.team_delete}
         if self.skills.all():
             team_fns['use_skill'] = _tools.use_skill
+        if self._worktrees:
+            team_fns |= {'enter_worktree': _tools.enter_worktree,
+                         'exit_worktree': _tools.exit_worktree}
         extra = ''
         if agent is not None and not agent.hookless:
             pre = await self.hooks.execute_pre_tool_hooks(

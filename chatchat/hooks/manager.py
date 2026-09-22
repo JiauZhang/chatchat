@@ -164,7 +164,8 @@ class HookManager:
         hook_input = build_hook_input(
             event, session_id=self._session_id, agent=agent,
             cwd=self._cwd, permission_mode=self.permission_mode,
-            tool_use_id=tool_use_id, **(input or {}))
+            tool_use_id=tool_use_id)
+        hook_input.update(input or {})
         matched = self.get_matching_hooks(event, query, hook_input)
         if not matched:
             return AggregatedHookResult()

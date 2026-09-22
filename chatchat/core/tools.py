@@ -190,3 +190,16 @@ async def team_delete(team, agent, input: dict, tool_use_id: str = '') -> str:
     except ValueError as exc:
         return f'Error: {exc}'
     return 'Cleaned up the team record and its task list.'
+
+
+async def enter_worktree(team, agent, input: dict,
+                         tool_use_id: str = '') -> str:
+    try:
+        return await team.enter_worktree(str(input.get('name') or ''))
+    except ValueError as exc:
+        return f'Error: {exc}'
+
+
+async def exit_worktree(team, agent, input: dict, tool_use_id: str = '') -> str:
+    return await team.exit_worktree(keep=str(input.get('action') or '')
+                                   == 'keep')
