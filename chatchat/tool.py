@@ -13,6 +13,12 @@ _TRUNCATED = ('\n\n... [output exceeded {limit} characters and was '
 @dataclass
 class ToolContext:
     cwd: Path
+    files: 'FileHistory | None' = None
+
+    def track_edit(self, path) -> None:
+        """Note the pre-edit content so the turn can be undone."""
+        if self.files is not None:
+            self.files.track_edit(path)
 
 
 def describe_tools(tools, context: ToolContext) -> list[dict]:

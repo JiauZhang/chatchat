@@ -12,6 +12,7 @@ from chatchat.core.agent import Agent
 from chatchat.core.agents import GENERAL_PURPOSE, AgentDefinition, AgentRegistry
 from chatchat.core.mailbox import FileMailbox
 from chatchat.core.context import AgentContext
+from chatchat.core.filehistory import FileHistory
 from chatchat.core.mailbox import idle_notification as _idle_msg
 from chatchat.core.tasks import TaskList
 from chatchat.hooks.events import (AGENT_PROGRESS, AGENT_TOOL_RESULT,
@@ -44,6 +45,7 @@ class Team:
                  context_window: int = 0,
                  compact_reserve: int = DEFAULT_COMPACT_RESERVE,
                  mailbox_dir=None, sidechain_dir=None, tasks_dir=None,
+                 file_history_dir=None,
                  multi_agent: bool = True, **client_kw):
         self.name = name
         self.multi_agent = multi_agent
@@ -61,6 +63,10 @@ class Team:
                              if mailbox_dir else None)
         self.tasks = (TaskList(Path(tasks_dir) / self.name)
                       if tasks_dir else None)
+        self.file_history = (FileHistory(
+            Path(file_history_dir) / self.name, cwd=self.tool_context.cwd)
+            if file_history_dir else None)
+        self.tool_context.files = self.file_history
         self._factory = client_factory
         self.hooks = HookManager(self, enabled=hooks)
         self.agents: dict[str, Agent] = {}
@@ -364,6 +370,8 @@ class Team:
         if not self._session_started:
             self._session_started = True
             await self._open_session()
+        if self.file_history is not None:
+            self.file_history.snapshot(len(self.lead.messages))
         self.lead.submit(prompt)
         start = len(self.lead.messages)
         if timeout is None:
