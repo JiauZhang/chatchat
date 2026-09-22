@@ -32,11 +32,6 @@ class Snapshot:
 
 
 class FileHistory:
-    """Backs up files before they are changed so a turn can be undone.
-
-    `mark` is the length of the conversation at the moment a user turn started,
-    which is what lets a shell tie a snapshot back to the prompt it belongs to.
-    """
 
     def __init__(self, directory, cwd, enabled: bool = True,
                  max_snapshots: int = MAX_SNAPSHOTS):

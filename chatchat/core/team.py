@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import shutil
 import time
 from pathlib import Path
 
@@ -15,6 +16,7 @@ from chatchat.core.context import AgentContext
 from chatchat.core.filehistory import FileHistory
 from chatchat.core.mailbox import idle_notification as _idle_msg
 from chatchat.core.tasks import TaskList
+from chatchat.core.team_store import TeamStore
 from chatchat.core.skills import SkillRegistry, listing_budget
 from chatchat.hooks.events import (AGENT_PROGRESS, AGENT_TOOL_RESULT,
                                   emit)
@@ -46,7 +48,7 @@ class Team:
                  context_window: int = 0,
                  compact_reserve: int = DEFAULT_COMPACT_RESERVE,
                  mailbox_dir=None, sidechain_dir=None, tasks_dir=None,
-                 file_history_dir=None, skills=None,
+                 file_history_dir=None, skills=None, team_store=None,
                  multi_agent: bool = True, **client_kw):
         self.name = name
         self.multi_agent = multi_agent
@@ -60,10 +62,13 @@ class Team:
         self._injected_tools = list(tools or [])
         self.tool_context = tool_context or ToolContext(cwd=Path.cwd())
         self.instruction_files: list[dict] = []
-        self._mailbox_dir = (Path(mailbox_dir) / self.name / 'inboxes'
-                             if mailbox_dir else None)
-        self.tasks = (TaskList(Path(tasks_dir) / self.name)
-                      if tasks_dir else None)
+        self._mailbox_root = Path(mailbox_dir) if mailbox_dir else None
+        self._tasks_root = Path(tasks_dir) if tasks_dir else None
+        self.team_store = TeamStore(Path(team_store)) if team_store else None
+        self.team_context: dict | None = None
+        self._mailbox_dir = self._team_mailbox_dir()
+        self.tasks = (TaskList(self._tasks_root / self.name)
+                      if self._tasks_root else None)
         self.file_history = (FileHistory(
             Path(file_history_dir) / self.name, cwd=self.tool_context.cwd)
             if file_history_dir else None)
@@ -165,13 +170,18 @@ class Team:
                            team_name=self.name, abort=abort, leader=leader)
         inbox = None
         if self._mailbox_dir is not None:
-            inbox = FileMailbox(self._mailbox_dir / f'{name}.json')
+            inbox = FileMailbox(self.mailbox_path(name))
         agent = Agent(agent_id, name, self,
                       self._client_for(instruction, model=model),
                       ctx, instruction=instruction, inbox=inbox,
                       depth=depth, model_timeout=self._model_timeout, model_retries=self._model_retries)
         self.agents[agent_id] = agent
         agent.start()
+        if self.team_store is not None and self.team_context is not None:
+            self.team_store.note_member(self.name, {
+                'agent_id': agent_id, 'name': name,
+                'model': str(getattr(agent.client, 'model', '') or ''),
+                'prompt': instruction})
         return agent
 
     def add(self, name: str, instruction: str = '') -> Agent:
@@ -252,6 +262,8 @@ class Team:
                 await self.hooks.execute_subagent_stop_hooks(
                     agent, agent.agent_type)
         await agent.stop()
+        if self.team_store is not None and self.team_context is not None:
+            self.team_store.drop_member(self.name, agent_id)
         if self.tasks is not None and not agent._internal:
             released = self.tasks.unassign(agent_id, agent.name)
             if released and agent is not self.lead:
@@ -385,8 +397,50 @@ class Team:
                 pass
         return last_assistant(self.lead, start=start)
 
+    def _team_mailbox_dir(self) -> Path | None:
+        if self._mailbox_root is None:
+            return None
+        return self._mailbox_root / self.name / 'inboxes'
+
+    def mailbox_path(self, member: str) -> Path:
+        return self._mailbox_dir / f'{member}.json'
+
+    def teammates(self) -> list:
+        return [agent for agent in self.agents.values()
+                if agent is not self.lead and not agent._internal
+                and agent.is_running]
+
+    def join_team(self, name: str, description: str = ''):
+        if self.team_context is not None:
+            raise ValueError(f'already in the team {self.name}')
+        name = str(name or '').strip()
+        if not name:
+            raise ValueError('a team needs a name')
+        if self.team_store is not None:
+            self.team_store.create(name, description,
+                                   leader=self.lead.agent_id)
+        self.name = name
+        self._mailbox_dir = self._team_mailbox_dir()
+        self.tasks = (TaskList(self._tasks_root / name)
+                      if self._tasks_root is not None else None)
+        self.team_context = {'name': name, 'description': description}
+        return self.team_context
+
+    def leave_team(self):
+        if self.team_context is None:
+            return
+        live = [agent.name for agent in self.teammates()]
+        if live:
+            raise ValueError('the team still has teammates: '
+                             + ', '.join(live))
+        name = self.name
+        if self.team_store is not None:
+            self.team_store.delete(name)
+        if self.tasks is not None:
+            shutil.rmtree(self.tasks.directory, ignore_errors=True)
+        self.team_context = None
+
     def turns(self) -> list[tuple[int, str]]:
-        """The user turns that a file-history snapshot can go back to."""
         if self.file_history is None:
             return []
         marks = {snap.mark for snap in self.file_history.snapshots}
@@ -396,8 +450,6 @@ class Team:
 
     def rewind(self, mark: int, *, code: bool = True,
                conversation: bool = True) -> dict:
-        """Put the workspace and optionally the conversation back to the start
-        of one turn. Returns what moved, so the shell can say it out loud."""
         files = (self.file_history.rewind(mark)
                  if code and self.file_history is not None else [])
         removed = 0
@@ -455,6 +507,23 @@ class Team:
                  'input_schema': {'type': 'object',
                                   'properties': {'agent_id': {'type': 'string'}},
                                   'required': ['agent_id']}},
+                {'name': 'team_create',
+                 'description': 'Gather the work under one named team. The '
+                                'team and its task list are the same thing: '
+                                'every task you create from now on belongs to '
+                                'it, and so does every teammate you spawn. '
+                                'Call it once, before the work is divided.',
+                 'input_schema': {'type': 'object',
+                                  'properties': {
+                                      'team_name': {'type': 'string'},
+                                      'description': {'type': 'string'}},
+                                  'required': ['team_name']}},
+                {'name': 'team_delete',
+                 'description': 'Throw away the current team and its task list '
+                                'once the work is done. It refuses while a '
+                                'teammate is still running, so stop them '
+                                'first with task_stop.',
+                 'input_schema': {'type': 'object', 'properties': {}}},
             ]
         if self.tasks is not None:
             team_tools += [
@@ -577,6 +646,9 @@ class Team:
                          'task_list': _tools.task_list,
                          'task_get': _tools.task_get,
                          'task_update': _tools.task_update}
+        if self.multi_agent:
+            team_fns |= {'team_create': _tools.team_create,
+                         'team_delete': _tools.team_delete}
         if self.skills.all():
             team_fns['use_skill'] = _tools.use_skill
         extra = ''

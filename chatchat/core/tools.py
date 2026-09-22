@@ -169,3 +169,24 @@ async def use_skill(team, agent, input: dict, tool_use_id: str = '') -> str:
                 f'{available or "none"}')
     args = str(input.get('args') or '').strip()
     return skill.render(args)
+
+
+async def team_create(team, agent, input: dict, tool_use_id: str = '') -> str:
+    name = str(input.get('team_name') or '').strip()
+    if not name:
+        return 'Error: team_create needs a team_name'
+    try:
+        team.join_team(name, str(input.get('description') or '').strip())
+    except ValueError as exc:
+        return f'Error: {exc}'
+    return (f'Team "{name}" is active. Its task list is the team: everything '
+            f'you add with task_create is shared with the teammates you spawn '
+            f'from now on.')
+
+
+async def team_delete(team, agent, input: dict, tool_use_id: str = '') -> str:
+    try:
+        team.leave_team()
+    except ValueError as exc:
+        return f'Error: {exc}'
+    return 'Cleaned up the team record and its task list.'

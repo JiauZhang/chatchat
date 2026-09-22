@@ -16,7 +16,6 @@ class ToolContext:
     files: 'FileHistory | None' = None
 
     def track_edit(self, path) -> None:
-        """Note the pre-edit content so the turn can be undone."""
         if self.files is not None:
             self.files.track_edit(path)
 

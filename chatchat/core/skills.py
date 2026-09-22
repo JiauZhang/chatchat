@@ -16,7 +16,6 @@ DEFAULT_LISTING_CHARS = 8_000
 
 
 def listing_budget(context_window: int = 0) -> int:
-    """The listing is for discovery only, so it gets a slice of the window."""
     if context_window <= 0:
         return DEFAULT_LISTING_CHARS
     return max(1, int(context_window * CHARS_PER_TOKEN
