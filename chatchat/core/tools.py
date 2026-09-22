@@ -155,3 +155,17 @@ async def task_update(team, agent, input: dict, tool_use_id: str = '') -> str:
         return ('Error: status must be one of '
                 f'{", ".join(TASK_STATUSES)}, or "deleted" to remove the task')
     return f'Task #{task_id} updated: ' + ', '.join(parts)
+
+
+async def use_skill(team, agent, input: dict, tool_use_id: str = '') -> str:
+    name = str(input.get('skill') or '').strip()
+    if not name:
+        return 'Error: use_skill needs the skill name'
+    registry = team.skills
+    skill = registry.get(name)
+    if skill is None:
+        available = ', '.join(other.name for other in registry.all())
+        return (f'Error: no such skill: {name}. Available: '
+                f'{available or "none"}')
+    args = str(input.get('args') or '').strip()
+    return skill.render(args)

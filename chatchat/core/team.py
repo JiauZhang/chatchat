@@ -15,6 +15,7 @@ from chatchat.core.context import AgentContext
 from chatchat.core.filehistory import FileHistory
 from chatchat.core.mailbox import idle_notification as _idle_msg
 from chatchat.core.tasks import TaskList
+from chatchat.core.skills import SkillRegistry, listing_budget
 from chatchat.hooks.events import (AGENT_PROGRESS, AGENT_TOOL_RESULT,
                                   emit)
 from chatchat.hooks.manager import HookManager
@@ -45,7 +46,7 @@ class Team:
                  context_window: int = 0,
                  compact_reserve: int = DEFAULT_COMPACT_RESERVE,
                  mailbox_dir=None, sidechain_dir=None, tasks_dir=None,
-                 file_history_dir=None,
+                 file_history_dir=None, skills=None,
                  multi_agent: bool = True, **client_kw):
         self.name = name
         self.multi_agent = multi_agent
@@ -67,6 +68,7 @@ class Team:
             Path(file_history_dir) / self.name, cwd=self.tool_context.cwd)
             if file_history_dir else None)
         self.tool_context.files = self.file_history
+        self.skills = skills or SkillRegistry()
         self._factory = client_factory
         self.hooks = HookManager(self, enabled=hooks)
         self.agents: dict[str, Agent] = {}
@@ -508,6 +510,26 @@ class Team:
                                                              'type': 'string'}}},
                                   'required': ['task_id']}},
             ]
+        skills = self.skills.all()
+        if skills:
+            team_tools.append(
+                {'name': 'use_skill',
+                 'description': 'Load the full instructions of one skill when '
+                                'the task at hand is one it covers. The '
+                                'listing below only says what each skill is '
+                                'for; the steps come from this call.\n\n'
+                                'Available skills:\n'
+                                + self.skills.listing(
+                                    listing_budget(self.context_window)),
+                 'input_schema': {'type': 'object',
+                                  'properties': {
+                                      'skill': {'type': 'string',
+                                                'description': 'The name from '
+                                                               'the listing.'},
+                                      'args': {'type': 'string',
+                                               'description': 'What the skill '
+                                                              'should work on.'}},
+                                  'required': ['skill']}})
         return team_tools + describe_tools(self._injected_tools, context)
 
     async def _post_tool_context(self, agent, tool_use_id: str, name: str,
@@ -536,6 +558,8 @@ class Team:
                          'task_list': _tools.task_list,
                          'task_get': _tools.task_get,
                          'task_update': _tools.task_update}
+        if self.skills.all():
+            team_fns['use_skill'] = _tools.use_skill
         extra = ''
         if agent is not None and not agent.hookless:
             pre = await self.hooks.execute_pre_tool_hooks(
