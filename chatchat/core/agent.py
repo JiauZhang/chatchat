@@ -9,6 +9,7 @@ from chatchat.core.context import spawn_task
 from chatchat.core.inbox_poller import InboxPoller
 from chatchat.core.mailbox import Mailbox, parse_protocol
 from chatchat.core.task import Task, generate_task_id
+from chatchat.core.tasks import work_prompt
 from chatchat.hooks.output import describe_blocking
 from chatchat.tool import describe_tools
 from chatchat.hooks.events import (AGENT_PROGRESS, AGENT_REASON_START,
@@ -53,6 +54,7 @@ class Agent:
             self.inbox, self._queue,
             handlers={'shutdown_request': self._on_shutdown_request},
             on_enqueue=self._bump_pending,
+            task_feed=None if internal or ctx.leader else self._next_task,
         )
         self._loop_task: asyncio.Task | None = None
         self._stop = asyncio.Event()
@@ -378,6 +380,16 @@ class Agent:
         if text is not None:
             self._bump_pending()
             self._queue.put_nowait(text)
+
+    async def _next_task(self) -> str | None:
+        tasks = self.team.tasks
+        if tasks is None or self.busy:
+            return None
+        task = tasks.available()
+        if task is None or not tasks.claim(task.id, self.name).ok:
+            return None
+        tasks.update(task.id, status='in_progress')
+        return work_prompt(task)
 
     def _bump_pending(self):
         self._pending += 1

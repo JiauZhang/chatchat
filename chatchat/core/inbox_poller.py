@@ -16,13 +16,15 @@ class InboxPoller:
                  handlers: dict[str, callable] | None = None,
                  interval: float = DEFAULT_INTERVAL,
                  lead_name: str = 'team-lead',
-                 on_enqueue: callable | None = None):
+                 on_enqueue: callable | None = None,
+                 task_feed: callable | None = None):
         self.inbox = inbox
         self.queue = queue if queue is not None else asyncio.Queue()
         self.handlers = handlers or {}
         self.interval = interval
         self.lead_name = lead_name
         self.on_enqueue = on_enqueue
+        self.task_feed = task_feed
         self._task: asyncio.Task | None = None
         self._stop = asyncio.Event()
 
@@ -44,17 +46,15 @@ class InboxPoller:
 
     async def poll_once(self) -> str | None:
         unread = self.inbox.unread()
-        if not unread:
-            return None
-        self.inbox.mark_all_read()
-        text = []
-        for m in unread:
-            if not self._route(m):
-                text.append(m)
-        if not text:
-            return None
-        text.sort(key=lambda m: 0 if m.from_ == self.lead_name else 1)
-        return format_teammate_batch(text)
+        if unread:
+            self.inbox.mark_all_read()
+            kept = [m for m in unread if not self._route(m)]
+            if kept:
+                kept.sort(key=lambda m: 0 if m.from_ == self.lead_name else 1)
+                return format_teammate_batch(kept)
+        if self.task_feed is not None:
+            return await self.task_feed()
+        return None
 
     async def _loop(self):
         while not self._stop.is_set():

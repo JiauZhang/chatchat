@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from chatchat.core.tasks import TASK_STATUSES
 from chatchat.hooks.output import describe_blocking
 
 
@@ -76,3 +77,81 @@ async def task_stop(team, agent, input: dict, tool_use_id: str = '') -> str:
     if sub is not None:
         await team.stop_agent(sub)
     return f'agent {agent_id} stopped'
+
+
+def _open_blockers(tasks, task) -> list[str]:
+    unresolved = {t.id for t in tasks if t.open()}
+    return [b for b in task.blocked_by if b in unresolved]
+
+
+async def task_create(team, agent, input: dict, tool_use_id: str = '') -> str:
+    subject = str(input.get('subject') or '').strip()
+    description = str(input.get('description') or '').strip()
+    if not subject or not description:
+        return 'Error: task_create needs both subject and description'
+    task = team.tasks.create(subject, description,
+                             active_form=str(input.get('active_form') or ''),
+                             metadata=input.get('metadata') or {})
+    return f'Task #{task.id} created: {task.subject}'
+
+
+async def task_list(team, agent, input: dict, tool_use_id: str = '') -> str:
+    tasks = team.tasks.all()
+    if not tasks:
+        return 'No tasks yet'
+    lines = []
+    for task in tasks:
+        blockers = _open_blockers(tasks, task)
+        lines.append(f'#{task.id} [{task.status}] {task.subject}'
+                     + (f' ({task.owner})' if task.owner else '')
+                     + (' [blocked by '
+                        + ', '.join(f'#{b}' for b in blockers) + ']'
+                        if blockers else ''))
+    return '\n'.join(lines)
+
+
+async def task_get(team, agent, input: dict, tool_use_id: str = '') -> str:
+    task = team.tasks.get(input.get('task_id') or '')
+    if task is None:
+        return 'Error: task not found'
+    lines = [f'Task #{task.id}: {task.subject}', f'Status: {task.status}',
+             f'Description: {task.description}']
+    if task.owner:
+        lines.append(f'Owner: {task.owner}')
+    if task.blocked_by:
+        lines.append('Blocked by: '
+                     + ', '.join(f'#{b}' for b in task.blocked_by))
+    if task.blocks:
+        lines.append('Blocks: ' + ', '.join(f'#{b}' for b in task.blocks))
+    return '\n'.join(lines)
+
+
+async def task_update(team, agent, input: dict, tool_use_id: str = '') -> str:
+    task_id = input.get('task_id')
+    if not task_id:
+        return 'Error: task_update needs a task_id'
+    if input.get('status') == 'deleted':
+        return (f'Task #{task_id} deleted' if team.tasks.delete(task_id)
+                else 'Error: task not found')
+    fields = {key: input[key] for key in
+              ('subject', 'description', 'active_form', 'status', 'owner',
+               'metadata') if input.get(key) is not None}
+    parts = [f'{key} -> {value}' if key == 'status' else key
+             for key, value in fields.items()]
+    for key, forward in (('add_blocks', True), ('add_blocked_by', False)):
+        wanted = input.get(key) or []
+        linked = 0
+        for other in wanted:
+            ok = (team.tasks.block(task_id, other) if forward
+                  else team.tasks.block(other, task_id))
+            if not ok:
+                return f'Error: task #{other} does not exist to link'
+            linked += 1
+        if linked:
+            parts.append(key)
+    if not parts:
+        return 'Error: task_update was given nothing to change'
+    if fields and team.tasks.update(task_id, **fields) is None:
+        return ('Error: status must be one of '
+                f'{", ".join(TASK_STATUSES)}, or "deleted" to remove the task')
+    return f'Task #{task_id} updated: ' + ', '.join(parts)

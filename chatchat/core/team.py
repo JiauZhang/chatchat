@@ -13,6 +13,7 @@ from chatchat.core.agents import GENERAL_PURPOSE, AgentDefinition, AgentRegistry
 from chatchat.core.mailbox import FileMailbox
 from chatchat.core.context import AgentContext
 from chatchat.core.mailbox import idle_notification as _idle_msg
+from chatchat.core.tasks import TaskList
 from chatchat.hooks.events import (AGENT_PROGRESS, AGENT_TOOL_RESULT,
                                   emit)
 from chatchat.hooks.manager import HookManager
@@ -42,7 +43,7 @@ class Team:
                  tool_context: ToolContext = None,
                  context_window: int = 0,
                  compact_reserve: int = DEFAULT_COMPACT_RESERVE,
-                 mailbox_dir=None, sidechain_dir=None,
+                 mailbox_dir=None, sidechain_dir=None, tasks_dir=None,
                  multi_agent: bool = True, **client_kw):
         self.name = name
         self.multi_agent = multi_agent
@@ -58,6 +59,8 @@ class Team:
         self.instruction_files: list[dict] = []
         self._mailbox_dir = (Path(mailbox_dir) / self.name / 'inboxes'
                              if mailbox_dir else None)
+        self.tasks = (TaskList(Path(tasks_dir) / self.name)
+                      if tasks_dir else None)
         self._factory = client_factory
         self.hooks = HookManager(self, enabled=hooks)
         self.agents: dict[str, Agent] = {}
@@ -241,6 +244,15 @@ class Team:
                 await self.hooks.execute_subagent_stop_hooks(
                     agent, agent.agent_type)
         await agent.stop()
+        if self.tasks is not None and not agent._internal:
+            released = self.tasks.unassign(agent_id, agent.name)
+            if released and agent is not self.lead:
+                self.lead.inbox.write(
+                    agent.name,
+                    f'{agent.name} stopped with '
+                    f'{len(released)} task(s) handed back: '
+                    + ', '.join(f'#{t.id} {t.subject}' for t in released)
+                    + '. Give them to another agent or pick them up yourself.')
 
     async def wait_for_idle(self, agent_id: str, timeout: float | None = None):
         agent = self.agents.get(agent_id)
@@ -412,6 +424,60 @@ class Team:
                                   'properties': {'agent_id': {'type': 'string'}},
                                   'required': ['agent_id']}},
             ]
+        if self.tasks is not None:
+            team_tools += [
+                {'name': 'task_create',
+                 'description': 'Add a task to the team list so the work is '
+                                'tracked and claimable. Use it for anything '
+                                'with more than one step; give a short '
+                                'imperative subject and the full description.',
+                 'input_schema': {'type': 'object',
+                                  'properties': {
+                                      'subject': {'type': 'string'},
+                                      'description': {'type': 'string'},
+                                      'active_form': {
+                                          'type': 'string',
+                                          'description': 'Present continuous '
+                                          'label shown while it is running'},
+                                      'metadata': {'type': 'object'}},
+                 'required': ['subject', 'description']}},
+                {'name': 'task_list',
+                 'description': 'List every task with its status, owner and '
+                                'open blockers. Check it before creating so '
+                                'work is not duplicated.',
+                 'input_schema': {'type': 'object', 'properties': {}}},
+                {'name': 'task_get',
+                 'description': 'Read one task in full.',
+                 'input_schema': {'type': 'object',
+                                  'properties': {'task_id': {'type': 'string'}},
+                                  'required': ['task_id']}},
+                {'name': 'task_update',
+                 'description': 'Change a task: move it through pending, '
+                                'in_progress and completed, hand it to an '
+                                'owner, or link it with add_blocks / '
+                                'add_blocked_by. status "deleted" removes it. '
+                                'Mark a task in_progress before starting it.',
+                 'input_schema': {'type': 'object',
+                                  'properties': {
+                                      'task_id': {'type': 'string'},
+                                      'subject': {'type': 'string'},
+                                      'description': {'type': 'string'},
+                                      'active_form': {'type': 'string'},
+                                      'status': {'type': 'string',
+                                                 'enum': ['pending',
+                                                          'in_progress',
+                                                          'completed',
+                                                          'deleted']},
+                                      'owner': {'type': 'string'},
+                                      'metadata': {'type': 'object'},
+                                      'add_blocks': {'type': 'array',
+                                                     'items': {
+                                                         'type': 'string'}},
+                                      'add_blocked_by': {'type': 'array',
+                                                         'items': {
+                                                             'type': 'string'}}},
+                                  'required': ['task_id']}},
+            ]
         return team_tools + describe_tools(self._injected_tools, context)
 
     async def _post_tool_context(self, agent, tool_use_id: str, name: str,
@@ -435,6 +501,11 @@ class Team:
                     else {'send_message': _tools.send_message,
                           'create_agent': _tools.create_agent,
                           'task_stop': _tools.task_stop})
+        if self.tasks is not None:
+            team_fns |= {'task_create': _tools.task_create,
+                         'task_list': _tools.task_list,
+                         'task_get': _tools.task_get,
+                         'task_update': _tools.task_update}
         extra = ''
         if agent is not None and not agent.hookless:
             pre = await self.hooks.execute_pre_tool_hooks(
