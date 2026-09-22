@@ -383,6 +383,28 @@ class Team:
                 pass
         return last_assistant(self.lead, start=start)
 
+    def turns(self) -> list[tuple[int, str]]:
+        """The user turns that a file-history snapshot can go back to."""
+        if self.file_history is None:
+            return []
+        marks = {snap.mark for snap in self.file_history.snapshots}
+        return [(index, str(message.get('content') or ''))
+                for index, message in enumerate(self.lead.messages)
+                if index in marks and message.get('role') == 'user']
+
+    def rewind(self, mark: int, *, code: bool = True,
+               conversation: bool = True) -> dict:
+        """Put the workspace and optionally the conversation back to the start
+        of one turn. Returns what moved, so the shell can say it out loud."""
+        files = (self.file_history.rewind(mark)
+                 if code and self.file_history is not None else [])
+        removed = 0
+        if conversation:
+            kept = self.lead.messages[:int(mark)]
+            removed = len(self.lead.messages) - len(kept)
+            self.lead.messages = list(kept)
+        return {'files': files, 'messages': removed}
+
     def _create_agent_description(self) -> str:
         text = ('Run a one-off isolated sub-agent (AgentDefinition '
                 'by subagent_type, default general-purpose): spawns a '

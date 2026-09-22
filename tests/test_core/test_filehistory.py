@@ -216,3 +216,59 @@ def test_a_team_without_a_directory_keeps_no_history(tmp_path):
     team = asyncio.run(main())
     assert team.file_history is None
     assert team.tool_context.files is None
+
+
+def _rewind_team(tmp_path, handler, prepare=None):
+    import asyncio
+
+    from chatchat.tool import ToolContext
+
+    from helpers import mock_team
+    workspace = tmp_path / 'ws'
+    workspace.mkdir()
+
+    async def main():
+        team = mock_team('rw', handler=handler,
+                         file_history_dir=tmp_path / 'history',
+                         tool_context=ToolContext(cwd=workspace))
+        if prepare is not None:
+            prepare(team)
+        await team.query('first')
+        await team.query('second')
+        return team, workspace
+
+    return asyncio.run(main())
+
+
+def test_rewinding_a_turn_can_put_the_files_back(tmp_path):
+    workspace = tmp_path / 'ws'
+    seen = {}
+
+    def hand_over(team):
+        seen['context'] = team.tool_context
+
+    async def answer(messages, tools=None, *, stream_cb=None):
+        target = workspace / 'a.py'
+        seen['context'].track_edit(target)
+        target.write_text('written this turn\n', encoding='utf-8')
+        return 'ok'
+
+    team, ws = _rewind_team(tmp_path, answer, prepare=hand_over)
+    assert (ws / 'a.py').exists()
+
+    result = team.rewind(0, conversation=False)
+    assert result['files'] == ['a.py']
+    assert not (ws / 'a.py').exists()
+    assert len(team.lead.messages) == 4
+
+
+def test_rewinding_the_conversation_drops_the_later_turns(tmp_path):
+    async def answer(messages, tools=None, *, stream_cb=None):
+        return 'ok'
+
+    team, _ws = _rewind_team(tmp_path, answer)
+    assert len(team.lead.messages) == 4
+
+    result = team.rewind(2, code=False)
+    assert [msg.get('content') for msg in team.lead.messages] == ['first', 'ok']
+    assert result['messages'] == 2
