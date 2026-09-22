@@ -101,6 +101,13 @@ def register_hook_event_handler(handler):
             handler(event)
         _pending_events.clear()
 
+    def unregister():
+        global _event_handler
+        if _event_handler is handler:
+            _event_handler = None
+
+    return unregister
+
 
 def set_all_hook_events_enabled(enabled: bool):
     global _all_hook_events_enabled

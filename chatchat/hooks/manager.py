@@ -21,6 +21,16 @@ from chatchat.hooks.settings import dedupe_hooks, get_all_hooks, \
 DEFAULT_PARENT = 'team-lead'
 
 
+def _hook_detail(config) -> str:
+    if config.type == 'command':
+        return config.command or ''
+    if config.type == 'http':
+        return config.url or ''
+    if config.type in ('prompt', 'agent'):
+        return (config.prompt or '')[:80]
+    return ''
+
+
 def build_hook_input(event: str, *, session_id: str, agent=None, cwd: str = '',
                      permission_mode: str = '', **fields) -> dict:
     hook_input = {
@@ -97,6 +107,19 @@ class HookManager:
             return f
 
         return decorator
+
+    def configured(self) -> list:
+        """Every hook that could run, with where it came from."""
+        if self._settings_hooks is None:
+            self._settings_hooks = (dedupe_hooks(get_all_hooks(self._cwd))
+                                    if self.enabled else [])
+        hooks = list(self._settings_hooks) + list(get_builtin_hooks())
+        for event in sorted(self._session_hooks):
+            hooks.extend(self._session_hooks[event])
+        return [{'event': hook.event, 'matcher': hook.matcher,
+                 'type': hook.config.type,
+                 'source': hook.source or 'settings',
+                 'detail': _hook_detail(hook.config)} for hook in hooks]
 
     def remove_hook(self, hook_id: str):
         for event, hooks in self._session_hooks.items():

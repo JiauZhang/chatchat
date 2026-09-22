@@ -545,6 +545,25 @@ class Team:
                 agent, tool_use_id, name, input, value)
         return agg.additional_context
 
+    def _changed_file(self, tool, input: dict) -> str:
+        if tool is None or tool.read_only or tool.get_path is None:
+            return ''
+        raw = tool.get_path(input)
+        if not raw:
+            return ''
+        cwd = Path(self.tool_context.cwd).resolve()
+        path = Path(str(raw)).expanduser()
+        path = path if path.is_absolute() else cwd / path
+        path = path.resolve()
+        return str(path) if path.is_relative_to(cwd) else ''
+
+    async def _note_file_changed(self, agent, tool, input: dict) -> str:
+        path = self._changed_file(tool, input)
+        if not path or agent is None or agent.hookless:
+            return ''
+        agg = await self.hooks.execute_file_changed_hooks(agent, path)
+        return agg.additional_context
+
     async def execute_tool(self, name: str, input: dict, agent: Agent,
                            tool_use_id: str = '') -> ToolOutcome:
         pool = self._injected_tools if (agent is None
@@ -594,7 +613,8 @@ class Team:
                     _joined(extra, await self._post_tool_context(
                         agent, tool_use_id, name, input, e, True)))
             return ToolOutcome(out, _joined(extra, await self._post_tool_context(
-                agent, tool_use_id, name, input, out)))
+                agent, tool_use_id, name, input, out),
+                await self._note_file_changed(agent, tool, input)))
         try:
             out = await fn(self, agent, input, tool_use_id)
         except Exception as e:

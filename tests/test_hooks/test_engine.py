@@ -675,3 +675,76 @@ def test_permission_mode_is_reported_once_the_host_knows_it(team):
 
     asyncio.run(main())
     assert seen == ['plan', 'missing']
+
+
+def test_a_writing_tool_fires_file_changed_with_the_resolved_path(tmp_path):
+    import asyncio
+    from pathlib import Path
+
+    from chatchat.tool import ToolContext, tool
+
+    from helpers import mock_team
+    written = tmp_path / 'workspace' / 'note.txt'
+    seen = []
+
+    @tool(name='Note', description='write a note file',
+          read_only=False, get_path=lambda args: args['file_path'],
+          parameters={'type': 'object', 'properties': {
+              'file_path': {'type': 'string'}}})
+    async def Note(context, file_path):
+        path = Path(file_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('noted\n', encoding='utf-8')
+        return 'ok'
+
+    @tool(name='Peek', description='read a note file', read_only=True,
+          get_path=lambda args: args['file_path'])
+    async def Peek(context, file_path):
+        return 'contents'
+
+    async def main():
+        t = mock_team('files', tools=[Note, Peek],
+                      tool_context=ToolContext(cwd=tmp_path / 'workspace'))
+        t.hooks.register('FileChanged', '*', fn=_watch(seen))
+        await t.execute_tool('Peek', {'file_path': 'note.txt'}, t.lead)
+        await t.execute_tool('Note', {'file_path': 'note.txt'}, t.lead)
+        await t.execute_tool('Note', {'file_path': '../outside.txt'}, t.lead)
+        return t
+
+    asyncio.run(main())
+    assert [entry['file_path'] for entry in seen] == [str(written)]
+
+
+def test_a_hook_event_handler_can_be_taken_away_again():
+    from chatchat.hooks import events
+
+    saved = events._event_handler
+    events._pending_events.clear()
+    seen = []
+    unregister = events.register_hook_event_handler(seen.append)
+    events.emit_started('id1', 'npm test', 'PreToolUse')
+    assert len(seen) == 1
+    unregister()
+    events.emit_started('id2', 'npm test', 'PreToolUse')
+    assert len(seen) == 1
+    other = []
+    second = events.register_hook_event_handler(other.append)
+    assert [event.hook_id for event in other] == ['id2']
+    second()
+    events._pending_events.clear()
+    events._event_handler = saved
+
+
+def test_the_manager_lists_configured_hooks_with_their_source(team):
+    import asyncio
+
+    async def main():
+        t = team()
+        t.hooks.on('PreToolUse', 'Bash', fn=lambda inp: True)
+        return t.hooks.configured()
+
+    rows = asyncio.run(main())
+    session = [row for row in rows if row['source'] == 'sessionHook']
+    assert session[0]['event'] == 'PreToolUse'
+    assert session[0]['matcher'] == 'Bash'
+    assert session[0]['type'] == 'function'
