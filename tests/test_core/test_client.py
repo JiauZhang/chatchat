@@ -71,3 +71,15 @@ def test_respond_payload_carries_the_thinking_setting(monkeypatch):
     for thinking, expected in ((False, 'disabled'), (True, 'enabled')):
         assert _payload_for(monkeypatch, thinking)['thinking'] == {
             'type': expected}
+
+
+def test_the_mock_client_answers_the_model_question_a_real_one_answers():
+    """Displays ask an agent which model it is talking to; the double has to
+    carry it or that read only works in production."""
+    async def main():
+        team = mock_team('models')
+        return team, team.create_agent('researcher', model='cheap-m')
+
+    team, researcher = asyncio.run(main())
+    assert researcher.client.model == 'cheap-m'
+    assert team.lead.client.model is None

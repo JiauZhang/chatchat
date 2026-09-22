@@ -294,10 +294,11 @@ class Client:
 class MockClient:
 
     def __init__(self, handler=None, thinking: bool = True, name: str = '',
-                 usage=None):
+                 usage=None, model: str = None):
         self._handler = handler
         self.thinking = thinking
         self.name = name
+        self.model = model
         self._usage = usage
         self._last_usage = Usage()
 
