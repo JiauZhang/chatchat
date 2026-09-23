@@ -91,3 +91,39 @@ def test_an_internal_agent_cannot_send_its_work_to_the_background():
 
     outcome = asyncio.run(main())
     assert outcome.text.startswith('Error:')
+
+
+def test_the_report_carries_the_numbers_of_the_work_done():
+    async def main():
+        team = _team('bg8')
+        await team.execute_tool('create_agent',
+                                {'prompt': 'look into it',
+                                 'run_in_background': True}, team.lead)
+        agent_id = next(iter(team.background))
+        await _settle()
+        return team.agents[agent_id], [m.text
+                                       for m in team.lead.inbox.unread()]
+
+    agent, notes = asyncio.run(main())
+    assert len(notes) == 1
+    assert 'status: completed' in notes[0]
+    assert f'tokens: {agent.total_usage.total_tokens}' in notes[0]
+    assert 'the answer' in notes[0]
+
+
+def test_a_sub_agent_that_fails_reports_that_instead_of_an_answer():
+    async def blow_up(messages, tools=None, *, stream_cb=None):
+        raise RuntimeError('the provider went away')
+
+    async def main():
+        team = mock_team('bg9', handler=blow_up)
+        await team.execute_tool('create_agent',
+                                {'prompt': 'look into it',
+                                 'run_in_background': True}, team.lead)
+        await _settle()
+        return [m.text for m in team.lead.inbox.unread()]
+
+    notes = asyncio.run(main())
+    assert len(notes) == 1
+    assert 'status: failed' in notes[0]
+    assert 'the provider went away' in notes[0]

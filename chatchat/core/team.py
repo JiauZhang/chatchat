@@ -29,6 +29,13 @@ from chatchat.hooks.manager import HookManager
 LEAD_NAME = 'team-lead'
 
 
+def _tool_calls(agent: Agent) -> int:
+    return sum(1 for message in agent.messages
+               if isinstance(message.get('content'), list)
+               for block in message['content']
+               if isinstance(block, dict) and block.get('type') == 'tool_use')
+
+
 DEFAULT_COMPACT_RESERVE = 40_000
 
 
@@ -285,15 +292,21 @@ class Team:
 
     async def _report_to(self, agent: Agent, prompt: str, writer, defn,
                          parent: Agent):
+        started = time.monotonic()
+        status = 'completed'
         try:
             answer = await self._run_subagent(agent, prompt, writer, defn)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            answer = f'It failed: {exc}'
+            status, answer = 'failed', str(exc)
         parent.inbox.write(
-            agent.name, f'{agent.name}, the sub-agent you sent to the '
-                        f'background, finished its work:\n{answer}')
+            agent.name,
+            f'{agent.name}, the sub-agent you sent to the background, is '
+            f'done.\nstatus: {status} \u00b7 tool calls: '
+            f'{_tool_calls(agent)} \u00b7 tokens: '
+            f'{agent.total_usage.total_tokens} \u00b7 '
+            f'{time.monotonic() - started:.0f}s\n{answer}')
 
     async def spawn_child(self, parent_name: str, instruction: str, *,
                           internal: bool = True) -> Agent:
