@@ -89,6 +89,7 @@ class Team:
         self._factory = client_factory
         self.hooks = HookManager(self, enabled=hooks)
         self.agents: dict[str, Agent] = {}
+        self.background: dict[str, asyncio.Task] = {}
         self.children: dict[str, set[str]] = {}
         self.parents: dict[str, str] = {}
         self._counter = 0
@@ -199,10 +200,9 @@ class Team:
     def add(self, name: str, instruction: str = '') -> Agent:
         return self.create_agent(name, instruction=instruction)
 
-    async def spawn_subagent(self, prompt: str, *, subagent_type: str | None = None,
-                             instruction: str = '', model=None, depth: int = 0,
-                             fork_msgs: list | None = None,
-                             tool_use_id: str = '') -> str:
+    async def _start_subagent(self, prompt: str, subagent_type: str | None,
+                              instruction: str, model, depth: int,
+                              fork_msgs: list | None, tool_use_id: str):
         defn = self.agent_defs.get(subagent_type)
         sys_prompt = '\n'.join(p for p in (defn.full_prompt(), instruction)
                                if p) or defn.system_prompt
@@ -238,11 +238,14 @@ class Team:
             message = {'role': 'user', 'content': start.additional_context}
             agent.messages.append(message)
             agent._record(message)
+        return agent, writer, defn
+
+    async def _run_subagent(self, agent: Agent, prompt: str, writer,
+                            defn) -> str:
         try:
             result = await agent.chat(prompt)
             if writer is not None:
                 writer.finish('completed')
-            return result
         except BaseException:
             if writer is not None:
                 writer.finish('failed')
@@ -251,6 +254,46 @@ class Team:
             emit(AGENT_PROGRESS, agent=agent.name, done=True)
             await self.hooks.execute_subagent_stop_hooks(agent, defn.agent_type)
             agent._finalize('completed')
+        return result
+
+    async def spawn_subagent(self, prompt: str, *, subagent_type: str | None = None,
+                             instruction: str = '', model=None, depth: int = 0,
+                             fork_msgs: list | None = None,
+                             tool_use_id: str = '') -> str:
+        agent, writer, defn = await self._start_subagent(
+            prompt, subagent_type, instruction, model, depth, fork_msgs,
+            tool_use_id)
+        return await self._run_subagent(agent, prompt, writer, defn)
+
+    async def spawn_background_subagent(self, prompt: str, parent: Agent,
+                                        *, subagent_type: str | None = None,
+                                        instruction: str = '', model=None,
+                                        depth: int = 0,
+                                        fork_msgs: list | None = None,
+                                        tool_use_id: str = '') -> str:
+        agent, writer, defn = await self._start_subagent(
+            prompt, subagent_type, instruction, model, depth, fork_msgs,
+            tool_use_id)
+        self.parents[agent.agent_id] = parent.agent_id
+        self.children.setdefault(parent.agent_id, set()).add(agent.agent_id)
+        task = asyncio.get_running_loop().create_task(
+            self._report_to(agent, prompt, writer, defn, parent))
+        self.background[agent.agent_id] = task
+        task.add_done_callback(
+            lambda done: self.background.pop(agent.agent_id, None))
+        return agent.agent_id
+
+    async def _report_to(self, agent: Agent, prompt: str, writer, defn,
+                         parent: Agent):
+        try:
+            answer = await self._run_subagent(agent, prompt, writer, defn)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            answer = f'It failed: {exc}'
+        parent.inbox.write(
+            agent.name, f'{agent.name}, the sub-agent you sent to the '
+                        f'background, finished its work:\n{answer}')
 
     async def spawn_child(self, parent_name: str, instruction: str, *,
                           internal: bool = True) -> Agent:
@@ -522,7 +565,9 @@ class Team:
         text = ('Run a one-off isolated sub-agent (AgentDefinition '
                 'by subagent_type, default general-purpose): spawns a '
                 'fresh agent, runs synchronously, returns its final '
-                'answer, then is reclaimed. Not a teammate.')
+                'answer, then is reclaimed. Not a teammate. With '
+                'run_in_background it returns at once and the answer '
+                'arrives as a message when that work is done.')
         lines = [f'- {agent_type}: {when_to_use}'
                  for agent_type, when_to_use in self.agent_defs.describe()]
         if lines:
@@ -570,7 +615,14 @@ class Team:
                                              'model': {'type': 'string',
                                                        'description': 'Optional '
                                                        'model override for the '
-                                                       'spawned agent.'}},
+                                                       'spawned agent.'},
+                                             'run_in_background': {
+                                                 'type': 'boolean',
+                                                 'description': 'Set true for a '
+                                                 'one-off sub-agent whose work '
+                                                 'should not hold this turn '
+                                                 'open. The answer arrives in '
+                                                 'your inbox when it finishes.'}},
                               'required': ['prompt']}},
         ]
         if self.multi_agent:

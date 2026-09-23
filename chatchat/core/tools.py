@@ -36,6 +36,13 @@ async def create_agent(team, agent, input: dict, tool_use_id: str = '') -> str:
         'You are an autonomous sub-agent. Complete the task and give your '
         'final answer.')
     name = input.get('name')
+    background = bool(input.get('run_in_background'))
+    if background and name:
+        return ('Error: a named teammate already works in the background; '
+                'run_in_background is for a one-off sub-agent.')
+    if background and agent is not None and agent._internal:
+        return ('Error: only the agent that owns the conversation can send '
+                'work to the background. Finish your own sub-agent here.')
     if name and getattr(team, 'multi_agent', True):
         if agent is not None and not agent.ctx.leader:
             return ('Error: Teammates cannot spawn other teammates — '
@@ -49,6 +56,15 @@ async def create_agent(team, agent, input: dict, tool_use_id: str = '') -> str:
         return (f'Teammate "{name}" spawned and idle. Assign work with '
                 f'send_message (to: "{name}"); stop it with task_stop '
                 f'(agent_id: {teammate.agent_id}).')
+    if background:
+        agent_id = await team.spawn_background_subagent(
+            prompt, agent or team.lead,
+            subagent_type=input.get('subagent_type'), instruction=cfg,
+            model=input.get('model'), depth=getattr(agent, 'depth', 0) + 1,
+            tool_use_id=tool_use_id)
+        return (f'{agent_id.rsplit("@", 1)[0]} is running in the background. '
+                f'Do not wait for it; its answer arrives in your inbox when '
+                f'it is done (agent_id: {agent_id}; stop it with task_stop).')
     if agent is not None and not agent._internal:
         created = await team.hooks.execute_task_created_hooks(
             agent, f'{agent.name}:sub', prompt)
