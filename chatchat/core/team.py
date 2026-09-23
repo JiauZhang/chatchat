@@ -60,7 +60,7 @@ class Team:
                  compact_reserve: int = DEFAULT_COMPACT_RESERVE,
                  mailbox_dir=None, sidechain_dir=None, tasks_dir=None,
                  file_history_dir=None, skills=None, team_store=None,
-                 agent_memory=None,
+                 agent_memory=None, cron=None,
                  multi_agent: bool = True, **client_kw):
         self.name = name
         self.multi_agent = multi_agent
@@ -87,6 +87,7 @@ class Team:
         self.tool_context.files = self.file_history
         self.skills = skills or SkillRegistry()
         self.agent_memory = agent_memory
+        self.cron = cron
         self.worktree: dict | None = None
         self.ask_user = None
         self.output_schema: dict | None = None
@@ -807,6 +808,32 @@ class Team:
                                                'description': 'What the skill '
                                                               'should work on.'}},
                                   'required': ['skill']}})
+        if self.cron is not None:
+            team_tools += [
+                {'name': 'cron_create',
+                 'description': 'Schedule a prompt to be enqueued at a cron '
+                                'time. Five fields, local time: minute hour '
+                                'day-of-month month day-of-week. A recurring job fires on every match '
+                                'until deleted; a one-shot fires at the next '
+                                'match and then disappears. durable keeps it '
+                                'in the project across restarts.',
+                 'input_schema': {'type': 'object',
+                                  'properties': {
+                                      'cron': {'type': 'string'},
+                                      'prompt': {'type': 'string'},
+                                      'recurring': {'type': 'boolean'},
+                                      'durable': {'type': 'boolean'}},
+                                  'required': ['cron', 'prompt']}},
+                {'name': 'cron_list',
+                 'description': 'Show every scheduled prompt with its id, '
+                                'schedule and whether it is durable.',
+                 'input_schema': {'type': 'object', 'properties': {}}},
+                {'name': 'cron_delete',
+                 'description': 'Cancel a scheduled prompt by its id.',
+                 'input_schema': {'type': 'object',
+                                  'properties': {'id': {'type': 'string'}},
+                                  'required': ['id']}},
+            ]
         if self.output_schema is not None:
             team_tools.append(
                 {'name': STRUCTURED_OUTPUT_TOOL,
@@ -873,6 +900,10 @@ class Team:
                          'exit_worktree': _tools.exit_worktree}
         if self.ask_user is not None:
             team_fns['ask_user'] = _tools.ask_user
+        if self.cron is not None:
+            team_fns |= {'cron_create': _tools.cron_create,
+                       'cron_list': _tools.cron_list,
+                       'cron_delete': _tools.cron_delete}
         if self.output_schema is not None:
             team_fns[STRUCTURED_OUTPUT_TOOL] = _tools.structured_output
         extra = ''

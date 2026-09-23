@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from chatchat.core.cron_schedule import describe as describe_task
 from chatchat.core.tasks import TASK_STATUSES
 from chatchat.core.structured import mismatch
 from chatchat.hooks.output import describe_blocking
@@ -275,3 +276,29 @@ async def structured_output(team, agent, input: dict,
         return f'Error: output does not match the required schema: {problem}'
     team.structured_output = dict(input)
     return 'Structured output recorded. Finish the run now.'
+
+
+async def cron_create(team, agent, input: dict, tool_use_id: str = '') -> str:
+    task = team.cron.add(str(input.get('cron') or ''),
+                         str(input.get('prompt') or ''),
+                         recurring=bool(input.get('recurring', True)),
+                         durable=bool(input.get('durable')))
+    if task is None:
+        return f'Error: {team.cron.refused}'
+    return f'Scheduled {task["id"]}: {describe_task(task)}'
+
+
+async def cron_list(team, agent, input: dict, tool_use_id: str = '') -> str:
+    tasks = team.cron.all()
+    if not tasks:
+        return 'Nothing scheduled.'
+    return 'Scheduled prompts:\n' + '\n'.join(
+        f'- {describe_task(task)}' for task in tasks)
+
+
+async def cron_delete(team, agent, input: dict, tool_use_id: str = '') -> str:
+    ident = str(input.get('id') or '').strip()
+    removed = team.cron.remove(ident)
+    if removed is None:
+        return f'Error: nothing scheduled under "{ident}"'
+    return f'{removed["id"]} cancelled.'
