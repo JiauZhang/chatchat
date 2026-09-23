@@ -1,5 +1,3 @@
-"""A skill is a markdown file with a frontmatter block. Only its name and
-description reach the model up front; the body is loaded on demand."""
 import argparse
 import asyncio
 from pathlib import Path
