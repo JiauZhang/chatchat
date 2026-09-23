@@ -60,6 +60,7 @@ class Team:
                  compact_reserve: int = DEFAULT_COMPACT_RESERVE,
                  mailbox_dir=None, sidechain_dir=None, tasks_dir=None,
                  file_history_dir=None, skills=None, team_store=None,
+                 agent_memory=None,
                  multi_agent: bool = True, **client_kw):
         self.name = name
         self.multi_agent = multi_agent
@@ -85,6 +86,7 @@ class Team:
             if file_history_dir else None)
         self.tool_context.files = self.file_history
         self.skills = skills or SkillRegistry()
+        self.agent_memory = agent_memory
         self.worktree: dict | None = None
         self.ask_user = None
         self.output_schema: dict | None = None
@@ -213,6 +215,10 @@ class Team:
         defn = self.agent_defs.get(subagent_type)
         sys_prompt = '\n'.join(p for p in (defn.full_prompt(), instruction)
                                if p) or defn.system_prompt
+        if defn.memory and self.agent_memory is not None:
+            sys_prompt = '\n\n'.join(
+                (sys_prompt,
+                 self.agent_memory.prompt(defn.agent_type, defn.memory)))
         from chatchat.core.task import rand_name
         name = rand_name(f'sub-{self._counter}')
         self._counter += 1

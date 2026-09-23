@@ -15,6 +15,7 @@ class AgentDefinition:
     default: bool = False
     addenda: str = ''
     description: str = ''
+    memory: str | None = None
 
     def full_prompt(self) -> str:
         parts = [p.strip() for p in (self.system_prompt, self.addenda) if p.strip()]
@@ -40,11 +41,12 @@ class AgentRegistry:
 
     def define(self, agent_type: str, *, system_prompt: str = '', tools: list = None,
                model: str | None = None, addenda: str = '', default: bool = False,
-               description: str = '') -> AgentDefinition:
+               description: str = '',
+               memory: str | None = None) -> AgentDefinition:
         return self.register(AgentDefinition(
             agent_type, system_prompt=system_prompt, tools=list(tools or []),
             model=model, addenda=addenda, default=default,
-            description=description))
+            description=description, memory=memory))
 
     def get(self, agent_type: str | None) -> AgentDefinition:
         if agent_type:
