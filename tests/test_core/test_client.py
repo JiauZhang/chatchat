@@ -1,6 +1,7 @@
 import asyncio
 
 import chatchat.client as client_mod
+from chatchat.core.thinking import Thinking
 from chatchat.client import Client, Usage
 from helpers import mock_team
 
@@ -24,7 +25,7 @@ def test_thinking_stored_on_assistant_message():
     assert assistant['content'] == '看好了'
 
 
-def _payload_for(monkeypatch, thinking: bool) -> dict:
+def _payload_for(monkeypatch, thinking) -> dict:
     captured = {}
 
     class FakeResp:
@@ -68,9 +69,16 @@ def _payload_for(monkeypatch, thinking: bool) -> dict:
 
 
 def test_respond_payload_carries_the_thinking_setting(monkeypatch):
-    for thinking, expected in ((False, 'disabled'), (True, 'enabled')):
+    for thinking, expected in ((Thinking('off'), 'disabled'),
+                               (Thinking(), 'enabled')):
         assert _payload_for(monkeypatch, thinking)['thinking'] == {
             'type': expected}
+    budgeted = _payload_for(monkeypatch, Thinking('on', budget=8000))
+    assert budgeted['thinking'] == {'type': 'enabled', 'budget_tokens': 8000}
+    effort = _payload_for(monkeypatch, Thinking(effort='high'))
+    assert effort['reasoning_effort'] == 'high'
+    assert 'reasoning_effort' not in _payload_for(monkeypatch,
+                                                  Thinking('off'))
 
 
 def test_the_mock_client_answers_the_model_question_a_real_one_answers():

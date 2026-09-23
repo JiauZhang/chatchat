@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from chatchat.core.thinking import Thinking
+
 import asyncio
 import json
 import os
@@ -209,7 +211,7 @@ def dynamic_import_client(provider):
 class Client:
 
     def __init__(self, provider, model, instruction=None, http_options={},
-                 thinking: bool = True):
+                 thinking: Thinking = Thinking()):
         self.provider = provider
         self.model = model
         self.instruction = instruction
@@ -235,7 +237,7 @@ class Client:
         tools_openai = to_openai_tools(tools) if tools else None
         payload = {'model': self.model, 'messages': to_openai(msgs), 'stream': True,
                    'stream_options': {'include_usage': True}}
-        payload['thinking'] = {'type': 'enabled' if self.thinking else 'disabled'}
+        payload.update(self.thinking.request())
         if tools_openai:
             payload['tools'] = tools_openai
         aggregated = Message()
@@ -293,7 +295,8 @@ class Client:
 
 class MockClient:
 
-    def __init__(self, handler=None, thinking: bool = True, name: str = '',
+    def __init__(self, handler=None, thinking: Thinking = Thinking(),
+                 name: str = '',
                  usage=None, model: str = None):
         self._handler = handler
         self.thinking = thinking

@@ -20,6 +20,7 @@ from chatchat.core.team_store import TeamStore
 from chatchat.core.worktrees import (create, generated_name, in_repository,
                      remove)
 from chatchat.core.skills import SkillRegistry, listing_budget
+from chatchat.core.thinking import Thinking
 from chatchat.core.structured import (STRUCTURED_OUTPUT_TOOL, retries,
                                        schema_problem)
 from chatchat.hooks.events import (AGENT_PROGRESS, AGENT_TOOL_RESULT,
@@ -54,7 +55,8 @@ class Team:
                  lead_instruction: str = '', model_timeout: float = 120.0,
                  model_retries: int = 2,
                  provider: str = None, model: str = None,
-                 thinking: bool = True, tools: list = None,
+                 thinking: Thinking | None = None,
+                 tools: list = None,
                  tool_context: ToolContext = None,
                  context_window: int = 0,
                  compact_reserve: int = DEFAULT_COMPACT_RESERVE,
@@ -69,7 +71,7 @@ class Team:
         self._model_retries = model_retries
         self._provider = provider
         self._model = model
-        self._thinking = thinking
+        self._thinking = thinking or Thinking.from_env()
         self._client_kw = client_kw
         self._injected_tools = list(tools or [])
         self.tool_context = tool_context or ToolContext(cwd=Path.cwd())
@@ -164,7 +166,7 @@ class Team:
         await self.hooks.execute_post_compact_hooks(trigger=trigger)
         return list(result) if result else messages
 
-    def _client_for(self, instruction: str, thinking: bool | None = None,
+    def _client_for(self, instruction: str, thinking: Thinking | None = None,
                     model: str | None = None):
         if self._factory is not None:
             return self._factory(instruction, model)
@@ -415,8 +417,8 @@ class Team:
         lead.instruction = instruction
         lead.client = self._client_for(instruction)
 
-    def set_thinking(self, on: bool):
-        self._thinking = bool(on)
+    def set_thinking(self, thinking: Thinking):
+        self._thinking = thinking
         lead = self.get_by_name(LEAD_NAME)
         if lead is not None:
             lead.client = self._client_for(lead.instruction)

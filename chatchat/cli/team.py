@@ -1,5 +1,7 @@
 import asyncio
 
+from chatchat.core.thinking import (LEVELS, MODES, Thinking)
+
 from chatchat.team import Team
 
 MEMBER = '你是一个协作 team 的成员。可 send_message(to=teammate 或 "*", message=...)。规矩：收到任务先做完再回信；不要把同一件事重复发；没有新输入不要主动广播；等 lead 给具体任务再动手。'
@@ -13,7 +15,10 @@ TEAMMATES = (('researcher', RESEARCHER), ('writer', WRITER))
 async def _run(args):
     provider, model = args.params
     team = Team('demo', provider=provider, model=model,
-                lead_instruction=LEAD, thinking=args.thinking,
+                lead_instruction=LEAD,
+                thinking=Thinking(mode=args.thinking,
+                                  budget=args.thinking_budget,
+                                  effort=args.effort),
                 hooks=not args.no_hooks,
                 http_options={'proxy': args.proxy, 'timeout': args.timeout})
     for name, instruction in TEAMMATES:
@@ -33,7 +38,9 @@ def cli_team(subparser):
     p.add_argument('params', type=str, nargs=2)
     p.add_argument('--proxy', type=str, default=None)
     p.add_argument('--timeout', type=float, default=None)
-    p.add_argument('--thinking', action='store_true')
+    p.add_argument('--thinking', choices=MODES, default='on')
+    p.add_argument('--thinking-budget', type=int, default=0)
+    p.add_argument('--effort', choices=LEVELS, default='')
     p.add_argument('--no-hooks', action='store_true')
     p.add_argument('--prompt', type=str, default='帮我写一段 DeepSeek 的介绍和优缺点，200字以内。')
     p.set_defaults(parser=parse_config)

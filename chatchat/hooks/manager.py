@@ -3,6 +3,7 @@ import os
 import time
 import uuid
 
+from chatchat.core.thinking import Thinking
 from chatchat.hooks.events import (AGENT_WARN, emit, emit_response,
                                 emit_started)
 from chatchat.hooks.executors import (EVALUATOR_INSTRUCTION, exec_agent_hook,
@@ -239,7 +240,8 @@ class HookManager:
             return await exec_http_hook(hook, hook_input)
         if config.type == 'prompt':
             return await exec_prompt_hook(
-                self._team._client_for(EVALUATOR_INSTRUCTION, thinking=False,
+                self._team._client_for(EVALUATOR_INSTRUCTION,
+                thinking=Thinking('off'),
                                        model=config.model or None),
                 hook, hook_input)
         if config.type == 'agent':

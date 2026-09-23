@@ -30,7 +30,8 @@ class _Recorder:
 def _demo(monkeypatch, **overrides):
     _Recorder.built = []
     monkeypatch.setattr('chatchat.cli.team.Team', _Recorder)
-    args = Namespace(params=['deepseek', 'chat'], thinking=False,
+    args = Namespace(params=['deepseek', 'chat'], thinking='off',
+                     thinking_budget=0, effort='',
                      no_hooks=False, proxy=None, timeout=None, prompt='go')
     for key, value in overrides.items():
         setattr(args, key, value)
@@ -48,8 +49,11 @@ def test_the_demo_builds_a_lead_with_two_teammates(monkeypatch):
 
 
 def test_the_demo_flags_reach_the_team(monkeypatch):
-    team = _demo(monkeypatch, thinking=True, no_hooks=True)[0]
-    assert team.kw['thinking'] is True
+    team = _demo(monkeypatch, thinking='adaptive', thinking_budget=8000,
+                 effort='high', no_hooks=True)[0]
+    setting = team.kw['thinking']
+    assert (setting.mode, setting.budget, setting.effort) == (
+        'adaptive', 8000, 'high')
     assert team.kw['hooks'] is False
     assert team.kw['http_options'] == {'proxy': None, 'timeout': None}
 
