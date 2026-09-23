@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from chatchat.core.tasks import TASK_STATUSES
+from chatchat.core.structured import mismatch
 from chatchat.hooks.output import describe_blocking
 
 
@@ -203,3 +204,58 @@ async def enter_worktree(team, agent, input: dict,
 async def exit_worktree(team, agent, input: dict, tool_use_id: str = '') -> str:
     return await team.exit_worktree(keep=str(input.get('action') or '')
                                    == 'keep')
+
+
+MAX_QUESTIONS = 4
+MAX_OPTIONS = 4
+MAX_HEADER_CHARS = 12
+
+
+def _question_problems(questions) -> str:
+    if not isinstance(questions, list) or not questions:
+        return 'ask_user needs at least one question'
+    if len(questions) > MAX_QUESTIONS:
+        return f'ask_user takes at most {MAX_QUESTIONS} questions'
+    for index, question in enumerate(questions, start=1):
+        if not str((question or {}).get('question') or '').strip():
+            return f'question {index} needs its text'
+        header = str(question.get('header') or '')
+        if len(header) > MAX_HEADER_CHARS:
+            return (f'question {index} has a header over '
+                    f'{MAX_HEADER_CHARS} characters')
+        options = question.get('options') or []
+        if not 2 <= len(options) <= MAX_OPTIONS:
+            return f'question {index} needs between two and {MAX_OPTIONS} options'
+    return ''
+
+
+async def ask_user(team, agent, input: dict, tool_use_id: str = '') -> str:
+    import asyncio as _asyncio
+
+    questions = input.get('questions') or []
+    problem = _question_problems(questions)
+    if problem:
+        return f'Error: {problem}'
+    await team.hooks.execute_elicitation_hooks(
+        agent, str(questions[0].get('question') or ''))
+    answers = team.ask_user(agent, questions)
+    if _asyncio.iscoroutine(answers):
+        answers = await answers
+    lines = []
+    for index, question in enumerate(questions):
+        answer = str(answers[index] if index < len(answers) else '')
+        answer = answer or 'no answer'
+        lines.append(f'{question["question"]}: {answer}')
+    await team.hooks.execute_elicitation_result_hooks(
+        agent, '\n'.join(lines))
+    return ('The user answered:\n' + '\n'.join(lines)
+            + '\nCarry on with those answers.')
+
+
+async def structured_output(team, agent, input: dict,
+                            tool_use_id: str = '') -> str:
+    problem = mismatch(team.output_schema or {}, input)
+    if problem:
+        return f'Error: output does not match the required schema: {problem}'
+    team.structured_output = dict(input)
+    return 'Structured output recorded. Finish the run now.'

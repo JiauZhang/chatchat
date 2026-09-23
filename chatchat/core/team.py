@@ -20,6 +20,8 @@ from chatchat.core.team_store import TeamStore
 from chatchat.core.worktrees import (create, generated_name, in_repository,
                      remove)
 from chatchat.core.skills import SkillRegistry, listing_budget
+from chatchat.core.structured import (STRUCTURED_OUTPUT_TOOL, retries,
+                                       schema_problem)
 from chatchat.hooks.events import (AGENT_PROGRESS, AGENT_TOOL_RESULT,
                                   emit)
 from chatchat.hooks.manager import HookManager
@@ -77,6 +79,11 @@ class Team:
         self.tool_context.files = self.file_history
         self.skills = skills or SkillRegistry()
         self.worktree: dict | None = None
+        self.ask_user = None
+        self.output_schema: dict | None = None
+        self.structured_output: dict | None = None
+        self._output_attempts = 0
+        self._output_hook = None
         self._cwd_changed = None
         self._worktrees = in_repository(self.tool_context.cwd)
         self._factory = client_factory
@@ -522,6 +529,28 @@ class Team:
             text += '\nAvailable subagent types:\n' + '\n'.join(lines)
         return text
 
+    def set_output_schema(self, schema: dict) -> str:
+        problem = schema_problem(schema)
+        if problem:
+            return problem
+        self.output_schema = schema
+        self.structured_output = None
+        self._output_attempts = 0
+        if self._output_hook is None:
+            self._output_hook = self.hooks.register(
+                'Stop', '*', fn=self._output_is_missing,
+                error_message=f'Call {STRUCTURED_OUTPUT_TOOL} now with your '
+                              f'final answer in the required shape.')
+        return ''
+
+    def _output_is_missing(self, request: dict) -> bool:
+        if self.structured_output is not None:
+            return True
+        if self._output_attempts >= retries():
+            return True
+        self._output_attempts += 1
+        return False
+
     def tool_schemas(self, context: ToolContext) -> list[dict]:
         team_tools = [
             {'name': 'create_agent',
@@ -631,6 +660,38 @@ class Team:
                                                              'type': 'string'}}},
                                   'required': ['task_id']}},
             ]
+        if self.ask_user is not None:
+            team_tools.append(
+                {'name': 'ask_user',
+                 'description': 'Ask the human one to four questions and wait '
+                                'for the answers, when a choice they can make '
+                                'would change what you do. Give each question '
+                                'two to four options worth picking; they can '
+                                'also answer in their own words.',
+                 'input_schema': {'type': 'object',
+                                  'properties': {
+                                      'questions': {
+                                          'type': 'array',
+                                          'items': {
+                                              'type': 'object',
+                                              'properties': {
+                                                  'question': {'type': 'string'},
+                                                  'header': {'type': 'string'},
+                                                  'multiSelect': {
+                                                      'type': 'boolean'},
+                                                  'options': {
+                                                      'type': 'array',
+                                                      'items': {
+                                                          'type': 'object',
+                                                          'properties': {
+                                                              'label': {
+                                                                  'type': 'string'},
+                                                              'description': {
+                                                                  'type': 'string'}},
+                                                          'required': ['label']}}},
+                                              'required': ['question',
+                                                          'options']}}},
+                                  'required': ['questions']}})
         if self._worktrees:
             team_tools += [
                 {'name': 'enter_worktree',
@@ -675,6 +736,15 @@ class Team:
                                                'description': 'What the skill '
                                                               'should work on.'}},
                                   'required': ['skill']}})
+        if self.output_schema is not None:
+            team_tools.append(
+                {'name': STRUCTURED_OUTPUT_TOOL,
+                 'description': 'Return your final answer as the structured '
+                                'payload below. Call it exactly once, at the '
+                                'end of the work; nothing you say in prose '
+                                'counts as the answer.\n\nThe payload must '
+                                'match this schema.',
+                 'input_schema': self.output_schema})
         return team_tools + describe_tools(self._injected_tools, context)
 
     async def _post_tool_context(self, agent, tool_use_id: str, name: str,
@@ -730,6 +800,10 @@ class Team:
         if self._worktrees:
             team_fns |= {'enter_worktree': _tools.enter_worktree,
                          'exit_worktree': _tools.exit_worktree}
+        if self.ask_user is not None:
+            team_fns['ask_user'] = _tools.ask_user
+        if self.output_schema is not None:
+            team_fns[STRUCTURED_OUTPUT_TOOL] = _tools.structured_output
         extra = ''
         if agent is not None and not agent.hookless:
             pre = await self.hooks.execute_pre_tool_hooks(
