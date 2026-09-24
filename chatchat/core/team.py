@@ -23,6 +23,7 @@ from chatchat.core.worktrees import (create, generated_name, in_repository,
 from chatchat.core.rules import note as _rule_note
 from chatchat.core.skills import SkillRegistry, listing_budget
 from chatchat.core.thinking import Thinking
+from chatchat.core.tokens import context_estimate, measured
 from chatchat.core.structured import (STRUCTURED_OUTPUT_TOOL, retries,
                                        schema_problem)
 from chatchat.hooks.events import (AGENT_PROGRESS, AGENT_TOOL_RESULT,
@@ -40,14 +41,20 @@ def _tool_calls(agent: Agent) -> int:
 
 
 DEFAULT_COMPACT_RESERVE = 40_000
+MAX_COMPACT_FAILURES = 3
+
+
+def _note_compaction(agent, *, failed: bool) -> None:
+    if agent is None:
+        return
+    agent.compact_failures = (agent.compact_failures + 1 if failed else 0)
 
 
 def token_count(messages: list[dict]) -> int:
     for message in reversed(messages):
         usage = message.get('usage')
         if isinstance(usage, dict):
-            return (int(usage.get('prompt_tokens', 0))
-                    + int(usage.get('completion_tokens', 0)))
+            return measured(usage)
     return 0
 
 
@@ -150,26 +157,40 @@ class Team:
         client = self._client_for('Summarize the conversation so far.')
         text = await client.respond(middle)
         if not isinstance(text, str) or not text.strip():
-            return messages
+            return None
         marker = {'role': 'user',
                   'content': f'[conversation summary]\n{text}'}
         return head + [marker] + tail
 
-    async def maybe_compact(self, messages: list[dict], force: bool = False) -> list[dict]:
+    async def maybe_compact(self, messages: list[dict], force: bool = False,
+                            agent: Agent = None) -> list[dict]:
+        failures = getattr(agent, 'compact_failures', 0)
+        if not force and (agent is not None
+                          and failures >= MAX_COMPACT_FAILURES):
+            return messages
         if not force and (not self.auto_compact
-                          or token_count(messages) < self._compact_threshold):
+                          or context_estimate(messages) < self._compact_threshold):
             return messages
         trigger = 'manual' if force else 'auto'
         await self.hooks.execute_pre_compact_hooks(trigger=trigger)
-        result = self._compact_fn(messages)
-        if asyncio.iscoroutine(result):
-            result = await result
-        if len(result or []) < len(messages):
-            self.reset_rules()
+        try:
+            result = self._compact_fn(messages)
+            if asyncio.iscoroutine(result):
+                result = await result
+        except Exception:
+            _note_compaction(agent, failed=True)
+            return messages
+        if result is None:
+            _note_compaction(agent, failed=True)
+            return messages
+        if len(result) >= len(messages):
+            return list(result) if result else messages
+        _note_compaction(agent, failed=False)
+        self.reset_rules()
         emit('agent.compact', agent='',
-             before=len(messages), after=len(result or []))
+             before=len(messages), after=len(result))
         await self.hooks.execute_post_compact_hooks(trigger=trigger)
-        return list(result) if result else messages
+        return list(result)
 
     def _client_for(self, instruction: str, thinking: Thinking | None = None,
                     model: str | None = None):

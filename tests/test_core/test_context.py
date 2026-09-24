@@ -3,6 +3,7 @@ import asyncio
 from chatchat.core.abort import AbortSignal
 from chatchat.core.context import AgentContext, current_agent, spawn_task
 from chatchat.core.team import token_count
+from chatchat.core.tokens import context_estimate
 from helpers import mock_team
 
 
@@ -74,4 +75,52 @@ def test_compaction_triggers_on_measured_context_near_the_window():
 
     team, compacted = asyncio.run(main())
     assert team.compact_threshold == 6_000
+    assert compacted is not team.lead.messages
+
+
+def test_the_trigger_estimate_adds_a_rough_count_of_what_came_afterwards():
+    msgs = [{'role': 'assistant', 'content': 'a',
+             'usage': {'prompt_tokens': 500, 'completion_tokens': 50}},
+            {'role': 'user', 'content': 'x' * 400}]
+    assert context_estimate(msgs) == 550 + 100
+
+
+def test_the_estimate_guesses_until_the_api_has_measured_anything():
+    assert context_estimate([]) == 0
+    assert context_estimate([{'role': 'user', 'content': 'x' * 400},
+                             {'role': 'assistant', 'content': 'y' * 400}]) == 200
+
+
+def test_a_tool_call_is_counted_by_its_arguments():
+    small = [{'role': 'assistant', 'content': [
+        {'type': 'tool_use', 'name': 'Read', 'input': {'file_path': 'a.py'}}]}]
+    big = [{'role': 'assistant', 'content': [
+        {'type': 'tool_use', 'name': 'Read',
+         'input': {'file_path': 'a' * 420}}]}]
+    assert context_estimate(small) < context_estimate(big)
+    assert context_estimate(big) - context_estimate(small) >= 100
+
+
+def test_a_tool_result_is_counted_by_its_own_text():
+    msgs = [{'role': 'user', 'content': [
+        {'type': 'tool_result', 'tool_use_id': 't1',
+         'content': 'z' * 400}]}]
+    assert context_estimate(msgs) == 100
+
+
+def test_the_trigger_estimates_but_the_readout_keeps_the_measured_figure():
+    async def summarize(messages, tools=None, *, stream_cb=None):
+        return 'short'
+
+    async def main():
+        team = mock_team('ctx', handler=summarize, context_window=8_000,
+                         compact_reserve=2_000)
+        team.lead.messages = [
+            {'role': 'assistant', 'content': 'a',
+             'usage': {'prompt_tokens': 5_900, 'completion_tokens': 50}},
+            {'role': 'user', 'content': 'x' * 400}]
+        return team, await team.maybe_compact(team.lead.messages)
+
+    team, compacted = asyncio.run(main())
+    assert team.context_tokens == 5_950
     assert compacted is not team.lead.messages

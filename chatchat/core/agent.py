@@ -51,6 +51,7 @@ class Agent:
         self.metrics = Metrics()
         self.last_metrics = Metrics()
         self.total_metrics = Metrics()
+        self.compact_failures = 0
         self._turn_open = False
         self.inbox = inbox if inbox is not None else Mailbox()
         self.messages: list[dict] = []
@@ -245,6 +246,7 @@ class Agent:
     def _begin_turn(self) -> None:
         self._turn_open = True
         self.metrics = Metrics()
+        self.compact_failures = 0
 
     def _end_turn(self) -> None:
         if not self._turn_open:
@@ -286,7 +288,8 @@ class Agent:
         await self.poll_inbox()
 
         if not self._internal:
-            self.messages = await self.team.maybe_compact(self.messages)
+            self.messages = await self.team.maybe_compact(self.messages,
+                                                          agent=self)
 
         stream_state = {'reason_emitted': False}
         thinking_parts = []
