@@ -187,6 +187,8 @@ class HookManager:
                 self._consumed_once.add(hook.hook_id)
         agg = aggregate_results(results,
                                 int((time.monotonic() - start) * 1000))
+        if agent is not None and matched:
+            agent.metrics.hook_ran(agg.total_duration_ms)
         if agg.system_message:
             emit(AGENT_WARN,
                  agent=getattr(agent, 'name', '') or DEFAULT_PARENT,

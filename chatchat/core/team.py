@@ -12,6 +12,7 @@ from chatchat.core.abort import AbortSignal
 from chatchat.core.agent import Agent
 from chatchat.core.agents import GENERAL_PURPOSE, AgentDefinition, AgentRegistry
 from chatchat.core.mailbox import FileMailbox
+from chatchat.core.metrics import Metrics
 from chatchat.core.context import AgentContext
 from chatchat.core.filehistory import FileHistory
 from chatchat.core.mailbox import idle_notification as _idle_msg
@@ -406,6 +407,9 @@ class Team:
     def reset_usage(self):
         for agent in self.agents.values():
             agent.total_usage = type(self.lead.total_usage)()
+            agent.metrics = Metrics()
+            agent.last_metrics = Metrics()
+            agent.total_metrics = Metrics()
 
     def set_instruction_files(self, files: list[dict]):
         self.instruction_files = list(files or [])
@@ -881,6 +885,24 @@ class Team:
 
     async def execute_tool(self, name: str, input: dict, agent: Agent,
                            tool_use_id: str = '') -> ToolOutcome:
+        started = time.monotonic()
+
+        def noted(meta: dict | None = None) -> None:
+            if agent is None:
+                return
+            meta = meta or {}
+            agent.metrics.tool_ran(
+                int((time.monotonic() - started) * 1000),
+                added=int(meta.get('num_added') or 0),
+                removed=int(meta.get('num_removed') or 0))
+
+        outcome = await self._run_tool(name, input, agent, tool_use_id, noted)
+        if outcome.denied and agent is not None:
+            agent.metrics.denials += 1
+        return outcome
+
+    async def _run_tool(self, name: str, input: dict, agent: Agent,
+                        tool_use_id: str, noted) -> ToolOutcome:
         pool = self._injected_tools if (agent is None
                                         or agent.tools is None) else agent.tools
         team_fns = ({} if agent is not None and agent.tools is not None
@@ -904,8 +926,8 @@ class Team:
             team_fns['ask_user'] = _tools.ask_user
         if self.cron is not None:
             team_fns |= {'cron_create': _tools.cron_create,
-                       'cron_list': _tools.cron_list,
-                       'cron_delete': _tools.cron_delete}
+                         'cron_list': _tools.cron_list,
+                         'cron_delete': _tools.cron_delete}
         if self.output_schema is not None:
             team_fns[STRUCTURED_OUTPUT_TOOL] = _tools.structured_output
         extra = ''
@@ -915,7 +937,7 @@ class Team:
             if pre.blocking_error is not None:
                 return ToolOutcome(
                     f'Error: hook blocked tool "{name}": '
-                    f'{pre.blocking_error.blocking_error}')
+                    f'{pre.blocking_error.blocking_error}', denied=True)
             if pre.updated_input is not None:
                 input = {**input, **pre.updated_input}
             extra = pre.additional_context
@@ -928,29 +950,35 @@ class Team:
                     extra)
             try:
                 out = await tool(agent.tool_context, **input)
-                if isinstance(out, ToolResult):
-                    emit(AGENT_TOOL_RESULT,
-                         agent=getattr(agent, 'name', ''),
-                         tool=name, tool_use_id=tool_use_id,
-                         **(out.meta or {}))
-                    out = out.text
-                elif not isinstance(out, str):
-                    out = str(out)
             except Exception as e:
+                noted()
                 return ToolOutcome(
                     f'Error calling tool "{name}": {type(e).__name__}: {e}',
                     _joined(extra, await self._post_tool_context(
                         agent, tool_use_id, name, input, e, True)))
+            if isinstance(out, ToolResult):
+                noted(out.meta)
+                emit(AGENT_TOOL_RESULT,
+                     agent=getattr(agent, 'name', ''),
+                     tool=name, tool_use_id=tool_use_id,
+                     **(out.meta or {}))
+                out = out.text
+            else:
+                noted()
+                if not isinstance(out, str):
+                    out = str(out)
             return ToolOutcome(out, _joined(extra, await self._post_tool_context(
                 agent, tool_use_id, name, input, out),
                 await self._note_file_changed(agent, tool, input)))
         try:
             out = await fn(self, agent, input, tool_use_id)
         except Exception as e:
+            noted()
             return ToolOutcome(
                 f'Error calling tool "{name}": {type(e).__name__}: {e}',
                 _joined(extra, await self._post_tool_context(
                     agent, tool_use_id, name, input, e, True)))
+        noted()
         return ToolOutcome(out, _joined(extra, await self._post_tool_context(
             agent, tool_use_id, name, input, out)))
 
@@ -974,6 +1002,15 @@ class Team:
         if reason == 'failed' and failure_reason:
             from chatchat.hooks.events import AGENT_WARN
             emit(AGENT_WARN, agent=agent.name, text=failure_reason)
+
+    def turn_metrics(self) -> Metrics:
+        return self.lead.last_metrics
+
+    def total_metrics(self) -> Metrics:
+        total = Metrics()
+        for agent in self.agents.values():
+            total = total + agent.total_metrics
+        return total
 
     def request_shutdown(self, agent_id: str):
         agent = self.agents.get(agent_id)

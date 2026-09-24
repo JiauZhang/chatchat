@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
 from chatchat.client import Usage
 from chatchat.core.abort import Abort, AbortSignal
 from chatchat.core.context import spawn_task
 from chatchat.core.inbox_poller import InboxPoller
 from chatchat.core.mailbox import Mailbox, parse_protocol
+from chatchat.core.metrics import Metrics
 from chatchat.core.task import Task, generate_task_id
 from chatchat.core.tasks import work_prompt
 from chatchat.hooks.output import describe_blocking
@@ -46,6 +48,10 @@ class Agent:
         self.model_retries = model_retries
 
         self.total_usage = Usage()
+        self.metrics = Metrics()
+        self.last_metrics = Metrics()
+        self.total_metrics = Metrics()
+        self._turn_open = False
         self.inbox = inbox if inbox is not None else Mailbox()
         self.messages: list[dict] = []
         self.busy = False
@@ -147,6 +153,7 @@ class Agent:
         try:
             return await self._full_turn(text)
         finally:
+            self._end_turn()
             self.busy = False
             self._set_idle()
 
@@ -190,6 +197,7 @@ class Agent:
                 if not self._internal:
                     await self.team.hooks.execute_stop_failure_hooks(self, e)
             finally:
+                self._end_turn()
                 self.busy = False
                 if self._internal:
                     self._done += 1
@@ -234,7 +242,19 @@ class Agent:
             data['usage'] = usage
         emit(AGENT_PROGRESS, agent=self.name, **data)
 
+    def _begin_turn(self) -> None:
+        self._turn_open = True
+        self.metrics = Metrics()
+
+    def _end_turn(self) -> None:
+        if not self._turn_open:
+            return
+        self._turn_open = False
+        self.last_metrics = self.metrics
+        self.total_metrics += self.metrics
+
     async def _full_turn(self, user_block: str) -> str:
+        self._begin_turn()
         self._work_abort = AbortSignal()
         if user_block:
             self.messages.append({'role': 'user', 'content': user_block})
@@ -299,6 +319,7 @@ class Agent:
                 self._work_abort.check()
                 thinking_parts.clear()
                 stream_state['text_emitted'] = False
+                round_started = time.monotonic()
                 respond_task = asyncio.create_task(self.client.respond(
                     self.messages, self.tool_schemas(
                     self.tool_context), stream_cb=stream))
@@ -335,6 +356,8 @@ class Agent:
                 emit(AGENT_WARN, agent=self.name, text=(
                     f'model call timed out after {self.model_timeout}s, '
                     f'retrying ({attempt}/{self.model_retries})'))
+            self.metrics.api_round(int((time.monotonic()
+                                        - round_started) * 1000))
             self.total_usage.add(getattr(self.client, '_last_usage', None))
             if isinstance(resp, str):
                 msg = {'role': 'assistant', 'content': resp,

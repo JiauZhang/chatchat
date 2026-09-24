@@ -35,6 +35,7 @@ class ToolResult:
 class ToolOutcome:
     text: str
     additional_context: str = ''
+    denied: bool = False
 
 
 class Tool:
