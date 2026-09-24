@@ -2,15 +2,16 @@ from __future__ import annotations
 
 import asyncio
 import shutil
-import time
 from pathlib import Path
 
-import chatchat.core.tools as _tools
-from chatchat.tool import (ToolContext, ToolOutcome, ToolResult,
-                           describe_tools)
+from chatchat.tool import ToolContext
 from chatchat.core.abort import AbortSignal
 from chatchat.core.agent import Agent
-from chatchat.core.agents import GENERAL_PURPOSE, AgentDefinition, AgentRegistry
+from chatchat.core.agents import (
+    GENERAL_PURPOSE,
+    AgentDefinition,
+    AgentRegistry,
+)
 from chatchat.core.mailbox import FileMailbox
 from chatchat.core.metrics import Metrics
 from chatchat.core.context import AgentContext
@@ -18,30 +19,48 @@ from chatchat.core.filehistory import FileHistory
 from chatchat.core.mailbox import idle_notification as _idle_msg
 from chatchat.core.tasks import TaskList
 from chatchat.core.team_store import TeamStore
-from chatchat.core.worktrees import (create, generated_name, in_repository,
-                     remove)
-from chatchat.core.rules import note as _rule_note
-from chatchat.core.skills import SkillRegistry, listing_budget
+from chatchat.core.worktrees import (
+    create,
+    generated_name,
+    in_repository,
+    remove,
+)
+from chatchat.core.skills import SkillRegistry
 from chatchat.core.thinking import Thinking
 from chatchat.core.tokens import context_estimate, measured
-from chatchat.core.structured import (STRUCTURED_OUTPUT_TOOL, retries,
-                                       schema_problem)
-from chatchat.hooks.events import (AGENT_PROGRESS, AGENT_TOOL_RESULT,
-                                  emit)
+from chatchat.core.subagents import SubagentsMixin
+from chatchat.core.tool_runner import ToolRunnerMixin
+from chatchat.core.tool_schemas import TeamSchemasMixin
+from chatchat.core.structured import (
+    STRUCTURED_OUTPUT_TOOL,
+    retries,
+    schema_problem,
+)
+from chatchat.hooks.events import emit
 from chatchat.hooks.manager import HookManager
 
 LEAD_NAME = 'team-lead'
 
 
-def _tool_calls(agent: Agent) -> int:
-    return sum(1 for message in agent.messages
-               if isinstance(message.get('content'), list)
-               for block in message['content']
-               if isinstance(block, dict) and block.get('type') == 'tool_use')
-
-
 DEFAULT_COMPACT_RESERVE = 40_000
 MAX_COMPACT_FAILURES = 3
+
+
+def last_assistant(agent: Agent, *, start: int = 0) -> str:
+    for m in reversed(agent.messages[start:]):
+        if not isinstance(m, dict):
+            continue
+        if m.get('role') == 'assistant' and isinstance(m.get('content'), str):
+            return m['content']
+    for m in reversed(agent.messages):
+        if not isinstance(m, dict) or m.get('role') != 'user':
+            continue
+        content = m.get('content')
+        if isinstance(content, list):
+            for b in content:
+                if b.get('type') == 'tool_result' and isinstance(b.get('content'), str):
+                    return b['content']
+    return ''
 
 
 def _note_compaction(agent, *, failed: bool) -> None:
@@ -58,7 +77,7 @@ def token_count(messages: list[dict]) -> int:
     return 0
 
 
-class Team:
+class Team(SubagentsMixin, TeamSchemasMixin, ToolRunnerMixin):
     def __init__(self, name: str, client=None, hooks: bool = True,
                  client_factory=None,
                  lead_instruction: str = '', model_timeout: float = 120.0,
@@ -238,156 +257,14 @@ class Team:
     def add(self, name: str, instruction: str = '') -> Agent:
         return self.create_agent(name, instruction=instruction)
 
-    async def _start_subagent(self, prompt: str, subagent_type: str | None,
-                              instruction: str, model, depth: int,
-                              fork_msgs: list | None, tool_use_id: str):
-        defn = self.agent_defs.get(subagent_type)
-        sys_prompt = '\n'.join(p for p in (defn.full_prompt(), instruction)
-                               if p) or defn.system_prompt
-        if defn.memory and self.agent_memory is not None:
-            sys_prompt = '\n\n'.join(
-                (sys_prompt,
-                 self.agent_memory.prompt(defn.agent_type, defn.memory)))
-        from chatchat.core.task import rand_name
-        name = rand_name(f'sub-{self._counter}')
-        self._counter += 1
-        agent_id = self.agent_id(name)
-        abort = AbortSignal()
-        ctx = AgentContext(agent_id=agent_id, agent_name=name,
-                           team_name=self.name, abort=abort, leader=False)
-        writer = None
-        if self.sidechain_dir is not None:
-            from chatchat.core.sidechain import SidechainWriter
-            writer = SidechainWriter(self.sidechain_dir, name, self.name,
-                                     subagent_type or '', prompt)
-        model = model or defn.model
-        agent = Agent(agent_id, name, self,
-                      self._client_for(sys_prompt, model=model),
-                      ctx, instruction=sys_prompt,
-                      depth=depth, internal=True, tools=list(defn.tools),
-                      model_timeout=self._model_timeout, model_retries=self._model_retries,
-                      on_message=None if writer is None else writer.append,
-                      agent_type=subagent_type or '')
-        self.agents[agent_id] = agent
-        if fork_msgs:
-            agent.messages = list(fork_msgs)
-        emit(AGENT_PROGRESS, agent=agent.name,
-             prompt=prompt, subagent_type=subagent_type or '',
-             tool_use_id=tool_use_id, started_at=time.time())
-        start = await self.hooks.execute_subagent_start_hooks(
-            agent, defn.agent_type)
-        if start.additional_context:
-            message = {'role': 'user', 'content': start.additional_context}
-            agent.messages.append(message)
-            agent._record(message)
-        return agent, writer, defn
 
-    async def _run_subagent(self, agent: Agent, prompt: str, writer,
-                            defn) -> str:
-        try:
-            result = await agent.chat(prompt)
-            if writer is not None:
-                writer.finish('completed')
-        except BaseException:
-            if writer is not None:
-                writer.finish('failed')
-            raise
-        finally:
-            emit(AGENT_PROGRESS, agent=agent.name, done=True)
-            await self.hooks.execute_subagent_stop_hooks(agent, defn.agent_type)
-            agent._finalize('completed')
-        return result
 
-    async def spawn_subagent(self, prompt: str, *, subagent_type: str | None = None,
-                             instruction: str = '', model=None, depth: int = 0,
-                             fork_msgs: list | None = None,
-                             tool_use_id: str = '') -> str:
-        agent, writer, defn = await self._start_subagent(
-            prompt, subagent_type, instruction, model, depth, fork_msgs,
-            tool_use_id)
-        return await self._run_subagent(agent, prompt, writer, defn)
 
-    async def spawn_background_subagent(self, prompt: str, parent: Agent,
-                                        *, subagent_type: str | None = None,
-                                        instruction: str = '', model=None,
-                                        depth: int = 0,
-                                        fork_msgs: list | None = None,
-                                        tool_use_id: str = '') -> str:
-        agent, writer, defn = await self._start_subagent(
-            prompt, subagent_type, instruction, model, depth, fork_msgs,
-            tool_use_id)
-        self.parents[agent.agent_id] = parent.agent_id
-        self.children.setdefault(parent.agent_id, set()).add(agent.agent_id)
-        task = asyncio.get_running_loop().create_task(
-            self._report_to(agent, prompt, writer, defn, parent))
-        self.background[agent.agent_id] = task
-        task.add_done_callback(
-            lambda done: self.background.pop(agent.agent_id, None))
-        return agent.agent_id
 
-    async def _report_to(self, agent: Agent, prompt: str, writer, defn,
-                         parent: Agent):
-        started = time.monotonic()
-        status = 'completed'
-        try:
-            answer = await self._run_subagent(agent, prompt, writer, defn)
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            status, answer = 'failed', str(exc)
-        parent.inbox.write(
-            agent.name,
-            f'{agent.name}, the sub-agent you sent to the background, is '
-            f'done.\nstatus: {status} \u00b7 tool calls: '
-            f'{_tool_calls(agent)} \u00b7 tokens: '
-            f'{agent.total_usage.total_tokens} \u00b7 '
-            f'{time.monotonic() - started:.0f}s\n{answer}')
 
-    async def spawn_child(self, parent_name: str, instruction: str, *,
-                          internal: bool = True) -> Agent:
-        from chatchat.core.task import rand_name
-        self._counter += 1
-        name = rand_name('hook')
-        agent_id = self.agent_id(name)
-        ctx = AgentContext(agent_id=agent_id, agent_name=name,
-                           team_name=self.name, abort=AbortSignal(),
-                           leader=False)
-        return Agent(agent_id, name, self, self._client_for(instruction),
-                     ctx, instruction=instruction, internal=internal,
-                     hookless=True, model_timeout=self._model_timeout, model_retries=self._model_retries)
 
-    async def stop_agent(self, agent: Agent):
-        agent_id = agent.agent_id
-        parent = self.parents.pop(agent_id, None)
-        if parent and agent_id in self.children.get(parent, set()):
-            self.children[parent].discard(agent_id)
-            if not agent._internal:
-                await self.hooks.execute_subagent_stop_hooks(
-                    agent, agent.agent_type)
-        await agent.stop()
-        if self.team_store is not None and self.team_context is not None:
-            self.team_store.drop_member(self.name, agent_id)
-        if self.tasks is not None and not agent._internal:
-            released = self.tasks.unassign(agent_id, agent.name)
-            if released and agent is not self.lead:
-                self.lead.inbox.write(
-                    agent.name,
-                    f'{agent.name} stopped with '
-                    f'{len(released)} task(s) handed back: '
-                    + ', '.join(f'#{t.id} {t.subject}' for t in released)
-                    + '. Give them to another agent or pick them up yourself.')
 
-    async def wait_for_idle(self, agent_id: str, timeout: float | None = None):
-        agent = self.agents.get(agent_id)
-        if agent is None:
-            return
-        await agent.wait_idle(timeout)
 
-    async def reclaim(self, agent: Agent, prompt: str,
-                      timeout: float | None = None) -> str:
-        agent.submit(prompt)
-        await agent.wait_idle(timeout)
-        return last_assistant(agent)
 
     def transcript(self) -> list[dict]:
         return list(self.lead.messages)
@@ -647,385 +524,13 @@ class Team:
         self._output_attempts += 1
         return False
 
-    def tool_schemas(self, context: ToolContext) -> list[dict]:
-        team_tools = [
-            {'name': 'create_agent',
-             'description': self._create_agent_description(),
-             'input_schema': {'type': 'object',
-                              'properties': {'prompt': {'type': 'string'},
-                                             'instruction': {'type': 'string'},
-                                             'subagent_type': {'type': 'string'},
-                                             'name': {'type': 'string',
-                                                      'description': 'Optional '
-                                                      'name for a persistent '
-                                                      'teammate (team mode): '
-                                                      'stays alive with a '
-                                                      'mailbox; message it via '
-                                                      'send_message. Omit for '
-                                                      'a one-off sub-agent.'},
-                                             'model': {'type': 'string',
-                                                       'description': 'Optional '
-                                                       'model override for the '
-                                                       'spawned agent.'},
-                                             'run_in_background': {
-                                                 'type': 'boolean',
-                                                 'description': 'Set true for a '
-                                                 'one-off sub-agent whose work '
-                                                 'should not hold this turn '
-                                                 'open. The answer arrives in '
-                                                 'your inbox when it finishes.'}},
-                              'required': ['prompt']}},
-        ]
-        if self.multi_agent:
-            team_tools += [
-                {'name': 'send_message',
-                 'description': 'Send a message to a teammate by name (or "*" to '
-                                'broadcast). Messages are delivered to their mailbox '
-                                'and injected on their next idle turn.',
-                 'input_schema': {'type': 'object',
-                                  'properties': {'to': {'type': 'string'},
-                                                 'message': {'type': 'string'}},
-                                  'required': ['to', 'message']}},
-                {'name': 'task_stop',
-                 'description': 'Permanently stop one of your own sub-agents.',
-                 'input_schema': {'type': 'object',
-                                  'properties': {'agent_id': {'type': 'string'}},
-                                  'required': ['agent_id']}},
-                {'name': 'team_create',
-                 'description': 'Gather the work under one named team. The '
-                                'team and its task list are the same thing: '
-                                'every task you create from now on belongs to '
-                                'it, and so does every teammate you spawn. '
-                                'Call it once, before the work is divided.',
-                 'input_schema': {'type': 'object',
-                                  'properties': {
-                                      'team_name': {'type': 'string'},
-                                      'description': {'type': 'string'}},
-                                  'required': ['team_name']}},
-                {'name': 'team_delete',
-                 'description': 'Throw away the current team and its task list '
-                                'once the work is done. It refuses while a '
-                                'teammate is still running, so stop them '
-                                'first with task_stop.',
-                 'input_schema': {'type': 'object', 'properties': {}}},
-            ]
-        if self.tasks is not None:
-            team_tools += [
-                {'name': 'task_create',
-                 'description': 'Add a task to the team list so the work is '
-                                'tracked and claimable. Use it for anything '
-                                'with more than one step; give a short '
-                                'imperative subject and the full description.',
-                 'input_schema': {'type': 'object',
-                                  'properties': {
-                                      'subject': {'type': 'string'},
-                                      'description': {'type': 'string'},
-                                      'active_form': {
-                                          'type': 'string',
-                                          'description': 'Present continuous '
-                                          'label shown while it is running'},
-                                      'metadata': {'type': 'object'}},
-                 'required': ['subject', 'description']}},
-                {'name': 'task_list',
-                 'description': 'List every task with its status, owner and '
-                                'open blockers. Check it before creating so '
-                                'work is not duplicated.',
-                 'input_schema': {'type': 'object', 'properties': {}}},
-                {'name': 'task_get',
-                 'description': 'Read one task in full.',
-                 'input_schema': {'type': 'object',
-                                  'properties': {'task_id': {'type': 'string'}},
-                                  'required': ['task_id']}},
-                {'name': 'task_update',
-                 'description': 'Change a task: move it through pending, '
-                                'in_progress and completed, hand it to an '
-                                'owner, or link it with add_blocks / '
-                                'add_blocked_by. status "deleted" removes it. '
-                                'Mark a task in_progress before starting it.',
-                 'input_schema': {'type': 'object',
-                                  'properties': {
-                                      'task_id': {'type': 'string'},
-                                      'subject': {'type': 'string'},
-                                      'description': {'type': 'string'},
-                                      'active_form': {'type': 'string'},
-                                      'status': {'type': 'string',
-                                                 'enum': ['pending',
-                                                          'in_progress',
-                                                          'completed',
-                                                          'deleted']},
-                                      'owner': {'type': 'string'},
-                                      'metadata': {'type': 'object'},
-                                      'add_blocks': {'type': 'array',
-                                                     'items': {
-                                                         'type': 'string'}},
-                                      'add_blocked_by': {'type': 'array',
-                                                         'items': {
-                                                             'type': 'string'}}},
-                                  'required': ['task_id']}},
-            ]
-        if self.ask_user is not None:
-            team_tools.append(
-                {'name': 'ask_user',
-                 'description': 'Ask the human one to four questions and wait '
-                                'for the answers, when a choice they can make '
-                                'would change what you do. Give each question '
-                                'two to four options worth picking; they can '
-                                'also answer in their own words.',
-                 'input_schema': {'type': 'object',
-                                  'properties': {
-                                      'questions': {
-                                          'type': 'array',
-                                          'items': {
-                                              'type': 'object',
-                                              'properties': {
-                                                  'question': {'type': 'string'},
-                                                  'header': {'type': 'string'},
-                                                  'multiSelect': {
-                                                      'type': 'boolean'},
-                                                  'options': {
-                                                      'type': 'array',
-                                                      'items': {
-                                                          'type': 'object',
-                                                          'properties': {
-                                                              'label': {
-                                                                  'type': 'string'},
-                                                              'description': {
-                                                                  'type': 'string'}},
-                                                          'required': ['label']}}},
-                                              'required': ['question',
-                                                          'options']}}},
-                                  'required': ['questions']}})
-        if self._worktrees:
-            team_tools += [
-                {'name': 'enter_worktree',
-                 'description': 'Only when the user asks for a worktree: make '
-                                'an isolated git worktree under '
-                                '.pyclaw/worktrees and move this session into '
-                                'it, so the work cannot touch the checked-out '
-                                'directory. Refuses outside a git repository.',
-                 'input_schema': {'type': 'object',
-                                  'properties': {
-                                      'name': {'type': 'string',
-                                               'description': 'Optional; a '
-                                                              'random one is '
-                                                              'picked.'}}}},
-                {'name': 'exit_worktree',
-                 'description': 'Leave the worktree this session moved into, '
-                                'back to the original directory. action '
-                                '"remove" also throws the worktree away, '
-                                'keeping its branch.',
-                 'input_schema': {'type': 'object',
-                                  'properties': {
-                                      'action': {'type': 'string',
-                                                 'enum': ['keep', 'remove']}}}},
-            ]
-        skills = self.skills.all()
-        if skills:
-            team_tools.append(
-                {'name': 'use_skill',
-                 'description': 'Load the full instructions of one skill when '
-                                'the task at hand is one it covers. The '
-                                'listing below only says what each skill is '
-                                'for; the steps come from this call.\n\n'
-                                'Available skills:\n'
-                                + self.skills.listing(
-                                    listing_budget(self.context_window)),
-                 'input_schema': {'type': 'object',
-                                  'properties': {
-                                      'skill': {'type': 'string',
-                                                'description': 'The name from '
-                                                               'the listing.'},
-                                      'args': {'type': 'string',
-                                               'description': 'What the skill '
-                                                              'should work on.'}},
-                                  'required': ['skill']}})
-        if self.cron is not None:
-            team_tools += [
-                {'name': 'cron_create',
-                 'description': 'Schedule a prompt to be enqueued at a cron '
-                                'time. Five fields, local time: minute hour '
-                                'day-of-month month day-of-week. A recurring job fires on every match '
-                                'until deleted; a one-shot fires at the next '
-                                'match and then disappears. durable keeps it '
-                                'in the project across restarts.',
-                 'input_schema': {'type': 'object',
-                                  'properties': {
-                                      'cron': {'type': 'string'},
-                                      'prompt': {'type': 'string'},
-                                      'recurring': {'type': 'boolean'},
-                                      'durable': {'type': 'boolean'}},
-                                  'required': ['cron', 'prompt']}},
-                {'name': 'cron_list',
-                 'description': 'Show every scheduled prompt with its id, '
-                                'schedule and whether it is durable.',
-                 'input_schema': {'type': 'object', 'properties': {}}},
-                {'name': 'cron_delete',
-                 'description': 'Cancel a scheduled prompt by its id.',
-                 'input_schema': {'type': 'object',
-                                  'properties': {'id': {'type': 'string'}},
-                                  'required': ['id']}},
-            ]
-        if self.output_schema is not None:
-            team_tools.append(
-                {'name': STRUCTURED_OUTPUT_TOOL,
-                 'description': 'Return your final answer as the structured '
-                                'payload below. Call it exactly once, at the '
-                                'end of the work; nothing you say in prose '
-                                'counts as the answer.\n\nThe payload must '
-                                'match this schema.',
-                 'input_schema': self.output_schema})
-        return team_tools + describe_tools(self._injected_tools, context)
 
-    async def _post_tool_context(self, agent, tool_use_id: str, name: str,
-                                 input: dict, value,
-                                 failed: bool = False) -> str:
-        if agent is None or agent.hookless:
-            return ''
-        if failed:
-            agg = await self.hooks.execute_post_tool_failure_hooks(
-                agent, tool_use_id, name, input, value)
-        else:
-            agg = await self.hooks.execute_post_tool_hooks(
-                agent, tool_use_id, name, input, value)
-        return agg.additional_context
 
-    def _changed_file(self, tool, input: dict) -> str:
-        if tool is None or tool.read_only or tool.get_path is None:
-            return ''
-        raw = tool.get_path(input)
-        if not raw:
-            return ''
-        cwd = Path(self.tool_context.cwd).resolve()
-        path = Path(str(raw)).expanduser()
-        path = path if path.is_absolute() else cwd / path
-        path = path.resolve()
-        return str(path) if path.is_relative_to(cwd) else ''
 
-    async def _note_file_changed(self, agent, tool, input: dict) -> str:
-        path = self._changed_file(tool, input)
-        if not path or agent is None or agent.hookless:
-            return ''
-        agg = await self.hooks.execute_file_changed_hooks(agent, path)
-        return agg.additional_context
 
-    def _matched_rules(self, tool, input: dict, result) -> str:
-        if self.rules is None or tool is None or not tool.read_only:
-            return ''
-        if tool.get_path is None:
-            return ''
-        if str(result).startswith('Error'):
-            return ''
-        raw = tool.get_path(input)
-        if not raw:
-            return ''
-        path = Path(str(raw)).expanduser()
-        if not path.is_absolute():
-            path = Path(self.tool_context.cwd) / path
-        return _rule_note(self.rules.relevant(str(path)), str(raw))
 
-    def reset_rules(self) -> None:
-        if self.rules is not None:
-            self.rules.reset()
 
-    async def execute_tool(self, name: str, input: dict, agent: Agent,
-                           tool_use_id: str = '') -> ToolOutcome:
-        started = time.monotonic()
 
-        def noted(meta: dict | None = None) -> None:
-            if agent is None:
-                return
-            meta = meta or {}
-            agent.metrics.tool_ran(
-                int((time.monotonic() - started) * 1000),
-                added=int(meta.get('num_added') or 0),
-                removed=int(meta.get('num_removed') or 0))
-
-        outcome = await self._run_tool(name, input, agent, tool_use_id, noted)
-        if outcome.denied and agent is not None:
-            agent.metrics.denials += 1
-        return outcome
-
-    async def _run_tool(self, name: str, input: dict, agent: Agent,
-                        tool_use_id: str, noted) -> ToolOutcome:
-        pool = self._injected_tools if (agent is None
-                                        or agent.tools is None) else agent.tools
-        team_fns = ({} if agent is not None and agent.tools is not None
-                    else {'send_message': _tools.send_message,
-                          'create_agent': _tools.create_agent,
-                          'task_stop': _tools.task_stop})
-        if self.tasks is not None:
-            team_fns |= {'task_create': _tools.task_create,
-                         'task_list': _tools.task_list,
-                         'task_get': _tools.task_get,
-                         'task_update': _tools.task_update}
-        if self.multi_agent:
-            team_fns |= {'team_create': _tools.team_create,
-                         'team_delete': _tools.team_delete}
-        if self.skills.all():
-            team_fns['use_skill'] = _tools.use_skill
-        if self._worktrees:
-            team_fns |= {'enter_worktree': _tools.enter_worktree,
-                         'exit_worktree': _tools.exit_worktree}
-        if self.ask_user is not None:
-            team_fns['ask_user'] = _tools.ask_user
-        if self.cron is not None:
-            team_fns |= {'cron_create': _tools.cron_create,
-                         'cron_list': _tools.cron_list,
-                         'cron_delete': _tools.cron_delete}
-        if self.output_schema is not None:
-            team_fns[STRUCTURED_OUTPUT_TOOL] = _tools.structured_output
-        extra = ''
-        if agent is not None and not agent.hookless:
-            pre = await self.hooks.execute_pre_tool_hooks(
-                agent, tool_use_id, name, input)
-            if pre.blocking_error is not None:
-                return ToolOutcome(
-                    f'Error: hook blocked tool "{name}": '
-                    f'{pre.blocking_error.blocking_error}', denied=True)
-            if pre.updated_input is not None:
-                input = {**input, **pre.updated_input}
-            extra = pre.additional_context
-        fn = team_fns.get(name)
-        if fn is None:
-            tool = next((t for t in pool if t.name == name), None)
-            if tool is None:
-                return ToolOutcome(
-                    f'Error: tool "{name}" is not available to this agent',
-                    extra)
-            try:
-                out = await tool(agent.tool_context, **input)
-            except Exception as e:
-                noted()
-                return ToolOutcome(
-                    f'Error calling tool "{name}": {type(e).__name__}: {e}',
-                    _joined(extra, await self._post_tool_context(
-                        agent, tool_use_id, name, input, e, True)))
-            if isinstance(out, ToolResult):
-                noted(out.meta)
-                emit(AGENT_TOOL_RESULT,
-                     agent=getattr(agent, 'name', ''),
-                     tool=name, tool_use_id=tool_use_id,
-                     **(out.meta or {}))
-                out = out.text
-            else:
-                noted()
-                if not isinstance(out, str):
-                    out = str(out)
-            return ToolOutcome(out, _joined(extra, await self._post_tool_context(
-                agent, tool_use_id, name, input, out),
-                self._matched_rules(tool, input, out),
-                await self._note_file_changed(agent, tool, input)))
-        try:
-            out = await fn(self, agent, input, tool_use_id)
-        except Exception as e:
-            noted()
-            return ToolOutcome(
-                f'Error calling tool "{name}": {type(e).__name__}: {e}',
-                _joined(extra, await self._post_tool_context(
-                    agent, tool_use_id, name, input, e, True)))
-        noted()
-        return ToolOutcome(out, _joined(extra, await self._post_tool_context(
-            agent, tool_use_id, name, input, out)))
 
     def send_control(self, recipient_name: str, payload: str):
         recipient = self.get_by_name(recipient_name)
@@ -1061,27 +566,6 @@ class Team:
         agent = self.agents.get(agent_id)
         if agent is not None:
             asyncio.get_running_loop().create_task(agent.stop())
-
-
-def _joined(*parts: str) -> str:
-    return '\n'.join(p for p in parts if p)
-
-
-def last_assistant(agent: Agent, *, start: int = 0) -> str:
-    for m in reversed(agent.messages[start:]):
-        if not isinstance(m, dict):
-            continue
-        if m.get('role') == 'assistant' and isinstance(m.get('content'), str):
-            return m['content']
-    for m in reversed(agent.messages):
-        if not isinstance(m, dict) or m.get('role') != 'user':
-            continue
-        content = m.get('content')
-        if isinstance(content, list):
-            for b in content:
-                if b.get('type') == 'tool_result' and isinstance(b.get('content'), str):
-                    return b['content']
-    return ''
 
 
 def create_team(name: str, client=None, client_factory=None,

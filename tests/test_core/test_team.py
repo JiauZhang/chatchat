@@ -4,6 +4,7 @@ import json
 
 from chatchat.client import MockClient, ToolUse
 from chatchat.core import team as core_team
+from chatchat.core import tools as core_tools
 from chatchat.core.agents import AgentDefinition
 from chatchat.core.inbox_poller import InboxPoller
 from chatchat.core.mailbox import Mailbox
@@ -570,7 +571,7 @@ def test_agent_state_reports_busy_when_a_teammate_starts_a_turn():
 def test_every_dispatched_tool_accepts_the_spawning_tool_use_id():
     """execute_tool hands `tool_use_id` to every built-in tool positionally."""
     for name in ('send_message', 'create_agent', 'task_stop'):
-        signature = inspect.signature(getattr(core_team._tools, name))
+        signature = inspect.signature(getattr(core_tools, name))
         params = list(signature.parameters)
         assert params[-1] == 'tool_use_id', f'{name} dropped tool_use_id'
         assert signature.parameters['tool_use_id'].default == ''
