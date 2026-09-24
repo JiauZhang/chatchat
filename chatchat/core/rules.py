@@ -17,6 +17,10 @@ def split_items(text: str) -> list[str]:
         if char == ',' and depth == 0:
             out.append(current)
             current = ''
+        elif char == ' ' and depth == 0:
+            if current.strip():
+                out.append(current)
+            current = ''
         else:
             current += char
     out.append(current)

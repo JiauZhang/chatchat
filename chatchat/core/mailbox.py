@@ -7,6 +7,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from dataclasses import dataclass, field
 
+from chatchat.core.sanitization import sanitize_unicode
+
 STRUCTURED_TYPES = (
     'idle_notification', 'permission_request', 'permission_response',
     'sandbox_permission_request', 'sandbox_permission_response',
@@ -180,7 +182,8 @@ def parse_protocol(text: str) -> dict | None:
 
 def format_teammate_batch(unread: list[Message]) -> str:
     return '\n\n'.join(
-        f'<teammate_message teammate_id="{m.from_}">{m.text}</teammate_message>'
+        f'<teammate_message teammate_id="{m.from_}">'
+        f'{sanitize_unicode(m.text)}</teammate_message>'
         for m in unread)
 
 
