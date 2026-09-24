@@ -20,6 +20,7 @@ from chatchat.core.tasks import TaskList
 from chatchat.core.team_store import TeamStore
 from chatchat.core.worktrees import (create, generated_name, in_repository,
                      remove)
+from chatchat.core.rules import note as _rule_note
 from chatchat.core.skills import SkillRegistry, listing_budget
 from chatchat.core.thinking import Thinking
 from chatchat.core.structured import (STRUCTURED_OUTPUT_TOOL, retries,
@@ -63,7 +64,7 @@ class Team:
                  compact_reserve: int = DEFAULT_COMPACT_RESERVE,
                  mailbox_dir=None, sidechain_dir=None, tasks_dir=None,
                  file_history_dir=None, skills=None, team_store=None,
-                 agent_memory=None, cron=None,
+                 agent_memory=None, cron=None, rules=None,
                  multi_agent: bool = True, **client_kw):
         self.name = name
         self.multi_agent = multi_agent
@@ -91,6 +92,7 @@ class Team:
         self.skills = skills or SkillRegistry()
         self.agent_memory = agent_memory
         self.cron = cron
+        self.rules = rules
         self.worktree: dict | None = None
         self.ask_user = None
         self.output_schema: dict | None = None
@@ -162,6 +164,8 @@ class Team:
         result = self._compact_fn(messages)
         if asyncio.iscoroutine(result):
             result = await result
+        if len(result or []) < len(messages):
+            self.reset_rules()
         emit('agent.compact', agent='',
              before=len(messages), after=len(result or []))
         await self.hooks.execute_post_compact_hooks(trigger=trigger)
@@ -883,6 +887,23 @@ class Team:
         agg = await self.hooks.execute_file_changed_hooks(agent, path)
         return agg.additional_context
 
+    def _matched_rules(self, tool, input: dict, result) -> str:
+        if self.rules is None or tool is None or tool.get_path is None:
+            return ''
+        if str(result).startswith('Error'):
+            return ''
+        raw = tool.get_path(input)
+        if not raw:
+            return ''
+        path = Path(str(raw)).expanduser()
+        if not path.is_absolute():
+            path = Path(self.tool_context.cwd) / path
+        return _rule_note(self.rules.relevant(str(path)), str(raw))
+
+    def reset_rules(self) -> None:
+        if self.rules is not None:
+            self.rules.reset()
+
     async def execute_tool(self, name: str, input: dict, agent: Agent,
                            tool_use_id: str = '') -> ToolOutcome:
         started = time.monotonic()
@@ -969,6 +990,7 @@ class Team:
                     out = str(out)
             return ToolOutcome(out, _joined(extra, await self._post_tool_context(
                 agent, tool_use_id, name, input, out),
+                self._matched_rules(tool, input, out),
                 await self._note_file_changed(agent, tool, input)))
         try:
             out = await fn(self, agent, input, tool_use_id)
