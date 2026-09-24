@@ -178,3 +178,13 @@ def test_a_failed_read_does_not_bring_in_a_rule(tmp_path):
     _, out, _ = _run(tmp_path, _reader('Error: file does not exist'),
                      'src/a.py')
     assert 'Use two spaces.' not in out.additional_context
+
+
+def test_editing_a_file_does_not_bring_in_its_rule(tmp_path):
+    def edit(context, file_path: str = ''):
+        return 'ok'
+
+    writer = Tool(tool=edit, name='Edit', description='edit a file',
+                  get_path=lambda i: i.get('file_path', ''))
+    _, out, _ = _run(tmp_path, writer, 'src/a.py')
+    assert 'Use two spaces.' not in out.additional_context

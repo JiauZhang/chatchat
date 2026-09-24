@@ -888,7 +888,9 @@ class Team:
         return agg.additional_context
 
     def _matched_rules(self, tool, input: dict, result) -> str:
-        if self.rules is None or tool is None or tool.get_path is None:
+        if self.rules is None or tool is None or not tool.read_only:
+            return ''
+        if tool.get_path is None:
             return ''
         if str(result).startswith('Error'):
             return ''
