@@ -226,6 +226,38 @@ class FileHistory:
         return {'files': files, 'insertions': insertions,
                 'deletions': deletions}
 
+    def _first_backup(self, key: str) -> Backup | None:
+        found = [snapshot.backups[key] for snapshot in self.snapshots
+                 if key in snapshot.backups]
+        return min(found, key=lambda backup: backup.version) if found else None
+
+    def session_stats(self) -> dict:
+        out: dict[str, dict] = {}
+        if not self.enabled:
+            return out
+        for key in self.tracked:
+            oldest = self._first_backup(key)
+            now = self._read(key) or ''
+            if oldest is None or oldest.name is None:
+                lines = len(now.splitlines())
+                if lines:
+                    out[key] = {'insertions': lines, 'deletions': 0,
+                                'created': True}
+                continue
+            want = self._backup_text(oldest) or ''
+            if want == now:
+                continue
+            matcher = difflib.SequenceMatcher(
+                None, want.splitlines(), now.splitlines())
+            adds = deletes = 0
+            for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+                if tag in ('insert', 'replace'):
+                    adds += j2 - j1
+                if tag in ('delete', 'replace'):
+                    deletes += i2 - i1
+            out[key] = {'insertions': adds, 'deletions': deletes}
+        return out
+
     def dump(self) -> dict:
         return {'tracked': list(self.tracked),
                 'snapshots': [{'mark': snap.mark, 'timestamp': snap.timestamp,

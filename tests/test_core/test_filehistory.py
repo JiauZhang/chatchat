@@ -272,3 +272,21 @@ def test_rewinding_the_conversation_drops_the_later_turns(tmp_path):
     result = team.rewind(2, code=False)
     assert [msg.get('content') for msg in team.lead.messages] == ['first', 'ok']
     assert result['messages'] == 2
+
+
+def test_the_history_can_count_what_each_file_gained_during_the_run(tmp_path):
+    history = FileHistory(tmp_path / 'store', cwd=tmp_path)
+    history.snapshot(0)
+    kept = tmp_path / 'kept.py'
+    kept.write_text('one\ntwo\n', encoding='utf-8')
+    history.track_edit(kept)
+    kept.write_text('one\nTWO\nthree\n', encoding='utf-8')
+    history.track_edit(kept)
+    fresh = tmp_path / 'fresh.py'
+    history.track_edit(fresh)
+    fresh.write_text('a\nb\n', encoding='utf-8')
+    stats = history.session_stats()
+    assert stats['kept.py']['deletions'] == 1
+    assert stats['kept.py']['insertions'] == 2
+    assert stats['fresh.py'] == {'insertions': 2, 'deletions': 0,
+                                 'created': True}
