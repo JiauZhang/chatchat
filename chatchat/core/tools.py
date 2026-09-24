@@ -9,7 +9,7 @@ from chatchat.hooks.output import describe_blocking
 async def send_message(team, agent, input: dict, tool_use_id: str = '') -> str:
     to = input.get('to', '')
     message = input.get('message', '') or ''
-    note = ('Do NOT re-send or poll them; wait for their teammate_message back.')
+    note = ('Do NOT re-send or poll them; wait for their teammate-message back.')
     if to == '*':
         recipients = [a for a in team.agents.values() if a.name != agent.name]
         if not recipients:

@@ -182,8 +182,8 @@ def parse_protocol(text: str) -> dict | None:
 
 def format_teammate_batch(unread: list[Message]) -> str:
     return '\n\n'.join(
-        f'<teammate_message teammate_id="{m.from_}">'
-        f'{sanitize_unicode(m.text)}</teammate_message>'
+        f'<teammate-message teammate_id="{m.from_}">\n'
+        f'{sanitize_unicode(m.text)}\n</teammate-message>'
         for m in unread)
 
 

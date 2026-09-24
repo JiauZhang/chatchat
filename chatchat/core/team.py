@@ -27,6 +27,7 @@ from chatchat.core.worktrees import (
 )
 from chatchat.core.skills import SkillRegistry
 from chatchat.core.thinking import Thinking
+from chatchat.core.standing import with_standing
 from chatchat.core.tokens import context_estimate, measured
 from chatchat.core.subagents import SubagentsMixin
 from chatchat.core.tool_runner import ToolRunnerMixin
@@ -173,7 +174,8 @@ class Team(SubagentsMixin, TeamSchemasMixin, ToolRunnerMixin):
             return messages
         head, tail = messages[:2], messages[-keep_recent:]
         middle = messages[2:-keep_recent]
-        client = self._client_for('Summarize the conversation so far.')
+        client = self._client_for('Summarize the conversation so far.',
+                          standing=False)
         text = await client.respond(middle)
         if not isinstance(text, str) or not text.strip():
             return None
@@ -212,7 +214,8 @@ class Team(SubagentsMixin, TeamSchemasMixin, ToolRunnerMixin):
         return list(result)
 
     def _client_for(self, instruction: str, thinking: Thinking | None = None,
-                    model: str | None = None):
+                    model: str | None = None, standing: bool = True):
+        instruction = with_standing(instruction) if standing else instruction
         if self._factory is not None:
             return self._factory(instruction, model)
         if self._client is not None:

@@ -29,5 +29,6 @@ def test_teammate_batch_sanitizes_the_message_text():
         Message(from_='bot', text='hi\u200bthere'),
         Message(from_='bot2', text='plain'),
     ])
-    assert '<teammate_message teammate_id="bot">hithere' in batch
+    assert ('<teammate-message teammate_id="bot">\nhithere\n'
+            '</teammate-message>') in batch
     assert 'plain' in batch
