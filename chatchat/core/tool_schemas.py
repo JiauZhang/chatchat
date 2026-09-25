@@ -127,7 +127,9 @@ class TeamSchemasMixin:
                                 'for the answers, when a choice they can make '
                                 'would change what you do. Give each question '
                                 'two to four options worth picking; they can '
-                                'also answer in their own words.',
+                                'also answer in their own words. When they '
+                                'have to compare concrete results, put the '
+                                'artifact on the option as preview.',
                  'input_schema': {'type': 'object',
                                   'properties': {
                                       'questions': {
@@ -147,7 +149,10 @@ class TeamSchemasMixin:
                                                               'label': {
                                                                   'type': 'string'},
                                                               'description': {
-                                                                  'type': 'string'}},
+                                                                  'type': 'string'},
+                                                              'preview': {
+                                                                  'type': 'string',
+                                                                  'description': 'The artifact this option would produce, shown beside the options while it is picked. Use it when the user has to compare concrete results, not for a plain preference. Only single-select questions show previews.'}},
                                                           'required': ['label']}}},
                                               'required': ['question',
                                                           'options']}}},

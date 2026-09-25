@@ -91,3 +91,15 @@ def test_the_question_tool_is_offered_only_when_someone_can_answer():
     before, after = asyncio.run(main())
     assert 'AskUserQuestion' not in before
     assert 'AskUserQuestion' in after
+
+
+def test_an_option_can_carry_the_artifact_it_would_produce():
+    async def main():
+        team = mock_team('ask8')
+        team.ask_user = lambda agent, questions: []
+        schema = next(s for s in team.tool_schemas(team.tool_context)
+                      if s['name'] == 'AskUserQuestion')
+        return (schema['input_schema']['properties']['questions']['items']
+                ['properties']['options']['items']['properties'])
+
+    assert 'preview' in asyncio.run(main())
