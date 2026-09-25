@@ -720,3 +720,18 @@ def test_spawned_agent_is_restricted_to_its_own_tools():
     assert seen == [['mine']]
     assert ran == []
     assert 'not available' in str(sub.messages[-2])
+
+
+def test_an_unknown_subagent_type_is_reported_not_raised():
+    async def idle(messages, tools=None, *, stream_cb=None):
+        return 'idle'
+
+    async def main():
+        team = _multi_team('demo', idle)
+        return await team.execute_tool(
+            'Agent', {'prompt': 'go', 'subagent_type': 'Explore'},
+            team.lead, 'tu-9')
+
+    text = asyncio.run(main()).text
+    assert text.startswith('Error: unknown subagent_type "Explore"')
+    assert 'available:' in text

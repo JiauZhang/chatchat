@@ -41,6 +41,11 @@ async def create_agent(team, agent, input: dict, tool_use_id: str = '') -> str:
         'You are an autonomous sub-agent. Complete the task and give your '
         'final answer.')
     name = input.get('name')
+    subagent_type = input.get('subagent_type')
+    if subagent_type and team.agent_defs.find(str(subagent_type)) is None:
+        known = ', '.join(name for name, _desc in team.agent_defs.describe())
+        return (f'Error: unknown subagent_type "{subagent_type}"; available: '
+                f'{known or "none"}.')
     background = bool(input.get('run_in_background'))
     if background and name:
         return ('Error: a named teammate already works in the background; '
@@ -64,7 +69,7 @@ async def create_agent(team, agent, input: dict, tool_use_id: str = '') -> str:
     if background:
         agent_id = await team.spawn_background_subagent(
             prompt, agent or team.lead,
-            subagent_type=input.get('subagent_type'), instruction=cfg,
+            subagent_type=subagent_type, instruction=cfg,
             model=input.get('model'), depth=getattr(agent, 'depth', 0) + 1,
             tool_use_id=tool_use_id)
         return (f'{agent_id.rsplit("@", 1)[0]} is running in the background. '
@@ -76,7 +81,7 @@ async def create_agent(team, agent, input: dict, tool_use_id: str = '') -> str:
         if created.blocking_error is not None:
             return f'Error: {describe_blocking(created.blocking_error)}'
     result = await team.spawn_subagent(
-        prompt, subagent_type=input.get('subagent_type'),
+        prompt, subagent_type=subagent_type,
         instruction=cfg, model=input.get('model'),
         depth=getattr(agent, 'depth', 0) + 1,
         tool_use_id=tool_use_id)
