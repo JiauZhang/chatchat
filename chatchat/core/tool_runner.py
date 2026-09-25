@@ -107,6 +107,8 @@ class ToolRunnerMixin:
                          'ExitWorktree': _tools.exit_worktree}
         if self.ask_user is not None:
             team_fns['AskUserQuestion'] = _tools.ask_user
+            team_fns |= {'EnterPlanMode': _tools.enter_plan_mode,
+                         'ExitPlanMode': _tools.exit_plan_mode}
         if self.cron is not None:
             team_fns |= {'CronCreate': _tools.cron_create,
                          'CronList': _tools.cron_list,

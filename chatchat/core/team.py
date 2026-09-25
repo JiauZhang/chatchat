@@ -138,6 +138,8 @@ class Team(SubagentsMixin, TeamSchemasMixin, ToolRunnerMixin):
         self._output_attempts = 0
         self._output_hook = None
         self._cwd_changed = None
+        self._plan_mode_changed = None
+        self.plan_path = None
         self._worktrees = in_repository(self.tool_context.cwd)
         self._factory = client_factory
         self.hooks = HookManager(self, enabled=hooks)
@@ -445,6 +447,12 @@ class Team(SubagentsMixin, TeamSchemasMixin, ToolRunnerMixin):
             self.file_history.cwd = cwd
         if self._cwd_changed is not None:
             self._cwd_changed(cwd)
+
+    def set_plan_mode(self, mode: str) -> None:
+        if self._plan_mode_changed is not None:
+            self._plan_mode_changed(mode)
+        else:
+            self.hooks.permission_mode = mode
 
     async def enter_worktree(self, name: str = '') -> str:
         if self.worktree is not None:

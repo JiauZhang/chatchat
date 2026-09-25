@@ -121,6 +121,20 @@ class TeamSchemasMixin:
                                   'required': ['task_id']}},
             ]
         if self.ask_user is not None:
+            team_tools += [
+                {'name': 'EnterPlanMode',
+                 'description': 'Ask to switch this session into plan mode '
+                                'before starting anything but a trivial '
+                                'change. In plan mode nothing that writes or '
+                                'changes state runs, so you can explore and '
+                                'design the approach and have it approved '
+                                'before touching the project.',
+                 'input_schema': {'type': 'object', 'properties': {}}},
+                {'name': 'ExitPlanMode',
+                 'description': 'Present the plan you wrote to the user and '
+                                'leave plan mode once they approve it.',
+                 'input_schema': {'type': 'object', 'properties': {}}},
+            ]
             team_tools.append(
                 {'name': 'AskUserQuestion',
                  'description': 'Ask the human one to four questions and wait '

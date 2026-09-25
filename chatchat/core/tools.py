@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import inspect
+
 from chatchat.core.cron_schedule import describe as describe_task
+from chatchat.core.plan import (APPROVE, AUTO_ACCEPT, ENTER_TEXT,
+                                plan_file, plan_question, read_plan)
 from chatchat.core.tasks import TASK_STATUSES
 from chatchat.core.structured import mismatch
 from chatchat.hooks.output import describe_blocking
@@ -247,6 +251,36 @@ def _question_problems(questions) -> str:
         if not 2 <= len(options) <= MAX_OPTIONS:
             return f'question {index} needs between two and {MAX_OPTIONS} options'
     return ''
+
+
+async def enter_plan_mode(team, agent, input: dict,
+                          tool_use_id: str = '') -> str:
+    if str(getattr(team.hooks, 'permission_mode', '')) == 'plan':
+        return 'Already in plan mode.'
+    team.set_plan_mode('plan')
+    return ENTER_TEXT.format(path=plan_file(team))
+
+
+async def exit_plan_mode(team, agent, input: dict,
+                         tool_use_id: str = '') -> str:
+    plan = read_plan(team)
+    if not plan:
+        return f'Error: nothing has been written to {plan_file(team)} yet.'
+    if team.ask_user is None:
+        return 'Error: no one can approve a plan in this session.'
+    answers = team.ask_user(agent, [plan_question()])
+    if inspect.isawaitable(answers):
+        answers = await answers
+    choice = str(answers[0] if answers else '')
+    if choice == AUTO_ACCEPT:
+        team.set_plan_mode('acceptEdits')
+        return ('The user approved the plan and wants the edits applied '
+                f'without further prompts.\n\n{plan}')
+    if choice == APPROVE:
+        team.set_plan_mode('default')
+        return f'The user approved the plan.\n\n{plan}'
+    return ('The user did not approve the plan. Stay in plan mode and ask '
+            'what they want changed.')
 
 
 async def ask_user(team, agent, input: dict, tool_use_id: str = '') -> str:
