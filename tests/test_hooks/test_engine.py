@@ -692,7 +692,7 @@ def test_a_writing_tool_fires_file_changed_with_the_resolved_path(tmp_path):
           parameters={'type': 'object', 'properties': {
               'file_path': {'type': 'string'}}})
     async def Note(context, file_path):
-        path = Path(file_path)
+        path = Path(context.cwd) / file_path
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text('noted\n', encoding='utf-8')
         return 'ok'
