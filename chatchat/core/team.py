@@ -37,7 +37,7 @@ from chatchat.core.structured import (
     retries,
     schema_problem,
 )
-from chatchat.hooks.events import emit
+from chatchat.hooks.events import AGENT_COMPACT, emit
 from chatchat.hooks.manager import HookManager
 
 LEAD_NAME = 'team-lead'
@@ -68,6 +68,17 @@ def _note_compaction(agent, *, failed: bool) -> None:
     if agent is None:
         return
     agent.compact_failures = (agent.compact_failures + 1 if failed else 0)
+
+
+SUMMARY_MARK = '[conversation summary]'
+
+
+def summary_of(messages: list[dict]) -> str:
+    for message in messages:
+        content = message.get('content')
+        if isinstance(content, str) and content.startswith(SUMMARY_MARK):
+            return content[len(SUMMARY_MARK):].strip()
+    return ''
 
 
 def token_count(messages: list[dict]) -> int:
@@ -180,7 +191,7 @@ class Team(SubagentsMixin, TeamSchemasMixin, ToolRunnerMixin):
         if not isinstance(text, str) or not text.strip():
             return None
         marker = {'role': 'user',
-                  'content': f'[conversation summary]\n{text}'}
+                  'content': f'{SUMMARY_MARK}\n{text}'}
         return head + [marker] + tail
 
     async def maybe_compact(self, messages: list[dict], force: bool = False,
@@ -208,8 +219,9 @@ class Team(SubagentsMixin, TeamSchemasMixin, ToolRunnerMixin):
             return list(result) if result else messages
         _note_compaction(agent, failed=False)
         self.reset_rules()
-        emit('agent.compact', agent='',
-             before=len(messages), after=len(result))
+        emit(AGENT_COMPACT, agent='', before=len(messages),
+             after=len(result), summarized=len(messages) - len(result) + 1,
+             summary=summary_of(result))
         await self.hooks.execute_post_compact_hooks(trigger=trigger)
         return list(result)
 

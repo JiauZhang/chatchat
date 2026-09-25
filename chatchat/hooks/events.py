@@ -51,6 +51,7 @@ AGENT_TOOL_CALL = 'agent.tool_call'
 AGENT_TOOL_RESULT = 'agent.tool_result'
 AGENT_PROGRESS = 'agent.progress'
 AGENT_STATE = 'agent.state'
+AGENT_COMPACT = 'agent.compact'
 TEAM_SETTLED = 'team.settled'
 AGENT_JOB = 'agent.job'
 

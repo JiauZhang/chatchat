@@ -88,3 +88,36 @@ def test_default_auto_compaction_summarizes_middle():
                for m in result)
     assert result[0]['content'] == 'm0'
     assert 'm13' in str(result[-1]['content'])
+
+
+def test_compaction_announces_what_it_folded_in():
+    events = []
+
+    async def respond(messages, tools=None, *, stream_cb=None):
+        if len(messages) > 3:
+            return 'the gist of it'
+        return 'ok'
+
+    def factory(instruction, model=None):
+        return MockClient(handler=respond)
+
+    async def main():
+        from chatchat.hooks import events as hook_events
+
+        team = Team('ac2', client_factory=factory, lead_instruction=LEAD,
+                    context_window=40_001, compact_reserve=40_000)
+        for i in range(14):
+            team.lead.messages.append({'role': 'user', 'content': f'm{i}'})
+        team.lead.messages[1]['usage'] = {'prompt_tokens': 5_000,
+                                          'completion_tokens': 10}
+        hook_events.register_runtime_handler(
+            lambda ev: events.append(ev) if ev.kind == hook_events.AGENT_COMPACT
+            else None)
+        before = len(team.lead.messages)
+        result = await team.maybe_compact(list(team.lead.messages))
+        return before, result
+
+    before, result = asyncio.run(main())
+    assert events, 'compaction announced nothing'
+    assert events[0].data['summarized'] == before - len(result) + 1
+    assert events[0].data['summary'] == 'the gist of it'
