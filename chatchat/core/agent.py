@@ -364,6 +364,7 @@ class Agent:
             self.total_usage.add(getattr(self.client, '_last_usage', None))
             if isinstance(resp, str):
                 msg = {'role': 'assistant', 'content': resp,
+                       'model': getattr(self.client, 'model', '') or '',
                        'usage': self.client._last_usage.to_dict()}
                 if thinking_parts:
                     msg['thinking'] = ''.join(thinking_parts)
@@ -374,6 +375,7 @@ class Agent:
                 return resp
             assistant_msg = {'role': 'assistant',
                              'content': [tu_todict(t) for t in resp],
+                             'model': getattr(self.client, 'model', '') or '',
                              'usage': self.client._last_usage.to_dict()}
             if thinking_parts:
                 assistant_msg['thinking'] = ''.join(thinking_parts)

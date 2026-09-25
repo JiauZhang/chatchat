@@ -25,6 +25,19 @@ def test_thinking_stored_on_assistant_message():
     assert assistant['content'] == '看好了'
 
 
+def test_the_model_that_answered_is_recorded_on_the_message():
+    async def main():
+        team = mock_team('t', handler=lambda messages, tools=None,
+                         *, stream_cb=None: '好的')
+        team.lead.client.model = 'mock-model'
+        await team.query('hi')
+        return team.transcript()
+
+    msgs = asyncio.run(main())
+    assistant = next(m for m in msgs if m.get('role') == 'assistant')
+    assert assistant['model'] == 'mock-model'
+
+
 def _payload_for(monkeypatch, thinking) -> dict:
     captured = {}
 
