@@ -1,6 +1,6 @@
 import asyncio
 
-from chatchat.core.thinking import (LEVELS, MODES, Thinking)
+from chatchat.runtime.thinking import (LEVELS, MODES, Thinking)
 
 from chatchat.client import Client
 

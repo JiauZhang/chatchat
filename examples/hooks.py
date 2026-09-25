@@ -2,7 +2,7 @@ import argparse
 import asyncio
 
 from chatchat.client import Client
-from chatchat.core.team import Team, LEAD_NAME
+from chatchat.team.team import Team, LEAD_NAME
 
 LEAD = '你是 team lead，负责把用户问题分解并发给合适的 teammate。用 send_message 派发任务，等回信后再汇总成最终答案。'
 

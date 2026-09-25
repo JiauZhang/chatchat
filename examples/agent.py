@@ -1,7 +1,7 @@
 import argparse
 import asyncio
 
-from chatchat.core.agents import run_agent
+from chatchat.team.agents import run_agent
 
 WRITER = '你是 writer，把用户给的主题用一句话成稿。'
 

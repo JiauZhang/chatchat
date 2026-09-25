@@ -3,7 +3,7 @@ import os
 import time
 import uuid
 
-from chatchat.core.thinking import Thinking
+from chatchat.runtime.thinking import Thinking
 from chatchat.hooks.events import (AGENT_WARN, emit, emit_response,
                                 emit_started)
 from chatchat.hooks.executors import (EVALUATOR_INSTRUCTION, exec_agent_hook,

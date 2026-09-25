@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from chatchat.core.thinking import Thinking
+from chatchat.runtime.thinking import Thinking
 
 import asyncio
 import json

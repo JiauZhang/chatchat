@@ -2,8 +2,8 @@ import argparse
 import asyncio
 from pathlib import Path
 
-from chatchat.core.agents import run_agent
-from chatchat.core.skills import SkillRegistry
+from chatchat.team.agents import run_agent
+from chatchat.knowledge.skills import SkillRegistry
 
 NOTES = '''---
 name: notes
