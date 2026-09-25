@@ -91,6 +91,7 @@ class ToolRunnerMixin:
         team_fns = ({} if agent is not None and agent.tools is not None
                     else {'SendMessage': _tools.send_message,
                           'Agent': _tools.create_agent,
+                          'TaskOutput': _tools.task_output,
                           'TaskStop': _tools.task_stop})
         if self.tasks is not None:
             team_fns |= {'TaskCreate': _tools.task_create,

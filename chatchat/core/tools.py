@@ -88,6 +88,28 @@ async def create_agent(team, agent, input: dict, tool_use_id: str = '') -> str:
     return result
 
 
+async def task_output(team, agent, input: dict,
+                      tool_use_id: str = '') -> str | None:
+    from chatchat.core.team import last_assistant
+
+    target = str(input.get('task_id') or '').strip()
+    if not target:
+        return None
+    agent_id = target if '@' in target else team.agent_id(target)
+    sub = team.agents.get(agent_id)
+    if sub is None:
+        return None
+    body = last_assistant(sub, start=0) or ''
+    running = bool(getattr(sub, 'busy', False))
+    state = 'running' if running else 'completed'
+    return '\n'.join([
+        f'<fetch_result>{"not_ready" if running else "success"}</fetch_result>',
+        f'<task_ref>{target}</task_ref>',
+        '<task_kind>agent</task_kind>',
+        f'<run_state>{state}</run_state>',
+        body if body.strip() else '(no answer yet)'])
+
+
 async def task_stop(team, agent, input: dict,
                     tool_use_id: str = '') -> str | None:
     target = str(input.get('task_id') or '').strip()

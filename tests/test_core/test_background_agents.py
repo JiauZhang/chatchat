@@ -127,3 +127,46 @@ def test_a_sub_agent_that_fails_reports_that_instead_of_an_answer():
     assert len(notes) == 1
     assert 'status: failed' in notes[0]
     assert 'the provider went away' in notes[0]
+
+
+def test_task_output_reads_the_answer_of_a_finished_sub_agent():
+    async def main():
+        team = _team('out1')
+        await team.execute_tool(
+            'Agent',
+            {'prompt': 'look into it', 'run_in_background': True}, team.lead)
+        agent_id = next(iter(team.background))
+        await _settle()
+        return await team.execute_tool('TaskOutput', {'task_id': agent_id},
+                                       team.lead)
+
+    text = asyncio.run(main()).text
+    assert '<task_kind>agent</task_kind>' in text
+    assert '<run_state>completed</run_state>' in text
+    assert 'the answer' in text
+
+
+def test_task_output_marks_a_running_sub_agent_as_not_ready():
+    async def main():
+        team = mock_team('out2', handler=_respond)
+        from chatchat.core import tools as core_tools
+
+        sub = team.create_agent('worker', instruction='x')
+        sub.busy = True
+        return await core_tools.task_output(team, team.lead,
+                                            {'task_id': sub.agent_id})
+
+    text = asyncio.run(main())
+    assert '<fetch_result>not_ready</fetch_result>' in text
+    assert '<run_state>running</run_state>' in text
+
+
+def test_task_output_hands_a_shell_id_back_to_the_shell_tool():
+    async def main():
+        team = _team('out3')
+        from chatchat.core import tools as core_tools
+
+        return await core_tools.task_output(team, team.lead,
+                                            {'task_id': 'b7'})
+
+    assert asyncio.run(main()) is None

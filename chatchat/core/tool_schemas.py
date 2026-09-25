@@ -42,6 +42,18 @@ class TeamSchemasMixin:
                                   'properties': {'to': {'type': 'string'},
                                                  'message': {'type': 'string'}},
                                   'required': ['to', 'message']}},
+                {'name': 'TaskOutput',
+                 'description': 'Read what a background task has produced: a '
+                                'background shell command\'s output, or a '
+                                'sub-agent\'s answer. Waits for the task by '
+                                'default, so a timeout report means it is '
+                                'still running.',
+                 'input_schema': {'type': 'object',
+                                  'properties': {
+                                      'task_id': {'type': 'string'},
+                                      'block': {'type': 'boolean'},
+                                      'timeout': {'type': 'integer'}},
+                                  'required': ['task_id']}},
                 {'name': 'TaskStop',
                  'description': 'Permanently stop a background task or one of '
                                 'your own sub-agents, by its task id.',
