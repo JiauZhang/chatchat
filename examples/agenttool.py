@@ -1,7 +1,7 @@
 import argparse
 import asyncio
 
-from chatchat.team import Team
+from chatchat.core.team import Team
 
 LEAD = ('你是 superagent 主 agent。对用户任务，用 create_agent(prompt=...) 把它派给 '
         '一个 sub-agent 完成，并把 sub-agent 的最终答复原样返回给用户，不要自己改写。')

@@ -8,7 +8,8 @@ from chatchat.client import Usage
 from chatchat.core.abort import Abort, AbortSignal
 from chatchat.core.context import spawn_task
 from chatchat.core.inbox_poller import InboxPoller
-from chatchat.core.mailbox import Mailbox, parse_protocol
+from chatchat.core.mailbox import (Mailbox, parse_protocol,
+                                   shutdown_approved)
 from chatchat.core.metrics import Metrics
 from chatchat.core.task import Task, generate_task_id
 from chatchat.core.tasks import work_prompt
@@ -173,6 +174,26 @@ class Agent:
         while self._done < target:
             self._idle_event.clear()
             await asyncio.wait_for(self._idle_event.wait(), timeout)
+
+    def last_assistant(self, *, start: int = 0) -> str:
+        for message in reversed(self.messages[start:]):
+            if not isinstance(message, dict):
+                continue
+            if (message.get('role') == 'assistant'
+                    and isinstance(message.get('content'), str)):
+                return message['content']
+        for message in reversed(self.messages):
+            if not isinstance(message, dict) or message.get('role') != 'user':
+                continue
+            content = message.get('content')
+            if not isinstance(content, list):
+                continue
+            for block in content:
+                if (isinstance(block, dict)
+                        and block.get('type') == 'tool_result'
+                        and isinstance(block.get('content'), str)):
+                    return block['content']
+        return ''
 
     async def _run(self):
         while not self._stop.is_set():
@@ -423,7 +444,6 @@ class Agent:
         self._pending += 1
 
     def _on_shutdown_request(self, m):
-        from chatchat.core.mailbox import shutdown_approved
         req = parse_protocol(m.text) or {}
         self.team.send_control(m.from_, shutdown_approved(
             req.get('request_id', ''), self.name))

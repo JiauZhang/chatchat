@@ -2,7 +2,7 @@ import asyncio
 
 from chatchat.core.thinking import (LEVELS, MODES, Thinking)
 
-from chatchat.team import Team
+from chatchat.core.team import Team
 
 MEMBER = '你是一个协作 team 的成员。可 SendMessage(to=teammate 或 "*", message=...)。规矩：收到任务先做完再回信；不要把同一件事重复发；没有新输入不要主动广播；等 lead 给具体任务再动手。'
 RESEARCHER = MEMBER + '你是 researcher，负责搜集事实、查证、研究，输出清晰的研究结论。'

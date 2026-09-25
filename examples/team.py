@@ -1,7 +1,7 @@
 import argparse
 import asyncio
 
-from chatchat.team import Team
+from chatchat.core.team import Team
 
 ROLE = '你是 {name}。收到 lead 的任务用一句话完成并 send_message 回给 team-lead。'
 LEAD = '你是 team lead，把用户问题 send_message 发给 researcher，收到回信后汇总成一句最终答案还给用户。'

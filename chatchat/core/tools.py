@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import inspect
 
 from chatchat.core.cron_schedule import describe as describe_task
@@ -95,8 +96,6 @@ async def create_agent(team, agent, input: dict, tool_use_id: str = '') -> str:
 
 async def task_output(team, agent, input: dict,
                       tool_use_id: str = '') -> str | None:
-    from chatchat.core.team import last_assistant
-
     target = str(input.get('task_id') or '').strip()
     if not target:
         return None
@@ -104,7 +103,7 @@ async def task_output(team, agent, input: dict,
     sub = team.agents.get(agent_id)
     if sub is None:
         return None
-    body = last_assistant(sub, start=0) or ''
+    body = sub.last_assistant(start=0) or ''
     running = bool(getattr(sub, 'busy', False))
     state = 'running' if running else 'completed'
     return '\n'.join([
@@ -311,8 +310,6 @@ async def exit_plan_mode(team, agent, input: dict,
 
 
 async def ask_user(team, agent, input: dict, tool_use_id: str = '') -> str:
-    import asyncio as _asyncio
-
     questions = input.get('questions') or []
     problem = _question_problems(questions)
     if problem:
@@ -320,7 +317,7 @@ async def ask_user(team, agent, input: dict, tool_use_id: str = '') -> str:
     await team.hooks.execute_elicitation_hooks(
         agent, str(questions[0].get('question') or ''))
     answers = team.ask_user(agent, questions)
-    if _asyncio.iscoroutine(answers):
+    if asyncio.iscoroutine(answers):
         answers = await answers
     lines = []
     for index, question in enumerate(questions):

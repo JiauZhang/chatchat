@@ -4,6 +4,8 @@ import time
 from chatchat.core.abort import AbortSignal
 from chatchat.core.agent import Agent
 from chatchat.core.context import AgentContext
+from chatchat.core.sidechain import SidechainWriter
+from chatchat.core.task import rand_name
 from chatchat.hooks.events import AGENT_PROGRESS, emit
 
 
@@ -25,7 +27,6 @@ class SubagentsMixin:
             sys_prompt = '\n\n'.join(
                 (sys_prompt,
                  self.agent_memory.prompt(defn.agent_type, defn.memory)))
-        from chatchat.core.task import rand_name
         name = rand_name(f'sub-{self._counter}')
         self._counter += 1
         agent_id = self.agent_id(name)
@@ -34,7 +35,6 @@ class SubagentsMixin:
                            team_name=self.name, abort=abort, leader=False)
         writer = None
         if self.sidechain_dir is not None:
-            from chatchat.core.sidechain import SidechainWriter
             writer = SidechainWriter(self.sidechain_dir, name, self.name,
                                      subagent_type or '', prompt)
         model = model or defn.model
@@ -122,7 +122,6 @@ class SubagentsMixin:
 
     async def spawn_child(self, parent_name: str, instruction: str, *,
                           internal: bool = True) -> Agent:
-        from chatchat.core.task import rand_name
         self._counter += 1
         name = rand_name('hook')
         agent_id = self.agent_id(name)
@@ -159,9 +158,3 @@ class SubagentsMixin:
         if agent is None:
             return
         await agent.wait_idle(timeout)
-
-    async def reclaim(self, agent: Agent, prompt: str,
-                      timeout: float | None = None) -> str:
-        agent.submit(prompt)
-        await agent.wait_idle(timeout)
-        return last_assistant(agent)

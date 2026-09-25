@@ -4,6 +4,7 @@ import asyncio
 import shutil
 from pathlib import Path
 
+from chatchat.client import Client
 from chatchat.tool import ToolContext
 from chatchat.core.abort import AbortSignal
 from chatchat.core.agent import Agent
@@ -37,7 +38,7 @@ from chatchat.core.structured import (
     retries,
     schema_problem,
 )
-from chatchat.hooks.events import AGENT_COMPACT, emit
+from chatchat.hooks.events import AGENT_COMPACT, AGENT_WARN, emit
 from chatchat.hooks.manager import HookManager
 
 LEAD_NAME = 'team-lead'
@@ -45,23 +46,6 @@ LEAD_NAME = 'team-lead'
 
 DEFAULT_COMPACT_RESERVE = 40_000
 MAX_COMPACT_FAILURES = 3
-
-
-def last_assistant(agent: Agent, *, start: int = 0) -> str:
-    for m in reversed(agent.messages[start:]):
-        if not isinstance(m, dict):
-            continue
-        if m.get('role') == 'assistant' and isinstance(m.get('content'), str):
-            return m['content']
-    for m in reversed(agent.messages):
-        if not isinstance(m, dict) or m.get('role') != 'user':
-            continue
-        content = m.get('content')
-        if isinstance(content, list):
-            for b in content:
-                if b.get('type') == 'tool_result' and isinstance(b.get('content'), str):
-                    return b['content']
-    return ''
 
 
 def _note_compaction(agent, *, failed: bool) -> None:
@@ -234,7 +218,6 @@ class Team(SubagentsMixin, TeamSchemasMixin, ToolRunnerMixin):
             return self._factory(instruction, model)
         if self._client is not None:
             return self._client
-        from chatchat.client import Client
         return Client(self._provider, model=model or self._model,
                       instruction=instruction,
                       thinking=self._thinking if thinking is None else thinking,
@@ -395,7 +378,7 @@ class Team(SubagentsMixin, TeamSchemasMixin, ToolRunnerMixin):
                 await asyncio.wait_for(self.lead.wait_idle(), timeout)
             except asyncio.TimeoutError:
                 pass
-        return last_assistant(self.lead, start=start)
+        return self.lead.last_assistant(start=start)
 
     def _team_mailbox_dir(self) -> Path | None:
         if self._mailbox_root is None:
@@ -573,7 +556,6 @@ class Team(SubagentsMixin, TeamSchemasMixin, ToolRunnerMixin):
                           completed_status=completed_status,
                           failure_reason=failure_reason or ''))
         if reason == 'failed' and failure_reason:
-            from chatchat.hooks.events import AGENT_WARN
             emit(AGENT_WARN, agent=agent.name, text=failure_reason)
 
     def turn_metrics(self) -> Metrics:

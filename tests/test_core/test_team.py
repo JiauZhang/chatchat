@@ -11,7 +11,7 @@ from chatchat.core.mailbox import Mailbox
 from chatchat.hooks.events import (AGENT_PROGRESS, AGENT_STATE, AGENT_TOOL_CALL,
                                    AGENT_TOOL_RESULT, AGENT_WARN,
                                    register_runtime_handler)
-from chatchat.team import Team
+from chatchat.core.team import Team
 from chatchat.tool import Tool, ToolResult, tool as ctool
 from helpers import mock_team
 
@@ -735,3 +735,19 @@ def test_an_unknown_subagent_type_is_reported_not_raised():
     text = asyncio.run(main()).text
     assert text.startswith('Error: unknown subagent_type "Explore"')
     assert 'available:' in text
+
+
+def test_an_agent_reports_its_last_answer_and_falls_back_to_a_tool_result():
+    async def main():
+        team = _multi_team('demo')
+        team.lead.messages.extend([
+            {'role': 'assistant', 'content': 'first'},
+            {'role': 'user', 'content': [{'type': 'tool_result',
+                                          'tool_use_id': 't',
+                                          'content': 'raw output'}]}])
+        lead = team.lead
+        seen = (lead.last_assistant(), lead.last_assistant(start=1))
+        lead.messages.clear()
+        return seen + (lead.last_assistant(),)
+
+    assert asyncio.run(main()) == ('first', 'raw output', '')

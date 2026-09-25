@@ -2,7 +2,7 @@ import asyncio
 
 from chatchat.client import MockClient
 from chatchat.core.task import is_terminal_task_status
-from chatchat.team import Team
+from chatchat.core.team import Team
 
 
 LEAD = 'lead'

@@ -1,5 +1,5 @@
 from chatchat.client import MockClient
-from chatchat.team import Team
+from chatchat.core.team import Team
 
 
 def mock_team(name, handler=None, usage=None, **kw):

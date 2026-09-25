@@ -7,7 +7,7 @@ from chatchat.client import MockClient, ToolUse
 from chatchat.core.agents import AgentDefinition
 from chatchat.core.tools import send_message
 from chatchat.hooks.events import AGENT_WARN, register_runtime_handler
-from chatchat.team import LEAD_NAME, Team
+from chatchat.core.team import LEAD_NAME, Team
 from chatchat.tool import Tool
 
 
