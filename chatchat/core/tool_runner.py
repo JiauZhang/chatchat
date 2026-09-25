@@ -89,28 +89,28 @@ class ToolRunnerMixin:
         pool = self._injected_tools if (agent is None
                                         or agent.tools is None) else agent.tools
         team_fns = ({} if agent is not None and agent.tools is not None
-                    else {'send_message': _tools.send_message,
-                          'create_agent': _tools.create_agent,
-                          'task_stop': _tools.task_stop})
+                    else {'SendMessage': _tools.send_message,
+                          'Agent': _tools.create_agent,
+                          'TaskStop': _tools.task_stop})
         if self.tasks is not None:
-            team_fns |= {'task_create': _tools.task_create,
-                         'task_list': _tools.task_list,
-                         'task_get': _tools.task_get,
-                         'task_update': _tools.task_update}
+            team_fns |= {'TaskCreate': _tools.task_create,
+                         'TaskList': _tools.task_list,
+                         'TaskGet': _tools.task_get,
+                         'TaskUpdate': _tools.task_update}
         if self.multi_agent:
-            team_fns |= {'team_create': _tools.team_create,
-                         'team_delete': _tools.team_delete}
+            team_fns |= {'TeamCreate': _tools.team_create,
+                         'TeamDelete': _tools.team_delete}
         if self.skills.all():
-            team_fns['use_skill'] = _tools.use_skill
+            team_fns['Skill'] = _tools.use_skill
         if self._worktrees:
-            team_fns |= {'enter_worktree': _tools.enter_worktree,
-                         'exit_worktree': _tools.exit_worktree}
+            team_fns |= {'EnterWorktree': _tools.enter_worktree,
+                         'ExitWorktree': _tools.exit_worktree}
         if self.ask_user is not None:
-            team_fns['ask_user'] = _tools.ask_user
+            team_fns['AskUserQuestion'] = _tools.ask_user
         if self.cron is not None:
-            team_fns |= {'cron_create': _tools.cron_create,
-                         'cron_list': _tools.cron_list,
-                         'cron_delete': _tools.cron_delete}
+            team_fns |= {'CronCreate': _tools.cron_create,
+                         'CronList': _tools.cron_list,
+                         'CronDelete': _tools.cron_delete}
         if self.output_schema is not None:
             team_fns[STRUCTURED_OUTPUT_TOOL] = _tools.structured_output
         extra = ''
@@ -125,43 +125,44 @@ class ToolRunnerMixin:
                 input = {**input, **pre.updated_input}
             extra = pre.additional_context
         fn = team_fns.get(name)
-        if fn is None:
-            tool = next((t for t in pool if t.name == name), None)
-            if tool is None:
-                return ToolOutcome(
-                    f'Error: tool "{name}" is not available to this agent',
-                    extra)
+        if fn is not None:
             try:
-                out = await tool(agent.tool_context, **input)
+                out = await fn(self, agent, input, tool_use_id)
             except Exception as e:
                 noted()
                 return ToolOutcome(
                     f'Error calling tool "{name}": {type(e).__name__}: {e}',
                     _joined(extra, await self._post_tool_context(
                         agent, tool_use_id, name, input, e, True)))
-            if isinstance(out, ToolResult):
-                noted(out.meta)
-                emit(AGENT_TOOL_RESULT,
-                     agent=getattr(agent, 'name', ''),
-                     tool=name, tool_use_id=tool_use_id,
-                     **(out.meta or {}))
-                out = out.text
-            else:
+            if out is not None:
                 noted()
-                if not isinstance(out, str):
-                    out = str(out)
-            return ToolOutcome(out, _joined(extra, await self._post_tool_context(
-                agent, tool_use_id, name, input, out),
-                self._matched_rules(tool, input, out),
-                await self._note_file_changed(agent, tool, input)))
+                return ToolOutcome(out, _joined(extra, await self._post_tool_context(
+                    agent, tool_use_id, name, input, out)))
+        tool = next((t for t in pool if t.name == name), None)
+        if tool is None:
+            return ToolOutcome(
+                f'Error: tool "{name}" is not available to this agent',
+                extra)
         try:
-            out = await fn(self, agent, input, tool_use_id)
+            out = await tool(agent.tool_context, **input)
         except Exception as e:
             noted()
             return ToolOutcome(
                 f'Error calling tool "{name}": {type(e).__name__}: {e}',
                 _joined(extra, await self._post_tool_context(
                     agent, tool_use_id, name, input, e, True)))
-        noted()
+        if isinstance(out, ToolResult):
+            noted(out.meta)
+            emit(AGENT_TOOL_RESULT,
+                 agent=getattr(agent, 'name', ''),
+                 tool=name, tool_use_id=tool_use_id,
+                 **(out.meta or {}))
+            out = out.text
+        else:
+            noted()
+            if not isinstance(out, str):
+                out = str(out)
         return ToolOutcome(out, _joined(extra, await self._post_tool_context(
-            agent, tool_use_id, name, input, out)))
+            agent, tool_use_id, name, input, out),
+            self._matched_rules(tool, input, out),
+            await self._note_file_changed(agent, tool, input)))

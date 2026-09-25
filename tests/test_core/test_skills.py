@@ -139,7 +139,7 @@ def test_a_team_without_skills_does_not_offer_the_tool(tmp_path):
         return [schema['name'] for schema in
                 team.tool_schemas(team.tool_context)]
 
-    assert 'use_skill' not in asyncio.run(main())
+    assert 'Skill' not in asyncio.run(main())
 
 
 def test_the_skill_tool_description_lists_what_is_available(tmp_path):
@@ -150,7 +150,7 @@ def test_the_skill_tool_description_lists_what_is_available(tmp_path):
     async def main():
         team = mock_team('listed', skills=_registry(tmp_path))
         schema = next(schema for schema in team.tool_schemas(team.tool_context)
-                      if schema['name'] == 'use_skill')
+                      if schema['name'] == 'Skill')
         return schema['description']
 
     description = asyncio.run(main())
@@ -165,7 +165,7 @@ def test_using_a_skill_gives_the_model_its_full_body(tmp_path):
     async def main():
         team = mock_team('used', skills=_registry(tmp_path))
         return await team.execute_tool(
-            'use_skill', {'skill': 'notes', 'args': 'the second one'},
+            'Skill', {'skill': 'notes', 'args': 'the second one'},
             team.lead)
 
     outcome = asyncio.run(main())
@@ -180,7 +180,7 @@ def test_an_unknown_skill_names_the_ones_that_exist(tmp_path):
 
     async def main():
         team = mock_team('missing', skills=_registry(tmp_path))
-        return await team.execute_tool('use_skill', {'skill': 'nope'},
+        return await team.execute_tool('Skill', {'skill': 'nope'},
                                        team.lead)
 
     outcome = asyncio.run(main())

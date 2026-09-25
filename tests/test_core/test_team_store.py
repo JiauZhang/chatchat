@@ -149,8 +149,8 @@ def test_the_team_tools_are_offered_only_in_team_mode(tmp_path):
                 [schema['name'] for schema in squad.tool_schemas(squad.tool_context)])
 
     solo, squad = asyncio.run(main())
-    assert 'team_create' not in solo
-    assert {'team_create', 'team_delete'} <= set(squad)
+    assert 'TeamCreate' not in solo
+    assert {'TeamCreate', 'TeamDelete'} <= set(squad)
 
 
 def test_the_lead_can_create_and_delete_its_team(tmp_path):
@@ -158,12 +158,12 @@ def test_the_lead_can_create_and_delete_its_team(tmp_path):
         team = mock_team('pyclaw-4', team_store=tmp_path / 'teams',
                          tasks_dir=tmp_path / 'tasks')
         created = await team.execute_tool(
-            'team_create', {'team_name': 'parser',
+            'TeamCreate', {'team_name': 'parser',
                             'description': 'rework the parser'}, team.lead)
         listed = json.loads((tmp_path / 'teams' / 'parser'
                              / 'config.json').read_text())
-        deleted = await team.execute_tool('team_delete', {}, team.lead)
-        refused = await team.execute_tool('team_create', {}, team.lead)
+        deleted = await team.execute_tool('TeamDelete', {}, team.lead)
+        refused = await team.execute_tool('TeamCreate', {}, team.lead)
         return created.text, listed, deleted.text, refused.text
 
     created, listed, deleted, refused = asyncio.run(main())

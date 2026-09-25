@@ -55,7 +55,7 @@ async def create_agent(team, agent, input: dict, tool_use_id: str = '') -> str:
         team.children.setdefault(agent.agent_id, set()).add(teammate.agent_id)
         teammate.submit(prompt)
         return (f'Teammate "{name}" spawned and idle. Assign work with '
-                f'send_message (to: "{name}"); stop it with task_stop '
+                f'SendMessage (to: "{name}"); stop it with TaskStop '
                 f'(agent_id: {teammate.agent_id}).')
     if background:
         agent_id = await team.spawn_background_subagent(
@@ -65,7 +65,7 @@ async def create_agent(team, agent, input: dict, tool_use_id: str = '') -> str:
             tool_use_id=tool_use_id)
         return (f'{agent_id.rsplit("@", 1)[0]} is running in the background. '
                 f'Do not wait for it; its answer arrives in your inbox when '
-                f'it is done (agent_id: {agent_id}; stop it with task_stop).')
+                f'it is done (agent_id: {agent_id}; stop it with TaskStop).')
     if agent is not None and not agent._internal:
         created = await team.hooks.execute_task_created_hooks(
             agent, f'{agent.name}:sub', prompt)
@@ -84,11 +84,14 @@ async def create_agent(team, agent, input: dict, tool_use_id: str = '') -> str:
     return result
 
 
-async def task_stop(team, agent, input: dict, tool_use_id: str = '') -> str:
-    target = input.get('agent_id') or input.get('name')
-    if target is None:
-        return 'Error: no agent_id given'
-    agent_id = target if '@' in str(target) else team.agent_id(str(target))
+async def task_stop(team, agent, input: dict,
+                    tool_use_id: str = '') -> str | None:
+    target = str(input.get('task_id') or '').strip()
+    if not target:
+        return 'Error: TaskStop needs a task_id'
+    agent_id = target if '@' in target else team.agent_id(target)
+    if agent_id not in team.agents:
+        return None
     if agent_id not in team.children.get(agent.agent_id, set()):
         return f'Error: "{target}" is not your sub-agent'
     sub = team.agents.get(agent_id)
@@ -106,7 +109,7 @@ async def task_create(team, agent, input: dict, tool_use_id: str = '') -> str:
     subject = str(input.get('subject') or '').strip()
     description = str(input.get('description') or '').strip()
     if not subject or not description:
-        return 'Error: task_create needs both subject and description'
+        return 'Error: TaskCreate needs both subject and description'
     task = team.tasks.create(subject, description,
                              active_form=str(input.get('active_form') or ''),
                              metadata=input.get('metadata') or {})
@@ -147,7 +150,7 @@ async def task_get(team, agent, input: dict, tool_use_id: str = '') -> str:
 async def task_update(team, agent, input: dict, tool_use_id: str = '') -> str:
     task_id = input.get('task_id')
     if not task_id:
-        return 'Error: task_update needs a task_id'
+        return 'Error: TaskUpdate needs a task_id'
     if input.get('status') == 'deleted':
         return (f'Task #{task_id} deleted' if team.tasks.delete(task_id)
                 else 'Error: task not found')
@@ -168,7 +171,7 @@ async def task_update(team, agent, input: dict, tool_use_id: str = '') -> str:
         if linked:
             parts.append(key)
     if not parts:
-        return 'Error: task_update was given nothing to change'
+        return 'Error: TaskUpdate was given nothing to change'
     if fields and team.tasks.update(task_id, **fields) is None:
         return ('Error: status must be one of '
                 f'{", ".join(TASK_STATUSES)}, or "deleted" to remove the task')
@@ -178,7 +181,7 @@ async def task_update(team, agent, input: dict, tool_use_id: str = '') -> str:
 async def use_skill(team, agent, input: dict, tool_use_id: str = '') -> str:
     name = str(input.get('skill') or '').strip()
     if not name:
-        return 'Error: use_skill needs the skill name'
+        return 'Error: Skill needs the name of the skill'
     registry = team.skills
     skill = registry.get(name)
     if skill is None:
@@ -192,13 +195,13 @@ async def use_skill(team, agent, input: dict, tool_use_id: str = '') -> str:
 async def team_create(team, agent, input: dict, tool_use_id: str = '') -> str:
     name = str(input.get('team_name') or '').strip()
     if not name:
-        return 'Error: team_create needs a team_name'
+        return 'Error: TeamCreate needs a team_name'
     try:
         team.join_team(name, str(input.get('description') or '').strip())
     except ValueError as exc:
         return f'Error: {exc}'
     return (f'Team "{name}" is active. Its task list is the team: everything '
-            f'you add with task_create is shared with the teammates you spawn '
+            f'you add with TaskCreate is shared with the teammates you spawn '
             f'from now on.')
 
 
@@ -230,9 +233,9 @@ MAX_HEADER_CHARS = 12
 
 def _question_problems(questions) -> str:
     if not isinstance(questions, list) or not questions:
-        return 'ask_user needs at least one question'
+        return 'AskUserQuestion needs at least one question'
     if len(questions) > MAX_QUESTIONS:
-        return f'ask_user takes at most {MAX_QUESTIONS} questions'
+        return f'AskUserQuestion takes at most {MAX_QUESTIONS} questions'
     for index, question in enumerate(questions, start=1):
         if not str((question or {}).get('question') or '').strip():
             return f'question {index} needs its text'

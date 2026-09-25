@@ -22,7 +22,7 @@ def _ask(name, questions, asker=None, seen=None):
             team.hooks.register(
                 'ElicitationResult', '*',
                 fn=lambda inp: seen.append(('result', inp.get('response'))))
-        return await team.execute_tool('ask_user', {'questions': questions},
+        return await team.execute_tool('AskUserQuestion', {'questions': questions},
                                        team.lead)
 
     return asyncio.run(main())
@@ -89,5 +89,5 @@ def test_the_question_tool_is_offered_only_when_someone_can_answer():
         return before, after
 
     before, after = asyncio.run(main())
-    assert 'ask_user' not in before
-    assert 'ask_user' in after
+    assert 'AskUserQuestion' not in before
+    assert 'AskUserQuestion' in after

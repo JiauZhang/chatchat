@@ -178,8 +178,8 @@ def test_the_cron_tools_appear_only_once_a_schedule_exists():
         return before, _tools(team)
 
     before, after = asyncio.run(main())
-    assert 'cron_create' not in before
-    assert {'cron_create', 'cron_list', 'cron_delete'} <= set(after)
+    assert 'CronCreate' not in before
+    assert {'CronCreate', 'CronList', 'CronDelete'} <= set(after)
 
 
 def test_a_scheduled_prompt_can_be_listed_and_cancelled():
@@ -194,13 +194,13 @@ def test_a_scheduled_prompt_can_be_listed_and_cancelled():
             from chatchat.core.cron_schedule import CronStore
             team.cron = CronStore(directory)
             created = await team.execute_tool(
-                'cron_create', {'cron': '0 9 * * *',
+                'CronCreate', {'cron': '0 9 * * *',
                                 'prompt': 'check the builds'}, team.lead)
-            listed = await team.execute_tool('cron_list', {}, team.lead)
+            listed = await team.execute_tool('CronList', {}, team.lead)
             ident = created.text.split()[2].rstrip(':')
-            deleted = await team.execute_tool('cron_delete', {'id': ident},
+            deleted = await team.execute_tool('CronDelete', {'id': ident},
                                               team.lead)
-            after = await team.execute_tool('cron_list', {}, team.lead)
+            after = await team.execute_tool('CronList', {}, team.lead)
         return created.text, listed.text, deleted.text, after.text
 
     created, listed, deleted, after = asyncio.run(main())
@@ -222,7 +222,7 @@ def test_a_broken_cron_string_is_refused_before_it_is_stored():
             from chatchat.core.cron_schedule import CronStore
             team.cron = CronStore(directory)
             return await team.execute_tool(
-                'cron_create', {'cron': '99 * * * *', 'prompt': 'never'},
+                'CronCreate', {'cron': '99 * * * *', 'prompt': 'never'},
                 team.lead)
 
     outcome = asyncio.run(main())

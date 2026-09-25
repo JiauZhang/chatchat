@@ -9,7 +9,7 @@ DEFAULT_RETRIES = 5
 
 RETRY_ENV = 'MAX_STRUCTURED_OUTPUT_RETRIES'
 
-STRUCTURED_OUTPUT_TOOL = 'structured_output'
+STRUCTURED_OUTPUT_TOOL = 'StructuredOutput'
 
 
 def retries() -> int:

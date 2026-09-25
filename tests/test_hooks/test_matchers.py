@@ -17,7 +17,7 @@ def test_exact_and_alternation():
 
 def test_regex():
     assert matches_pattern('Read', r'R.*')
-    assert matches_pattern('send_message', r'^send_')
+    assert matches_pattern('SendMessage', r'^Send')
     assert not matches_pattern('Bash', r'^R')
     assert not matches_pattern('Bash', '[')
 

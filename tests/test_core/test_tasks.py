@@ -172,14 +172,14 @@ def _run(calls, tmp_path, *, with_names=False, tasks=True):
 
 def test_the_task_tools_are_offered_and_write_the_shared_list(tmp_path):
     team, (made, listed, got, moved, names) = _run([
-        ('task_create', {'subject': 'Do it', 'description': 'and verify'}),
-        ('task_list', {}),
-        ('task_get', {'task_id': '1'}),
-        ('task_update', {'task_id': '1', 'status': 'completed'}),
+        ('TaskCreate', {'subject': 'Do it', 'description': 'and verify'}),
+        ('TaskList', {}),
+        ('TaskGet', {'task_id': '1'}),
+        ('TaskUpdate', {'task_id': '1', 'status': 'completed'}),
     ], tmp_path, with_names=True)
 
-    assert {'task_create', 'task_update', 'task_list',
-            'task_get'} <= set(names)
+    assert {'TaskCreate', 'TaskUpdate', 'TaskList',
+            'TaskGet'} <= set(names)
     assert made.startswith('Task #1 created')
     assert listed == '#1 [pending] Do it'
     assert got.startswith('Task #1: Do it') and 'and verify' in got
@@ -189,10 +189,10 @@ def test_the_task_tools_are_offered_and_write_the_shared_list(tmp_path):
 
 def test_a_task_tool_reports_a_bad_request_instead_of_raising(tmp_path):
     _, (noid, missing, no_subject, nothing) = _run([
-        ('task_update', {'status': 'pending'}),
-        ('task_get', {'task_id': '77'}),
-        ('task_create', {'subject': 'x'}),
-        ('task_update', {'task_id': '1'}),
+        ('TaskUpdate', {'status': 'pending'}),
+        ('TaskGet', {'task_id': '77'}),
+        ('TaskCreate', {'subject': 'x'}),
+        ('TaskUpdate', {'task_id': '1'}),
     ], tmp_path)
 
     assert 'task_id' in noid
@@ -203,11 +203,11 @@ def test_a_task_tool_reports_a_bad_request_instead_of_raising(tmp_path):
 
 def test_task_list_marks_who_owns_a_task_and_what_holds_it(tmp_path):
     _, (_, _, updated, listed) = _run([
-        ('task_create', {'subject': 'First', 'description': 'a'}),
-        ('task_create', {'subject': 'Second', 'description': 'b'}),
-        ('task_update', {'task_id': '2', 'owner': 'worker',
+        ('TaskCreate', {'subject': 'First', 'description': 'a'}),
+        ('TaskCreate', {'subject': 'Second', 'description': 'b'}),
+        ('TaskUpdate', {'task_id': '2', 'owner': 'worker',
                          'add_blocked_by': ['1']}),
-        ('task_list', {}),
+        ('TaskList', {}),
     ], tmp_path)
 
     assert 'add_blocked_by' in updated
@@ -217,9 +217,9 @@ def test_task_list_marks_who_owns_a_task_and_what_holds_it(tmp_path):
 
 def test_updating_a_task_can_delete_it(tmp_path):
     team, (created, moved, listed) = _run([
-        ('task_create', {'subject': 'Drop me', 'description': 'x'}),
-        ('task_update', {'task_id': '1', 'status': 'deleted'}),
-        ('task_list', {}),
+        ('TaskCreate', {'subject': 'Drop me', 'description': 'x'}),
+        ('TaskUpdate', {'task_id': '1', 'status': 'deleted'}),
+        ('TaskList', {}),
     ], tmp_path)
 
     assert created.startswith('Task #1 created')
@@ -230,9 +230,9 @@ def test_updating_a_task_can_delete_it(tmp_path):
 
 def test_metadata_merges_and_a_null_key_is_dropped(tmp_path):
     team, (_, moved) = _run([
-        ('task_create', {'subject': 'Tagged', 'description': 'x',
+        ('TaskCreate', {'subject': 'Tagged', 'description': 'x',
                          'metadata': {'kind': 'test', 'stale': 1}}),
-        ('task_update', {'task_id': '1',
+        ('TaskUpdate', {'task_id': '1',
                          'metadata': {'kind': 'other', 'stale': None}}),
     ], tmp_path)
 
@@ -242,8 +242,8 @@ def test_metadata_merges_and_a_null_key_is_dropped(tmp_path):
 
 def test_a_team_without_a_task_list_has_no_task_tools(tmp_path):
     _, (names,) = _run([], tmp_path, with_names=True, tasks=False)
-    assert 'task_create' not in names
-    assert 'create_agent' in names
+    assert 'TaskCreate' not in names
+    assert 'Agent' in names
 
 
 def _queue(tmp_path, handler):

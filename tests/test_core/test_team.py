@@ -15,9 +15,9 @@ from chatchat.team import Team
 from chatchat.tool import Tool, ToolResult, tool as ctool
 from helpers import mock_team
 
-LEAD = ('你是 team lead。把任务拆开用 send_message 发给 teammate 并等回信，'
+LEAD = ('你是 team lead。把任务拆开用 SendMessage 发给 teammate 并等回信，'
         '最后汇总最终答案。')
-RESEARCHER = '你是 researcher。收到任务后用 send_message 回研究结论，然后结束。'
+RESEARCHER = '你是 researcher。收到任务后用 SendMessage 回研究结论，然后结束。'
 
 
 def _multi_team(name, handler=None):
@@ -45,13 +45,13 @@ def make_team():
     async def lead_respond(messages, tools=None, *, stream_cb=None):
         if any(isinstance(m.get('content'), list) for m in messages):
             return 'lead 最终汇总：researcher 已研究完成。'
-        return [ToolUse('send_message', {'to': 'researcher',
+        return [ToolUse('SendMessage', {'to': 'researcher',
                                          'message': '调研 DeepSeek'}, 'm1')]
 
     async def researcher_respond(messages, tools=None, *, stream_cb=None):
         if any(isinstance(m.get('content'), list) for m in messages):
             return '我是 researcher，已回信。'
-        return [ToolUse('send_message', {'to': 'team-lead',
+        return [ToolUse('SendMessage', {'to': 'team-lead',
                                          'message': '结论：DeepSeek 优秀'}, 'm2')]
 
     def factory(instruction, model=None):
@@ -122,7 +122,7 @@ def test_report_surfaces_when_lead_never_writes_text():
     report = '# DeepSeek 综合研究报告\nDeepSeek 是深度求索。'
 
     async def lead_respond(messages, tools=None, *, stream_cb=None):
-        return [ToolUse('create_agent', {'prompt': '再细化'}, 'd1')]
+        return [ToolUse('Agent', {'prompt': '再细化'}, 'd1')]
 
     async def sub_respond(messages, tools=None, *, stream_cb=None):
         return report
@@ -255,9 +255,9 @@ def test_tool_schemas_differ_by_multi_agent():
 
     single = asyncio.run(names(multi_agent=False))
     multi = asyncio.run(names())
-    assert 'create_agent' in single and 'create_agent' in multi
-    assert 'send_message' not in single and 'task_stop' not in single
-    assert {'send_message', 'task_stop'} <= multi
+    assert 'Agent' in single and 'Agent' in multi
+    assert 'SendMessage' not in single and 'TaskStop' not in single
+    assert {'SendMessage', 'TaskStop'} <= multi
 
 
 def test_general_purpose_subagent_inherits_team_tools():
@@ -275,12 +275,12 @@ def test_general_purpose_subagent_inherits_team_tools():
         if any(m.get('role') == 'user' and 'run-it' in str(m.get('content'))
                for m in messages):
             return [ToolUse('mytool', {}, 't2')]
-        return [ToolUse('create_agent', {'prompt': 'run-it'}, 't1')]
+        return [ToolUse('Agent', {'prompt': 'run-it'}, 't1')]
 
     async def main():
         team = mock_team('gp', respond, tools=[mytool])
         schema = next(t for t in team.tool_schemas(team.tool_context)
-                      if t['name'] == 'create_agent')
+                      if t['name'] == 'Agent')
         assert 'general-purpose' in schema['description']
         return await team.query('spawn and run')
 
@@ -318,7 +318,7 @@ def test_create_agent_tool_passes_model_and_schema_exposes_it():
 
     async def main():
         team = Team('cm', client_factory=factory)
-        out = await team.execute_tool('create_agent',
+        out = await team.execute_tool('Agent',
                                       {'prompt': 'x', 'model': 'm2'},
                                       team.lead, 't1')
         schema = team.tool_schemas(team.tool_context)[0]['input_schema']['properties']
@@ -442,25 +442,25 @@ def test_create_agent_tool_name_spawns_persistent_teammate():
     async def respond(messages, tools=None, *, stream_cb=None):
         if any(isinstance(m.get('content'), list) for m in messages):
             return 'done'
-        return [ToolUse('create_agent',
+        return [ToolUse('Agent',
                         {'prompt': 'do work', 'name': 'worker'}, 't1')]
 
     async def main():
         team = mock_team('m2', respond)
         lead = team.lead
         out = await team.execute_tool(
-            'create_agent', {'prompt': 'do work', 'name': 'worker'}, lead)
+            'Agent', {'prompt': 'do work', 'name': 'worker'}, lead)
         teammate_id = team.agent_id('worker')
         teammate = team.agents.get(teammate_id)
         try:
             persistent = (teammate is not None
                           and teammate_id in team.children.get(lead.agent_id, set())
-                          and 'send_message' in out.text)
+                          and 'SendMessage' in out.text)
             one_shot = await team.execute_tool(
-                'create_agent', {'prompt': 'quick'}, lead)
+                'Agent', {'prompt': 'quick'}, lead)
             team_single = mock_team('m3', respond, multi_agent=False)
             single_out = await team_single.execute_tool(
-                'create_agent', {'prompt': 'quick', 'name': 'w'}, team_single.lead)
+                'Agent', {'prompt': 'quick', 'name': 'w'}, team_single.lead)
             return persistent, one_shot, single_out
         finally:
             if teammate is not None:
@@ -538,7 +538,7 @@ def test_create_agent_carries_tool_use_id_on_progress():
     async def main():
         team = mock_team('demo', lambda m, t=None, stream_cb=None: 'sub answer',
                      lead_instruction=LEAD)
-        return await team.execute_tool('create_agent', {'prompt': 'go'},
+        return await team.execute_tool('Agent', {'prompt': 'go'},
                                        team.lead, 'tu-1')
 
     out = asyncio.run(main())
@@ -570,8 +570,11 @@ def test_agent_state_reports_busy_when_a_teammate_starts_a_turn():
 
 def test_every_dispatched_tool_accepts_the_spawning_tool_use_id():
     """execute_tool hands `tool_use_id` to every built-in tool positionally."""
-    for name in ('send_message', 'create_agent', 'task_stop'):
-        signature = inspect.signature(getattr(core_tools, name))
+    handlers = {'SendMessage': core_tools.send_message,
+                'Agent': core_tools.create_agent,
+                'TaskStop': core_tools.task_stop}
+    for name, handler in handlers.items():
+        signature = inspect.signature(handler)
         params = list(signature.parameters)
         assert params[-1] == 'tool_use_id', f'{name} dropped tool_use_id'
         assert signature.parameters['tool_use_id'].default == ''
@@ -583,7 +586,7 @@ def test_task_stop_stops_a_teammate_created_through_create_agent():
 
     async def main():
         team = _multi_team('demo', idle)
-        spawned = await team.execute_tool('create_agent',
+        spawned = await team.execute_tool('Agent',
                                           {'prompt': 'watch the build',
                                            'name': 'watcher'},
                                           team.lead, 'tu-1')
@@ -592,8 +595,10 @@ def test_task_stop_stops_a_teammate_created_through_create_agent():
         assert watcher is not None
         assert team.children[team.lead.agent_id] == {watcher.agent_id}
 
-        out = await team.execute_tool('task_stop', {'name': 'watcher'},
+        out = await team.execute_tool('TaskStop', {'task_id': 'watcher'},
                                       team.lead, 'tu-2')
+        declined = await core_tools.task_stop(team, team.lead, {'task_id': 'b7'})
+        assert declined is None
         return team, watcher, out
 
     team, watcher, out = asyncio.run(main())
@@ -610,10 +615,51 @@ def test_task_stop_refuses_an_agent_that_is_not_your_child():
     async def main():
         team = _multi_team('demo', idle)
         team.create_agent('stray', instruction='x', depth=1)
-        return await team.execute_tool('task_stop', {'name': 'stray'},
+        return await team.execute_tool('TaskStop', {'task_id': 'stray'},
                                        team.lead, 'tu-3')
 
     assert asyncio.run(main()).text == 'Error: "stray" is not your sub-agent'
+
+
+def test_task_stop_falls_through_to_the_shell_task_tool():
+    """One TaskStop serves sub-agents and background shell tasks alike."""
+    shell_calls = []
+
+    @ctool(name='TaskStop', description='d',
+           parameters={'type': 'object',
+                       'properties': {'task_id': {'type': 'string'}}})
+    def shell_stop(context, task_id):
+        shell_calls.append(task_id)
+        return f'shell task {task_id} stopped'
+
+    async def idle(messages, tools=None, *, stream_cb=None):
+        return 'idle'
+
+    async def main():
+        team = mock_team('demo', idle, tools=[shell_stop], multi_agent=True)
+        return await team.execute_tool('TaskStop', {'task_id': 'b7'},
+                                       team.lead, 'tu-4')
+
+    assert asyncio.run(main()).text == 'shell task b7 stopped'
+    assert shell_calls == ['b7']
+
+
+def test_the_team_schema_wins_over_a_same_named_injected_tool():
+    @ctool(name='TaskStop', description='shell only', parameters={})
+    def shell_stop(context):
+        return 'shell'
+
+    async def idle(messages, tools=None, *, stream_cb=None):
+        return 'idle'
+
+    async def main():
+        team = mock_team('demo', idle, tools=[shell_stop], multi_agent=True)
+        return [s for s in team.tool_schemas(team.tool_context)
+                if s['name'] == 'TaskStop']
+
+    schemas = asyncio.run(main())
+    assert len(schemas) == 1
+    assert 'task_id' in schemas[0]['input_schema']['properties']
 
 
 def test_spawned_agent_tool_calls_run_the_pre_tool_gate():

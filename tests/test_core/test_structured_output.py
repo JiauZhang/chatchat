@@ -3,7 +3,7 @@ import asyncio
 
 from helpers import mock_team
 
-TOOL = 'structured_output'
+TOOL = 'StructuredOutput'
 
 SCHEMA = {'type': 'object',
           'properties': {'name': {'type': 'string'},

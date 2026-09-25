@@ -5,7 +5,7 @@ from chatchat.tool import ToolContext, describe_tools
 class TeamSchemasMixin:
     def tool_schemas(self, context: ToolContext) -> list[dict]:
         team_tools = [
-            {'name': 'create_agent',
+            {'name': 'Agent',
              'description': self._create_agent_description(),
              'input_schema': {'type': 'object',
                               'properties': {'prompt': {'type': 'string'},
@@ -17,7 +17,7 @@ class TeamSchemasMixin:
                                                       'teammate (team mode): '
                                                       'stays alive with a '
                                                       'mailbox; message it via '
-                                                      'send_message. Omit for '
+                                                      'SendMessage. Omit for '
                                                       'a one-off sub-agent.'},
                                              'model': {'type': 'string',
                                                        'description': 'Optional '
@@ -34,7 +34,7 @@ class TeamSchemasMixin:
         ]
         if self.multi_agent:
             team_tools += [
-                {'name': 'send_message',
+                {'name': 'SendMessage',
                  'description': 'Send a message to a teammate by name (or "*" to '
                                 'broadcast). Messages are delivered to their mailbox '
                                 'and injected on their next idle turn.',
@@ -42,12 +42,13 @@ class TeamSchemasMixin:
                                   'properties': {'to': {'type': 'string'},
                                                  'message': {'type': 'string'}},
                                   'required': ['to', 'message']}},
-                {'name': 'task_stop',
-                 'description': 'Permanently stop one of your own sub-agents.',
+                {'name': 'TaskStop',
+                 'description': 'Permanently stop a background task or one of '
+                                'your own sub-agents, by its task id.',
                  'input_schema': {'type': 'object',
-                                  'properties': {'agent_id': {'type': 'string'}},
-                                  'required': ['agent_id']}},
-                {'name': 'team_create',
+                                  'properties': {'task_id': {'type': 'string'}},
+                                  'required': ['task_id']}},
+                {'name': 'TeamCreate',
                  'description': 'Gather the work under one named team. The '
                                 'team and its task list are the same thing: '
                                 'every task you create from now on belongs to '
@@ -58,16 +59,16 @@ class TeamSchemasMixin:
                                       'team_name': {'type': 'string'},
                                       'description': {'type': 'string'}},
                                   'required': ['team_name']}},
-                {'name': 'team_delete',
+                {'name': 'TeamDelete',
                  'description': 'Throw away the current team and its task list '
                                 'once the work is done. It refuses while a '
                                 'teammate is still running, so stop them '
-                                'first with task_stop.',
+                                'first with TaskStop.',
                  'input_schema': {'type': 'object', 'properties': {}}},
             ]
         if self.tasks is not None:
             team_tools += [
-                {'name': 'task_create',
+                {'name': 'TaskCreate',
                  'description': 'Add a task to the team list so the work is '
                                 'tracked and claimable. Use it for anything '
                                 'with more than one step; give a short '
@@ -82,17 +83,17 @@ class TeamSchemasMixin:
                                           'label shown while it is running'},
                                       'metadata': {'type': 'object'}},
                  'required': ['subject', 'description']}},
-                {'name': 'task_list',
+                {'name': 'TaskList',
                  'description': 'List every task with its status, owner and '
                                 'open blockers. Check it before creating so '
                                 'work is not duplicated.',
                  'input_schema': {'type': 'object', 'properties': {}}},
-                {'name': 'task_get',
+                {'name': 'TaskGet',
                  'description': 'Read one task in full.',
                  'input_schema': {'type': 'object',
                                   'properties': {'task_id': {'type': 'string'}},
                                   'required': ['task_id']}},
-                {'name': 'task_update',
+                {'name': 'TaskUpdate',
                  'description': 'Change a task: move it through pending, '
                                 'in_progress and completed, hand it to an '
                                 'owner, or link it with add_blocks / '
@@ -121,7 +122,7 @@ class TeamSchemasMixin:
             ]
         if self.ask_user is not None:
             team_tools.append(
-                {'name': 'ask_user',
+                {'name': 'AskUserQuestion',
                  'description': 'Ask the human one to four questions and wait '
                                 'for the answers, when a choice they can make '
                                 'would change what you do. Give each question '
@@ -153,7 +154,7 @@ class TeamSchemasMixin:
                                   'required': ['questions']}})
         if self._worktrees:
             team_tools += [
-                {'name': 'enter_worktree',
+                {'name': 'EnterWorktree',
                  'description': 'Only when the user asks for a worktree: make '
                                 'an isolated git worktree under '
                                 '.pyclaw/worktrees and move this session into '
@@ -165,7 +166,7 @@ class TeamSchemasMixin:
                                                'description': 'Optional; a '
                                                               'random one is '
                                                               'picked.'}}}},
-                {'name': 'exit_worktree',
+                {'name': 'ExitWorktree',
                  'description': 'Leave the worktree this session moved into, '
                                 'back to the original directory. action '
                                 '"remove" also throws the worktree away, '
@@ -178,7 +179,7 @@ class TeamSchemasMixin:
         skills = self.skills.all()
         if skills:
             team_tools.append(
-                {'name': 'use_skill',
+                {'name': 'Skill',
                  'description': 'Load the full instructions of one skill when '
                                 'the task at hand is one it covers. The '
                                 'listing below only says what each skill is '
@@ -197,7 +198,7 @@ class TeamSchemasMixin:
                                   'required': ['skill']}})
         if self.cron is not None:
             team_tools += [
-                {'name': 'cron_create',
+                {'name': 'CronCreate',
                  'description': 'Schedule a prompt to be enqueued at a cron '
                                 'time. Five fields, local time: minute hour '
                                 'day-of-month month day-of-week. A recurring job fires on every match '
@@ -211,11 +212,11 @@ class TeamSchemasMixin:
                                       'recurring': {'type': 'boolean'},
                                       'durable': {'type': 'boolean'}},
                                   'required': ['cron', 'prompt']}},
-                {'name': 'cron_list',
+                {'name': 'CronList',
                  'description': 'Show every scheduled prompt with its id, '
                                 'schedule and whether it is durable.',
                  'input_schema': {'type': 'object', 'properties': {}}},
-                {'name': 'cron_delete',
+                {'name': 'CronDelete',
                  'description': 'Cancel a scheduled prompt by its id.',
                  'input_schema': {'type': 'object',
                                   'properties': {'id': {'type': 'string'}},
@@ -230,4 +231,7 @@ class TeamSchemasMixin:
                                 'counts as the answer.\n\nThe payload must '
                                 'match this schema.',
                  'input_schema': self.output_schema})
-        return team_tools + describe_tools(self._injected_tools, context)
+        names = {tool['name'] for tool in team_tools}
+        return team_tools + [tool for tool in
+                             describe_tools(self._injected_tools, context)
+                             if tool['name'] not in names]

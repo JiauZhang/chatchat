@@ -67,7 +67,7 @@ def test_team_members_run_injected_tools():
 
     names, ans = asyncio.run(main())
     assert 'ping' in names
-    assert 'send_message' in names
+    assert 'SendMessage' in names
     assert ans == 'done'
     assert calls == {'ping': 1}
 

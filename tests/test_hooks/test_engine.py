@@ -53,7 +53,7 @@ async def _prompt_hook(team, reply):
 def _stops_after_one_tool_call(messages, tools=None, *, stream_cb=None):
     if any(isinstance(m.get('content'), list) for m in messages):
         return 'stop'
-    return [ToolUse('send_message', {'to': 'nobody'}, 't1')]
+    return [ToolUse('SendMessage', {'to': 'nobody'}, 't1')]
 
 
 def _tool_result_blocks(messages):
@@ -351,7 +351,7 @@ def test_a_teammate_keeps_working_when_the_idle_hook_blocks(team):
         if 'x' in texts or any(isinstance(m.get('content'), list)
                                for m in messages):
             return 'idle'
-        return [ToolUse('create_agent', {'prompt': 'x', 'name': 'worker'},
+        return [ToolUse('Agent', {'prompt': 'x', 'name': 'worker'},
                         't1')]
 
     blocked = []
@@ -378,7 +378,7 @@ def test_a_blocked_task_created_hook_cancels_the_sub_agent(team):
     async def respond(messages, tools=None, *, stream_cb=None):
         if any(isinstance(m.get('content'), list) for m in messages):
             return 'stop'
-        return [ToolUse('create_agent', {'prompt': 'do it'}, 't1')]
+        return [ToolUse('Agent', {'prompt': 'do it'}, 't1')]
 
     async def main():
         t = team(handler=respond)

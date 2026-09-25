@@ -114,5 +114,5 @@ def test_the_worktree_tools_are_offered_only_where_git_is(tmp_path):
         return names(in_repo), names(elsewhere)
 
     in_repo, elsewhere = _run(main())
-    assert {'enter_worktree', 'exit_worktree'} <= set(in_repo)
-    assert 'enter_worktree' not in elsewhere
+    assert {'EnterWorktree', 'ExitWorktree'} <= set(in_repo)
+    assert 'EnterWorktree' not in elsewhere
