@@ -14,6 +14,7 @@ _TRUNCATED = ('\n\n... [output exceeded {limit} characters and was '
 class ToolContext:
     cwd: Path
     files: 'FileHistory | None' = None
+    extra_dirs: tuple = ()
 
     def track_edit(self, path) -> None:
         if self.files is not None:
