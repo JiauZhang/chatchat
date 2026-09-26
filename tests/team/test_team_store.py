@@ -78,7 +78,44 @@ def test_joining_a_team_moves_the_task_list_with_it(tmp_path):
     assert team.tasks.directory.name == 'parser'
     assert (tmp_path / 'tasks' / 'parser' / f'{task.id}.json').exists()
     assert team.mailbox_path('worker').parent.parent.name == 'parser'
-    assert team.file_history.directory.name == 'pyclaw-1'
+    assert team.file_history.directory == tmp_path / 'history'
+
+
+def test_a_task_list_touches_nothing_until_a_task_exists(tmp_path):
+    from chatchat.tasks.tasks import TaskList
+    tasks = TaskList(tmp_path / 'tasks' / 'pyclaw-9')
+    assert tasks.all() == []
+    assert tasks.get('1') is None
+    assert not (tmp_path / 'tasks').exists()
+    tasks.create('read', 'the file')
+    assert (tmp_path / 'tasks' / 'pyclaw-9' / '1.json').exists()
+
+
+def test_a_taken_team_name_becomes_a_unique_one(tmp_path):
+    async def main():
+        first = mock_team('pyclaw-2', team_store=tmp_path / 'teams',
+                          mailbox_dir=tmp_path / 'mailboxes')
+        first.join_team('parser')
+        second = mock_team('pyclaw-3', team_store=tmp_path / 'teams',
+                           mailbox_dir=tmp_path / 'mailboxes')
+        second.join_team('parser')
+        return second.name
+
+    name = asyncio.run(main())
+    assert name == 'parser-2'
+    names = [item['name'] for item in TeamStore(tmp_path / 'teams').list()]
+    assert names == ['parser', 'parser-2']
+
+
+def test_a_persisted_team_records_the_leader_conversation(tmp_path):
+    async def main():
+        team = mock_team('pyclaw-4', team_store=tmp_path / 'teams',
+                         mailbox_dir=tmp_path / 'mailboxes')
+        team.lead_session_id = 'conv-42'
+        team.join_team('parser')
+        return TeamStore(tmp_path / 'teams').read('parser')
+
+    assert asyncio.run(main())['lead_session_id'] == 'conv-42'
 
 
 def test_teammates_are_recorded_while_the_team_lives(tmp_path):

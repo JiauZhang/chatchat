@@ -67,6 +67,8 @@ class Claim:
 class TaskList:
     def __init__(self, directory):
         self.directory = Path(directory)
+
+    def _ensure_dir(self) -> None:
         self.directory.mkdir(parents=True, exist_ok=True)
 
     def _path(self, task_id) -> Path:
@@ -74,6 +76,7 @@ class TaskList:
 
     @contextmanager
     def _locked(self, path: Path):
+        self._ensure_dir()
         lock = path.with_name(path.name + LOCK_SUFFIX)
         fd = None
         for _ in range(LOCK_TRIES):
@@ -104,6 +107,7 @@ class TaskList:
         return TaskItem.from_dict(data) if isinstance(data, dict) else None
 
     def _write(self, task: TaskItem) -> TaskItem:
+        self._ensure_dir()
         self._path(task.id).write_text(
             json.dumps(asdict(task), ensure_ascii=False, indent=2),
             encoding='utf-8')

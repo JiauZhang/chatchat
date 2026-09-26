@@ -89,6 +89,7 @@ class Team(SubagentsMixin, TeamSchemasMixin, ToolRunnerMixin):
                  agent_memory=None, cron=None, rules=None,
                  multi_agent: bool = True, **client_kw):
         self.name = name
+        self.lead_session_id = ''
         self.multi_agent = multi_agent
         self._client = client
         self._model_timeout = model_timeout
@@ -107,9 +108,9 @@ class Team(SubagentsMixin, TeamSchemasMixin, ToolRunnerMixin):
         self._mailbox_dir = self._team_mailbox_dir()
         self.tasks = (TaskList(self._tasks_root / self.name)
                       if self._tasks_root else None)
-        self.file_history = (FileHistory(
-            Path(file_history_dir) / self.name, cwd=self.tool_context.cwd)
-            if file_history_dir else None)
+        self.file_history = (FileHistory(Path(file_history_dir),
+                                         cwd=self.tool_context.cwd)
+                             if file_history_dir else None)
         self.tool_context.files = self.file_history
         self.skills = skills or SkillRegistry()
         self.agent_memory = agent_memory
@@ -380,6 +381,13 @@ class Team(SubagentsMixin, TeamSchemasMixin, ToolRunnerMixin):
                 pass
         return self.lead.last_assistant(start=start)
 
+    def use_file_history(self, directory) -> None:
+        """Point the snapshot store at a directory, dropping what was read
+        from the previous one."""
+        self.file_history = FileHistory(Path(directory),
+                                        cwd=self.tool_context.cwd)
+        self.tool_context.files = self.file_history
+
     def _team_mailbox_dir(self) -> Path | None:
         if self._mailbox_root is None:
             return None
@@ -400,8 +408,10 @@ class Team(SubagentsMixin, TeamSchemasMixin, ToolRunnerMixin):
         if not name:
             raise ValueError('a team needs a name')
         if self.team_store is not None:
+            name = self.team_store.unique_name(name)
             self.team_store.create(name, description,
-                                   leader=self.lead.agent_id)
+                                   leader=self.lead.agent_id,
+                                   session_id=self.lead_session_id)
         self.name = name
         self._mailbox_dir = self._team_mailbox_dir()
         self.tasks = (TaskList(self._tasks_root / name)

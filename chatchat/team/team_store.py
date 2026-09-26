@@ -24,12 +24,23 @@ class TeamStore:
     def exists(self, name: str) -> bool:
         return self.config_path(name).is_file()
 
+    def unique_name(self, name: str) -> str:
+        """The wanted name when it is free, otherwise a numbered one, so a
+        team can be created without knowing what already exists."""
+        candidate = str(name or '').strip()
+        if not self.exists(candidate):
+            return candidate
+        number = 2
+        while self.exists(f'{candidate}-{number}'):
+            number += 1
+        return f'{candidate}-{number}'
+
     def create(self, name: str, description: str = '',
-               leader: str = '') -> dict:
+               leader: str = '', session_id: str = '') -> dict:
         if self.exists(name):
             raise ValueError(f'team {name} already exists')
         record = {'name': name, 'description': description, 'leader': leader,
-                  'members': {}}
+                  'lead_session_id': session_id, 'members': {}}
         self.path(name).mkdir(parents=True, exist_ok=True)
         self._write(name, record)
         return record
