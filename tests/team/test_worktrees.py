@@ -4,6 +4,7 @@ import asyncio
 import os
 import re
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -308,3 +309,76 @@ def test_the_process_directory_moves_with_the_session_and_comes_back(tmp_path):
     assert inside == root / '.pyclaw' / 'worktrees' / 'inside'
     assert after == root
     os.chdir(before)
+
+
+def _with_remote(root):
+    remote = root.parent / 'origin.git'
+    subprocess.run([git, 'init', '-q', '--bare', str(remote)], check=True)
+    subprocess.run([git, 'remote', 'add', 'origin', str(remote)], cwd=root,
+                   check=True)
+    subprocess.run([git, 'push', '-q', '-u', 'origin', 'HEAD'], cwd=root,
+                   check=True)
+    subprocess.run([git, 'fetch', '-q', 'origin'], cwd=root, check=True)
+    return remote
+
+
+def _worktree(root, name, *, days_old=0, dirty=False, commit=False):
+    from chatchat.team.worktrees import create, worktree_path
+
+    create(root, name)
+    path = worktree_path(root, name)
+    if dirty:
+        (path / 'loose.txt').write_text('not committed\n', encoding='utf-8')
+    if commit:
+        (path / 'work.txt').write_text('committed here\n', encoding='utf-8')
+        subprocess.run([git, 'add', 'work.txt'], cwd=path, check=True)
+        subprocess.run([git, 'commit', '-qm', 'only here'], cwd=path,
+                       check=True)
+    if days_old:
+        stamp = time.time() - days_old * 86400
+        os.utime(path, (stamp, stamp))
+    return path
+
+
+def test_an_abandoned_generated_worktree_is_swept(tmp_path):
+    from chatchat.team.worktrees import sweep_worktrees
+
+    root = _repo(tmp_path)
+    _with_remote(root)
+    old = _worktree(root, 'calm-building-anchor', days_old=40)
+    recent = _worktree(root, 'quiet-mapping-lantern', days_old=2)
+    named = _worktree(root, 'my-feature', days_old=40)
+    dirty = _worktree(root, 'tidy-weaving-harbour', days_old=40, dirty=True)
+    committed = _worktree(root, 'nimble-planting-orbit', days_old=40,
+                          commit=True)
+
+    gone = sweep_worktrees(root)
+
+    assert gone == [old]
+    assert recent.is_dir() and named.is_dir()
+    assert dirty.is_dir() and committed.is_dir()
+    branches = subprocess.run([git, 'branch', '--list'], cwd=root,
+                             capture_output=True, text=True).stdout
+    assert 'worktree-calm-building-anchor' not in branches
+    assert 'worktree-my-feature' in branches
+
+
+def test_the_sweep_lets_the_worktree_the_session_is_in_alone(tmp_path):
+    from chatchat.team.worktrees import name_for, sweep_worktrees
+
+    root = _repo(tmp_path)
+    _with_remote(root)
+    mine = _worktree(root, name_for('conv-sweep', root), days_old=60)
+
+    assert sweep_worktrees(root, keep=[mine]) == []
+    assert mine.is_dir()
+    assert sweep_worktrees(root) == [mine]
+
+
+def test_generated_names_are_told_apart_from_the_ones_people_choose():
+    from chatchat.team.worktrees import is_generated
+
+    assert is_generated('calm-building-anchor') is True
+    assert is_generated('my-feature') is False
+    assert is_generated('calm-building-anchor-extra') is False
+    assert is_generated('calm-singing-anchor') is False

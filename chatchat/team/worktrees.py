@@ -4,11 +4,13 @@ import os
 import re
 import secrets
 import subprocess
+import time
 from pathlib import Path
 
 
 WORKTREE_DIR = '.pyclaw/worktrees'
 NAME_MAX = 64
+STALE_DAYS = 30
 _SEGMENT = re.compile(r'[A-Za-z0-9._-]+\Z')
 
 ADJECTIVES = ('calm', 'clever', 'cosmic', 'daring', 'eager', 'gentle',
@@ -140,6 +142,52 @@ def _head_of(path) -> str:
 
 def worktree_path(root, name) -> Path:
     return Path(root) / WORKTREE_DIR / flatten(name)
+
+
+def is_generated(name: str) -> bool:
+    """Whether the name was given by `name_for` rather than by a person. Only
+    those are swept: a worktree someone named is theirs to keep."""
+    parts = name.split('-')
+    return (len(parts) == 3 and parts[0] in ADJECTIVES and parts[1] in VERBS
+            and parts[2] in NOUNS)
+
+
+def _untouched(path) -> bool:
+    """Nothing changed since the worktree opened and nothing sits on a commit
+    no remote has. Unknown is read as unsafe. Untracked files count as a
+    change: a worktree left behind by a session may hold the only copy."""
+    status = _git(path, 'status', '--porcelain')
+    if status.returncode != 0 or status.stdout.strip():
+        return False
+    ahead = _git(path, 'rev-list', '--count', 'HEAD', '--not', '--remotes')
+    return ahead.returncode == 0 and int(ahead.stdout.strip() or 0) == 0
+
+
+def sweep_worktrees(root, keep=(), days: int = STALE_DAYS) -> list[Path]:
+    """Remove the auto-named worktrees nobody came back to, so a repository
+    does not fill up with the leftovers of abandoned sessions. A worktree with
+    changes, with commits no remote has, or that git cannot be asked about,
+    stays where it is."""
+    parent = Path(root) / WORKTREE_DIR
+    if not parent.is_dir():
+        return []
+    cutoff = time.time() - days * 86400
+    kept = {Path(one).resolve() for one in keep}
+    gone = []
+    for entry in sorted(parent.iterdir()):
+        if not entry.is_dir() or not is_generated(entry.name):
+            continue
+        if entry.resolve() in kept or entry.stat().st_mtime > cutoff:
+            continue
+        if not _untouched(entry):
+            continue
+        try:
+            remove({'path': entry, 'branch': branch_name(entry.name),
+                    'root': root, 'origin': root})
+        except ValueError:
+            continue
+        gone.append(entry)
+    return gone
 
 
 _slugs: dict[str, str] = {}
