@@ -245,3 +245,28 @@ def test_extra_roots_can_be_loaded_and_the_first_one_wins(tmp_path):
     registry = SkillRegistry.load([(extra, 'plugin'), (home, 'user')])
     assert registry.get('notes').description == 'from the plugin'
     assert registry.get('notes').source == 'plugin'
+
+
+def test_using_a_skill_tells_the_host_what_it_declared_it_needs(tmp_path):
+    import asyncio
+
+    from chatchat.knowledge.skills import Skill
+    from chatchat.tools import tools as _tools
+    from helpers import mock_team
+
+    granted = []
+
+    async def main():
+        team = mock_team('granting')
+        team._skills_granted = lambda rules: granted.append(tuple(rules))
+        registry = team.skills
+        registry.register(Skill(name='notes', description='d',
+                                body_text='write them',
+                                allowed_tools=('Read', 'Grep')))
+        registry.register(Skill(name='plain', description='d',
+                                body_text='read them'))
+        await _tools.use_skill(team, team.lead, {'skill': 'notes'})
+        await _tools.use_skill(team, team.lead, {'skill': 'plain'})
+
+    asyncio.run(main())
+    assert granted == [('Read', 'Grep')]

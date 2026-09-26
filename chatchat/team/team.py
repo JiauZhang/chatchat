@@ -130,6 +130,7 @@ class Team(SubagentsMixin, TeamSchemasMixin, ToolRunnerMixin):
         self._output_attempts = 0
         self._output_hook = None
         self._cwd_changed = None
+        self._skills_granted = None
         self._plan_mode_changed = None
         self.plan_path = None
         self._worktrees = in_repository(self.tool_context.cwd)

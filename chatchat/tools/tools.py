@@ -223,6 +223,8 @@ async def use_skill(team, agent, input: dict, tool_use_id: str = '') -> str:
                 f'it cannot be loaded from here. Available: '
                 f'{available or "none"}')
     args = str(input.get('args') or '').strip()
+    if skill.allowed_tools and team._skills_granted is not None:
+        team._skills_granted(skill.allowed_tools)
     return skill.render(args)
 
 
