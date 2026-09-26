@@ -91,6 +91,22 @@ chatchat config --list
 ```
 > Refer to [\[examples\]](./examples)
 
+### Agent runtime
+The same package runs a whole agent: a `Team` of agents, tools, hooks, skills
+and sub-agents. Each example is runnable and shows one shape.
+
+```shell
+python examples/team.py --provider zhipu --model glm-4-flash     # lead + teammates over a mailbox
+python examples/agenttool.py                                     # an agent spawning sub-agents
+python examples/agent.py                                         # one agent, no team
+python examples/tool.py                                          # your own tools and ToolContext
+python examples/hooks.py                                         # hooks around tool calls and turns
+python examples/custom_provider.py                               # register a provider of your own
+```
+
+Events an agent emits along the way carry the agent name and the `team` that
+ran it, so one process hosting several conversations can tell them apart.
+
 ### Sponsor
 <table align="center">
     <thead>
