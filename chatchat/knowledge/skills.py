@@ -138,6 +138,10 @@ class SkillRegistry:
         return [skill for skill in self.all()
                 if not skill.disable_model_invocation]
 
+    def for_user(self) -> list:
+        """What the terminal can type as a slash command."""
+        return [skill for skill in self.all() if skill.user_invocable]
+
     def get(self, name: str):
         return self.skills.get(name)
 
