@@ -1,5 +1,7 @@
 from dataclasses import dataclass, field
 
+from chatchat.runtime.context import current_agent
+
 HOOK_EVENTS = (
     'PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'Notification',
     'UserPromptSubmit', 'SessionStart', 'SessionEnd', 'Stop', 'StopFailure',
@@ -60,6 +62,7 @@ AGENT_JOB = 'agent.job'
 class RuntimeEvent:
     kind: str
     agent: str = ''
+    team: str = ''
     data: dict = field(default_factory=dict)
 
 
@@ -83,8 +86,17 @@ def clear_runtime_sinks():
     _runtime_pending.clear()
 
 
-def emit(kind: str, *, agent: str = '', **fields):
-    ev = RuntimeEvent(kind, agent=agent, data=fields)
+def emit(kind: str, *, agent: str = '', team: str | None = None, **fields):
+    """Emit an event, stamped with the team that is running it.
+
+    The stamp comes from the emitting agent's own context, so a listener can
+    tell which of several live conversations an event belongs to; team-level
+    events pass `team` directly.
+    """
+    if team is None:
+        ctx = current_agent()
+        team = ctx.team_name if ctx is not None else ''
+    ev = RuntimeEvent(kind, agent=agent, team=team, data=fields)
     if _runtime_sinks:
         for fn in list(_runtime_sinks):
             fn(ev)
