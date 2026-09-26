@@ -213,10 +213,14 @@ async def use_skill(team, agent, input: dict, tool_use_id: str = '') -> str:
     if not name:
         return 'Error: Skill needs the name of the skill'
     registry = team.skills
+    available = ', '.join(other.name for other in registry.for_model())
     skill = registry.get(name)
     if skill is None:
-        available = ', '.join(other.name for other in registry.all())
         return (f'Error: no such skill: {name}. Available: '
+                f'{available or "none"}')
+    if skill.disable_model_invocation:
+        return (f'Error: "{name}" is only for the user to ask for by name, so '
+                f'it cannot be loaded from here. Available: '
                 f'{available or "none"}')
     args = str(input.get('args') or '').strip()
     return skill.render(args)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import fnmatch
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path, PurePath
 
@@ -32,6 +33,12 @@ def _split(text: str) -> tuple[str, str]:
     raise ValueError('frontmatter block is not closed')
 
 
+def _flag(value) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() in ('1', 'true', 'yes', 'on')
+    return bool(value)
+
+
 def _names(value) -> tuple:
     if isinstance(value, str):
         return tuple(word.strip() for word in value.split(',') if word.strip())
@@ -51,6 +58,10 @@ class Skill:
     source: str = 'user'
     directory: Path = None
     body_text: str | None = None
+    argument_hint: str = ''
+    user_invocable: bool = True
+    disable_model_invocation: bool = False
+    builder: Callable[[str], str] | None = None
 
     @property
     def body(self) -> str:
@@ -64,6 +75,11 @@ class Skill:
         return self.body_text
 
     def render(self, args: str = '') -> str:
+        """What the skill hands over when it is called. A skill that ships with
+        the program builds its own text from whatever is live right now; a
+        directory one fills in its argument."""
+        if self.builder is not None:
+            return self.builder(args)
         text = self.body
         if not args:
             return text
@@ -113,12 +129,21 @@ class SkillRegistry:
     def all(self) -> list:
         return sorted(self.skills.values(), key=lambda skill: skill.name)
 
+    def register(self, skill: Skill) -> None:
+        """Add a skill that ships with the program rather than a directory, so
+        it is listed, invoked and gated exactly like one read from disk."""
+        self.skills[skill.name] = skill
+
+    def for_model(self) -> list:
+        return [skill for skill in self.all()
+                if not skill.disable_model_invocation]
+
     def get(self, name: str):
         return self.skills.get(name)
 
     def entries(self) -> list:
         rows = []
-        for skill in self.all():
+        for skill in self.for_model():
             description = skill.description
             if skill.when_to_use:
                 description = f'{description} - {skill.when_to_use}'
@@ -161,9 +186,18 @@ def _read(directory: Path, file: Path, source: str):
     if not description:
         return None, f'{name}: no description to match a request against'
     model = str(meta.get('model') or '')
+    hint = meta.get('argument-hint')
     return Skill(name=name, description=description,
                  when_to_use=str(meta.get('when_to_use') or '').strip(),
                  allowed_tools=_names(meta.get('allowed-tools')),
                  paths=_names(meta.get('paths')),
                  model='' if model == 'inherit' else model, source=source,
+                 argument_hint=('' if hint is None else
+                                ' '.join(str(word) for word in hint)
+                                if isinstance(hint, (list, tuple))
+                                else str(hint).strip()),
+                 user_invocable=True if 'user-invocable' not in meta
+                 else _flag(meta.get('user-invocable')),
+                 disable_model_invocation=_flag(
+                     meta.get('disable-model-invocation')),
                  directory=directory), ''

@@ -122,6 +122,55 @@ def test_a_broken_frontmatter_block_is_reported_not_raised(tmp_path):
     assert any('broken' in problem for problem in registry.problems)
 
 
+def test_the_invocation_flags_come_from_the_frontmatter(tmp_path):
+    registry = _pair(tmp_path, {
+        'askable': 'name: askable\ndescription: d\nargument-hint: [what '
+                   'went wrong]\ndisable-model-invocation: true\n',
+        'bracketed': 'name: bracketed\ndescription: d\nargument-hint: '
+                     '"[file]"\n',
+        'quiet': 'name: quiet\ndescription: d\nuser-invocable: false\n'}, {})
+    askable = registry.get('askable')
+    assert (askable.argument_hint, askable.disable_model_invocation,
+            askable.user_invocable) == ('what went wrong', True, True)
+    assert registry.get('bracketed').argument_hint == '[file]'
+    assert registry.get('quiet').user_invocable is False
+    assert registry.get('quiet').disable_model_invocation is False
+
+
+def test_a_skill_the_model_may_not_call_is_left_out_of_its_listing(tmp_path):
+    registry = _pair(tmp_path, {
+        'hidden': 'name: hidden\ndescription: for the user only\n'
+                  'disable-model-invocation: true\n',
+        'shown': 'name: shown\ndescription: for anyone\n'}, {})
+    assert [skill.name for skill in registry.for_model()] == ['shown']
+    assert 'hidden' not in registry.listing(4000)
+    assert 'hidden' in [skill.name for skill in registry.all()]
+
+
+def test_a_registered_skill_is_used_like_a_directory_one(tmp_path):
+    from chatchat.knowledge.skills import Skill
+
+    registry = _pair(tmp_path, {}, {})
+    registry.register(Skill(name='built', description='d', source='builtin',
+                            body_text='Say what the log shows for $ARGUMENTS.'))
+    assert registry.get('built').render('the crash') == \
+        'Say what the log shows for the crash.'
+    assert registry.get('built').source == 'builtin'
+
+
+def test_a_registered_skill_builds_its_prompt_as_it_is_called(tmp_path):
+    from chatchat.knowledge.skills import Skill
+
+    seen = []
+    registry = _pair(tmp_path, {}, {})
+    registry.register(Skill(name='live', description='d', source='builtin',
+                            builder=lambda args: (seen.append(args)
+                                                  or f'seen {len(seen)}: '
+                                                     f'{args}')))
+    assert registry.get('live').render('the crash') == 'seen 1: the crash'
+    assert registry.get('live').render('again') == 'seen 2: again'
+
+
 def _registry(tmp_path, name='notes', body='Read the notes and summarise.\n'):
     home = tmp_path / 'home' / 'skills'
     _skill(home, name, f'name: {name}\ndescription: work on {name}\n', body)

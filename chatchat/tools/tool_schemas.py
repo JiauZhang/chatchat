@@ -234,7 +234,7 @@ class TeamSchemasMixin:
                                                          'user first.'}},
                                   'required': ['action']}},
             ]
-        skills = self.skills.all()
+        skills = self.skills.for_model()
         if skills:
             team_tools.append(
                 {'name': 'Skill',

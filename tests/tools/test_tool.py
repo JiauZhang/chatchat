@@ -133,3 +133,27 @@ def test_team_schema_carries_the_resolved_description():
 
     schemas = asyncio.run(main())
     assert schemas['Grep'] == f'regex over {Path("/tmp/work")}'
+
+
+def test_a_skill_the_user_keeps_for_themselves_is_closed_to_the_model():
+    from chatchat.knowledge.skills import Skill
+    from chatchat.tools import tools as _tools
+
+    async def main():
+        team = mock_team('skill-gate')
+        team.skills.register(Skill(name='debug', description='for the user',
+                                   source='builtin', body_text='private',
+                                   disable_model_invocation=True))
+        team.skills.register(Skill(name='commit', description='write a '
+                                                             'message',
+                                   body_text='open'))
+        refused = await _tools.use_skill(team, team.lead, {'skill': 'debug'})
+        allowed = await _tools.use_skill(team, team.lead, {'skill': 'commit'})
+        listed = [schema['description'] for schema in team.tool_schemas(CTX)
+                  if schema['name'] == 'Skill']
+        return refused, allowed, listed
+
+    refused, allowed, listed = asyncio.run(main())
+    assert refused.startswith('Error:') and 'debug' in refused
+    assert allowed == 'open'
+    assert listed and 'commit' in listed[0] and 'debug' not in listed[0]
