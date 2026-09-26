@@ -252,8 +252,9 @@ async def enter_worktree(team, agent, input: dict,
 
 
 async def exit_worktree(team, agent, input: dict, tool_use_id: str = '') -> str:
-    return await team.exit_worktree(keep=str(input.get('action') or '')
-                                   == 'keep')
+    return await team.exit_worktree(
+        keep=str(input.get('action') or '') == 'keep',
+        discard=bool(input.get('discard_changes')))
 
 
 MAX_QUESTIONS = 4

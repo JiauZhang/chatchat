@@ -103,7 +103,7 @@ class ToolRunnerMixin:
                          'TeamDelete': _tools.team_delete}
         if self.skills.all():
             team_fns['Skill'] = _tools.use_skill
-        if self._worktrees:
+        if self.can_worktree:
             team_fns |= {'EnterWorktree': _tools.enter_worktree,
                          'ExitWorktree': _tools.exit_worktree}
         if self.ask_user is not None:

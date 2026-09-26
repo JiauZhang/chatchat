@@ -109,6 +109,15 @@ class HookManager:
 
         return decorator
 
+    def has(self, event: str) -> bool:
+        if not self.enabled:
+            return False
+        if self._settings_hooks is None:
+            self._settings_hooks = dedupe_hooks(get_all_hooks(self._cwd))
+        return (any(hook.event == event for hook in
+                    self._settings_hooks + get_builtin_hooks())
+                or bool(self._session_hooks.get(event)))
+
     def configured(self) -> list:
         """Every hook that could run, with where it came from."""
         if self._settings_hooks is None:
@@ -408,15 +417,14 @@ class HookManager:
                               input={'source': source}, agent=agent)
 
     async def execute_worktree_create_hooks(self, agent=None,
-                                            worktree_name: str = ''):
-        return await self.run('WorktreeCreate',
-                              input={'worktree_name': worktree_name},
+                                            name: str = ''):
+        return await self.run('WorktreeCreate', input={'name': name},
                               agent=agent)
 
     async def execute_worktree_remove_hooks(self, agent=None,
-                                            worktree_name: str = ''):
+                                            worktree_path: str = ''):
         return await self.run('WorktreeRemove',
-                              input={'worktree_name': worktree_name},
+                              input={'worktree_path': worktree_path},
                               agent=agent)
 
     async def execute_file_changed_hooks(self, agent=None, file_path: str = ''):

@@ -183,29 +183,56 @@ class TeamSchemasMixin:
                                               'required': ['question',
                                                           'options']}}},
                                   'required': ['questions']}})
-        if self._worktrees:
+        if self.can_worktree:
             team_tools += [
                 {'name': 'EnterWorktree',
                  'description': 'Only when the user asks for a worktree: make '
                                 'an isolated git worktree under '
                                 '.pyclaw/worktrees and move this session into '
                                 'it, so the work cannot touch the checked-out '
-                                'directory. Refuses outside a git repository.',
+                                'directory. Needs a git repository or '
+                                'WorktreeCreate/WorktreeRemove hooks, and not '
+                                'already be in one. A worktree of that name '
+                                'that is still on disk is entered again rather '
+                                'than recreated.',
                  'input_schema': {'type': 'object',
                                   'properties': {
                                       'name': {'type': 'string',
-                                               'description': 'Optional; a '
-                                                              'random one is '
-                                                              'picked.'}}}},
+                                               'description': 'Optional. '
+                                                              'Letters, digits, '
+                                                              'dots, dashes and '
+                                                              'underscores, '
+                                                              'divided by "/"; '
+                                                              'up to 64 '
+                                                              'characters. A '
+                                                              'readable name is '
+                                                              'picked when it '
+                                                              'is left out, and '
+                                                              'this session '
+                                                              'keeps using '
+                                                              'it.'}}}},
                 {'name': 'ExitWorktree',
                  'description': 'Leave the worktree this session moved into, '
-                                'back to the original directory. action '
-                                '"remove" also throws the worktree away, '
-                                'keeping its branch.',
+                                'back to the original directory. Only worktrees '
+                                'this session entered; one made by hand or in '
+                                'another conversation is left alone. action '
+                                '"keep" leaves the directory and its branch on '
+                                'disk, "remove" deletes both. remove refuses '
+                                'while the worktree holds uncommitted files or '
+                                'commits of its own.',
                  'input_schema': {'type': 'object',
                                   'properties': {
                                       'action': {'type': 'string',
-                                                 'enum': ['keep', 'remove']}}}},
+                                                 'enum': ['keep', 'remove']},
+                                      'discard_changes': {
+                                          'type': 'boolean',
+                                          'description': 'Only with "remove": '
+                                                         'throw away the '
+                                                         'uncommitted files and '
+                                                         'the commits no branch '
+                                                         'else has. Ask the '
+                                                         'user first.'}},
+                                  'required': ['action']}},
             ]
         skills = self.skills.all()
         if skills:

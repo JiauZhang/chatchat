@@ -21,10 +21,13 @@ from chatchat.team.mailbox import idle_notification as _idle_msg
 from chatchat.tasks.tasks import TaskList
 from chatchat.team.team_store import TeamStore
 from chatchat.team.worktrees import (
+    changes,
     create,
-    generated_name,
+    create_by_hook,
     in_repository,
+    name_for,
     remove,
+    repository_root,
 )
 from chatchat.knowledge.skills import SkillRegistry
 from chatchat.runtime.thinking import Thinking
@@ -52,6 +55,10 @@ def _note_compaction(agent, *, failed: bool) -> None:
     if agent is None:
         return
     agent.compact_failures = (agent.compact_failures + 1 if failed else 0)
+
+
+def _plural_work(count: int, noun: str, qualifier: str = '') -> str:
+    return f'{count} {qualifier}{noun}' + ('' if count == 1 else 's')
 
 
 SUMMARY_MARK = '[conversation summary]'
@@ -461,44 +468,107 @@ class Team(SubagentsMixin, TeamSchemasMixin, ToolRunnerMixin):
         else:
             self.hooks.permission_mode = mode
 
+    @property
+    def can_worktree(self) -> bool:
+        return bool(self._worktrees or self.hooks.has('WorktreeCreate'))
+
+    def _worktree_name(self) -> str:
+        root = repository_root(self.tool_context.cwd) or self.tool_context.cwd
+        return name_for(self.lead_session_id or self.name, root)
+
+    async def _hooked_worktree_path(self, name: str) -> str:
+        result = await self.hooks.execute_worktree_create_hooks(
+            self.lead, name=name)
+        for hook in result.results:
+            if hook.outcome == 'success' and hook.stdout.strip():
+                return hook.stdout.strip()
+        failed = '; '.join(
+            (hook.message or 'no output') for hook in result.results
+            if hook.outcome != 'success')
+        raise ValueError('the WorktreeCreate hook gave no directory'
+                         + (f': {failed}' if failed else ''))
+
     async def enter_worktree(self, name: str = '') -> str:
         if self.worktree is not None:
             raise ValueError(f'already working in {self.worktree["name"]}')
-        if not self._worktrees:
-            return ('Error: this directory is not a git repository, so the '
-                    'work cannot be isolated in a worktree.')
-        name = str(name or '').strip() or generated_name()
+        name = str(name or '').strip() or self._worktree_name()
         try:
-            record = create(self.tool_context.cwd, name)
+            if self.hooks.has('WorktreeCreate'):
+                record = create_by_hook(
+                    self.tool_context.cwd, name,
+                    await self._hooked_worktree_path(name))
+            elif self._worktrees:
+                record = create(self.tool_context.cwd, name)
+            else:
+                return ('Error: this directory is not a git repository and no '
+                        'WorktreeCreate hook is configured, so the work cannot '
+                        'be isolated.')
         except ValueError as exc:
             return f'Error: {exc}'
         self.worktree = record
         self.set_cwd(record['path'])
-        await self.hooks.execute_worktree_create_hooks(self.lead, name)
         await self.hooks.execute_cwd_changed_hooks(self.lead,
-                                                    str(record['path']))
-        return (f'Working in {record["path"]} on branch {record["branch"]}. '
-                f'The session directory moved with it.')
+                                                   str(record['path']))
+        where = f'{record["path"]} ({record["name"]})'
+        if record.get('hook_based'):
+            return f'Working in {where}, set up by the WorktreeCreate hook.'
+        if record.get('resumed'):
+            return (f'Back into the worktree at {where}, on branch '
+                    f'{record["branch"]}.')
+        return (f'Working in {where} on branch {record["branch"]}. The session '
+                f'directory moved with it.')
 
-    async def exit_worktree(self, keep: bool = False) -> str:
+    async def exit_worktree(self, keep: bool = False,
+                            discard: bool = False) -> str:
         if self.worktree is None:
-            return 'Error: this session is not in a worktree.'
+            return ('Error: this session never entered a worktree, so there is '
+                    'nothing to exit and nothing was changed.')
         record = self.worktree
+        counts = None if keep else changes(record['path'],
+                                           record.get('origin_head') or '')
+        if not keep and not discard:
+            if counts is None:
+                return (f'Error: git could not say what is in the worktree at '
+                        f'{record["path"]}. Refusing to remove it on that '
+                        f'guess — answer again having confirmed the work is '
+                        f'not needed, or keep it.')
+            if counts['files'] or counts['commits']:
+                left = []
+                if counts['files']:
+                    left.append(_plural_work(counts['files'], 'file',
+                                             'uncommitted '))
+                if counts['commits']:
+                    left.append(_plural_work(counts['commits'], 'commit'))
+                return ('Error: this worktree has ' + ' and '.join(left) +
+                        '. Removing it throws that work away for good. Check '
+                        'with the user, then answer again wanting to discard, '
+                        'or keep the worktree.')
         self.worktree = None
         self.set_cwd(record['origin'])
-        moved = ''
-        if not keep:
-            try:
-                remove(record)
-                moved = f' The worktree was removed; {record["branch"]} stays ' \
-                        f'in the repository.'
-            except ValueError as exc:
-                moved = f' The worktree could not be removed: {exc}'
-        await self.hooks.execute_worktree_remove_hooks(self.lead,
-                                                       record['name'])
         await self.hooks.execute_cwd_changed_hooks(self.lead,
-                                                   str(record['origin']))
-        return f'Back at {record["origin"]}.' + moved
+                                                  str(record['origin']))
+        kept = f'Back at {record["origin"]}.'
+        if keep:
+            return (kept + f' The work is untouched at {record["path"]}'
+                    + (f' on branch {record["branch"]}.'
+                       if record['branch'] else '.'))
+        if record.get('hook_based'):
+            await self.hooks.execute_worktree_remove_hooks(
+                self.lead, worktree_path=str(record['path']))
+            return kept + f' The WorktreeRemove hook was told about ' \
+                          f'{record["path"]}.'
+        discarded = []
+        if counts and counts['commits']:
+            discarded.append(_plural_work(counts['commits'], 'commit'))
+        if counts and counts['files']:
+            discarded.append(_plural_work(counts['files'], 'file',
+                                          'uncommitted '))
+        try:
+            remove(record)
+        except ValueError as exc:
+            return kept + f' The worktree could not be removed: {exc}'
+        return kept + ' The worktree was removed.' + (
+            f' Discarded {" and ".join(discarded)}.' if discarded else '')
 
     def turns(self) -> list[tuple[int, str]]:
         if self.file_history is None:
