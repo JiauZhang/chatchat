@@ -307,6 +307,20 @@ class Team(SubagentsMixin, TeamSchemasMixin, ToolRunnerMixin):
                 return type(self.lead.total_usage).from_dict(usage)
         return None
 
+    def restore_totals(self, usage: dict, metrics: dict):
+        """Carry the numbers of a conversation that is being continued into the
+        agent that will keep it, so the counts a person reads go on growing
+        instead of starting over. Both per-turn fields are set: the first turn
+        after a resume must report its own work, not the whole history."""
+        lead = self.lead
+        lead.total_usage = type(lead.total_usage).from_dict(usage)
+        known = Metrics().as_dict()
+        seeded = Metrics(**{name: int(metrics.get(name) or 0)
+                            for name in known})
+        lead.metrics = seeded
+        lead.last_metrics = seeded
+        lead.total_metrics = seeded
+
     def reset_usage(self):
         for agent in self.agents.values():
             agent.total_usage = type(self.lead.total_usage)()
