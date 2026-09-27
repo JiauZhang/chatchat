@@ -767,3 +767,16 @@ def test_a_turn_that_dies_on_the_api_says_so():
     asyncio.run(run())
     warned = _warns(events, "503, message='Service Unavailable'")
     assert warned and warned[0].team == 'dying'
+
+
+def test_a_failed_turn_reports_itself_exactly_once():
+    async def boom(messages, tools=None, *, stream_cb=None):
+        raise RuntimeError("503, message='Service Unavailable'")
+
+    events = _events()
+
+    async def run():
+        await mock_team('once-only', boom).query('hi')
+
+    asyncio.run(run())
+    assert len(_warns(events, "503, message='Service Unavailable'")) == 1
