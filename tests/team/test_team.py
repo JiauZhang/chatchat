@@ -751,3 +751,19 @@ def test_an_agent_reports_its_last_answer_and_falls_back_to_a_tool_result():
         return seen + (lead.last_assistant(),)
 
     assert asyncio.run(main()) == ('first', 'raw output', '')
+
+
+def test_a_turn_that_dies_on_the_api_says_so():
+    async def boom(messages, tools=None, *, stream_cb=None):
+        raise RuntimeError("503, message='Service Unavailable'")
+
+    events = _events()
+
+    async def run():
+        team = mock_team('dying', boom)
+        await team.query('hi')
+        return team
+
+    asyncio.run(run())
+    warned = _warns(events, "503, message='Service Unavailable'")
+    assert warned and warned[0].team == 'dying'
