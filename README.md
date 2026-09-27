@@ -104,9 +104,6 @@ python examples/hooks.py                                         # hooks around 
 python examples/custom_provider.py                               # register a provider of your own
 ```
 
-Events an agent emits along the way carry the agent name and the `team` that
-ran it, so one process hosting several conversations can tell them apart.
-
 ### Sponsor
 <table align="center">
     <thead>
