@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -265,11 +266,22 @@ class SchedulerLock:
             self.path.unlink(missing_ok=True)
 
 
-def describe(task: dict) -> str:
-    where = ('written to disk, so it survives a restart'
-             if task.get('durable') is not False
-             else 'kept in this session only')
-    kind = ('repeats' if task.get('recurring')
-            else 'fires once and then goes away')
-    return (f'{task["id"]}: {human(task["cron"])} - {task["prompt"][:60]} '
-            f'({kind}, {where})')
+def missed_notification(tasks: list[dict]) -> str:
+    plural = len(tasks) > 1
+    header = (
+        f'The following one-shot scheduled task{"s were" if plural else " was"} '
+        f'missed while pyclaw was not running. '
+        f'{"They have" if plural else "It has"} already been removed from '
+        f'{TASKS_FILE}.\n\n'
+        'Do NOT execute these prompts yet. First use AskUserQuestion to ask '
+        'whether to run each one now. Only execute if the user confirms.')
+    blocks = []
+    for task in tasks:
+        prompt = str(task.get('prompt') or '')
+        longest = max((len(run) for run in re.findall(r'`+', prompt)),
+                      default=0)
+        fence = '`' * max(3, longest + 1)
+        blocks.append(f'[{human(task["cron"])}, created '
+                      f'{task.get("created_at", "")}]\n'
+                      f'{fence}\n{prompt}\n{fence}')
+    return header + '\n\n' + '\n\n'.join(blocks)

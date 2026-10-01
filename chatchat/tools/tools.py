@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 
-from chatchat.tasks.cron_schedule import describe as describe_task
+from chatchat.tasks.cron import human
 from chatchat.knowledge.plan import (APPROVE, AUTO_ACCEPT, ENTER_TEXT,
                                 plan_file, plan_question, read_plan)
 from chatchat.tasks.tasks import TASK_STATUSES
@@ -346,6 +346,22 @@ async def structured_output(team, agent, input: dict,
     return 'Structured output recorded. Finish the run now.'
 
 
+def _cron_where(task: dict) -> str:
+    if task.get('durable') is False:
+        return 'Session-only (not written to disk, dies when pyclaw exits)'
+    return 'Persisted to scheduled_tasks.json'
+
+
+def _cron_line(task: dict) -> str:
+    kind = 'recurring' if task.get('recurring') else 'one-shot'
+    marker = ' [session-only]' if task.get('durable') is False else ''
+    prompt = str(task.get('prompt') or '')
+    if len(prompt) > 80:
+        prompt = prompt[:80] + '…'
+    return (f'{task["id"]} — {human(task["cron"])} ({kind}){marker}: '
+            f'{prompt}')
+
+
 async def cron_create(team, agent, input: dict, tool_use_id: str = '') -> str:
     task = team.cron.add(str(input.get('cron') or ''),
                          str(input.get('prompt') or ''),
@@ -353,15 +369,21 @@ async def cron_create(team, agent, input: dict, tool_use_id: str = '') -> str:
                          durable=bool(input.get('durable')))
     if task is None:
         return f'Error: {team.cron.refused}'
-    return f'Scheduled {task["id"]}: {describe_task(task)}'
+    if task.get('recurring'):
+        return (f'Scheduled recurring job {task["id"]} '
+                f'({human(task["cron"])}). {_cron_where(task)}. '
+                f'Auto-expires after 7 days. Use CronDelete to cancel '
+                f'sooner.')
+    return (f'Scheduled one-shot task {task["id"]} '
+            f'({human(task["cron"])}). {_cron_where(task)}. '
+            f'It will fire once then auto-delete.')
 
 
 async def cron_list(team, agent, input: dict, tool_use_id: str = '') -> str:
     tasks = team.cron.all()
     if not tasks:
         return 'Nothing scheduled.'
-    return 'Scheduled prompts:\n' + '\n'.join(
-        f'- {describe_task(task)}' for task in tasks)
+    return '\n'.join(_cron_line(task) for task in tasks)
 
 
 async def cron_delete(team, agent, input: dict, tool_use_id: str = '') -> str:

@@ -194,17 +194,17 @@ def test_a_scheduled_prompt_can_be_listed_and_cancelled():
             from chatchat.tasks.cron_schedule import CronStore
             team.cron = CronStore(directory)
             created = await team.execute_tool(
-                'CronCreate', {'cron': '0 9 * * *',
-                                'prompt': 'check the builds'}, team.lead)
+                'CronCreate', {'cron': '0 9 * * *', 'prompt': 'check the builds'},
+                team.lead)
             listed = await team.execute_tool('CronList', {}, team.lead)
-            ident = created.text.split()[2].rstrip(':')
+            ident = created.text.split()[3]
             deleted = await team.execute_tool('CronDelete', {'id': ident},
                                               team.lead)
             after = await team.execute_tool('CronList', {}, team.lead)
         return created.text, listed.text, deleted.text, after.text
 
     created, listed, deleted, after = asyncio.run(main())
-    assert '09:00' in created and 'check the builds' in created
+    assert '09:00' in created
     assert 'check the builds' in listed
     assert 'cancelled' in deleted
     assert after == 'Nothing scheduled.'
@@ -228,3 +228,105 @@ def test_a_broken_cron_string_is_refused_before_it_is_stored():
     outcome = asyncio.run(main())
     assert outcome.text.startswith('Error:')
     assert outcome.text == 'Error: invalid cron expression: 99 * * * *'
+
+
+def test_the_create_description_teaches_the_reference_habits():
+    import asyncio
+
+    from helpers import mock_team
+
+    async def main():
+        team = mock_team('cron4')
+        from chatchat.tasks.cron_schedule import CronStore
+        team.cron = CronStore('unused')
+        schemas = {schema['name']: schema
+                   for schema in team.tool_schemas(team.tool_context)}
+        return schemas['CronCreate']['description']
+
+    text = asyncio.run(main())
+    assert 'recurring: false' in text
+    assert ':00' in text and ':30' in text
+    assert '7 days' in text
+    assert 'durable' in text
+
+
+def test_a_recurring_job_announces_expiry_and_a_one_shot_its_single_fire():
+    import asyncio
+    import tempfile
+
+    from helpers import mock_team
+
+    async def main():
+        team = mock_team('cron5')
+        with tempfile.TemporaryDirectory() as directory:
+            from chatchat.tasks.cron_schedule import CronStore
+            team.cron = CronStore(directory)
+            recurring = await team.execute_tool(
+                'CronCreate', {'cron': '0 9 * * *', 'prompt': 'daily'},
+                team.lead)
+            one_shot = await team.execute_tool(
+                'CronCreate',
+                {'cron': '30 15 * * *', 'prompt': 'later',
+                 'recurring': False}, team.lead)
+        return recurring.text, one_shot.text
+
+    recurring, one_shot = asyncio.run(main())
+    assert recurring.startswith('Scheduled recurring job')
+    assert 'Auto-expires after 7 days' in recurring
+    assert one_shot.startswith('Scheduled one-shot task')
+    assert 'fire once then auto-delete' in one_shot
+
+
+def test_the_listing_carries_the_reference_line_shape():
+    import asyncio
+    import tempfile
+
+    from helpers import mock_team
+
+    async def main():
+        team = mock_team('cron6')
+        with tempfile.TemporaryDirectory() as directory:
+            from chatchat.tasks.cron_schedule import CronStore
+            team.cron = CronStore(directory)
+            created = await team.execute_tool(
+                'CronCreate',
+                {'cron': '0 9 * * *', 'prompt': 'daily work',
+                 'durable': True}, team.lead)
+            session = await team.execute_tool(
+                'CronCreate',
+                {'cron': '30 15 * * *', 'prompt': 'evening work',
+                 'recurring': False}, team.lead)
+            listed = await team.execute_tool('CronList', {}, team.lead)
+        return created.text, session.text, listed.text
+
+    created, session, listed = asyncio.run(main())
+    daily = created.split()[3]
+    evening = session.split()[3]
+    assert (f'{daily} — every day at 09:00 (recurring): daily work'
+            in listed)
+    assert (f'{evening} — every day at 15:30 (one-shot) [session-only]: '
+            'evening work') in listed
+
+
+def test_missed_notification_asks_before_running_and_fences_the_prompt():
+    from chatchat.tasks.cron_schedule import missed_notification
+
+    text = missed_notification([{
+        'id': 'aa11', 'cron': '0 9 * * *',
+        'prompt': 'run ```ls``` and report',
+        'created_at': '2026-05-01T08:00:00'}])
+    assert 'missed while pyclaw was not running' in text
+    assert 'already been removed' in text
+    assert 'Do NOT execute' in text
+    assert 'AskUserQuestion' in text
+    assert 'run ```ls``` and report' in text
+    assert '````' in text
+
+
+def test_missed_notification_does_not_delete_recurring_work():
+    from chatchat.tasks.cron_schedule import find_missed
+
+    now = datetime(2026, 5, 4, 10, 0)
+    recurring = {'id': 'bb22', 'cron': '0 9 * * *', 'prompt': 'again',
+                 'created_at': '2026-05-01T08:00:00', 'recurring': True}
+    assert find_missed([recurring], now) == [recurring]

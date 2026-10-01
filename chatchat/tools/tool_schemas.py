@@ -257,12 +257,26 @@ class TeamSchemasMixin:
         if self.cron is not None:
             team_tools += [
                 {'name': 'CronCreate',
-                 'description': 'Schedule a prompt to be enqueued at a cron '
-                                'time. Five fields, local time: minute hour '
-                                'day-of-month month day-of-week. A recurring job fires on every match '
-                                'until deleted; a one-shot fires at the next '
-                                'match and then disappears. durable keeps it '
-                                'in the project across restarts.',
+                 'description': 'Schedule a prompt to be enqueued at a '
+                                'future time — recurring on a cron schedule, '
+                                'or once at a specific time. Standard '
+                                '5-field cron in local time: minute hour '
+                                'day-of-month month day-of-week. One-shot '
+                                'reminders (recurring: false) fire once at '
+                                'the next match then auto-delete — pin '
+                                'minute/hour/day-of-month/month, e.g. '
+                                '"30 14 27 5 *" for 2:30pm on May 27. Avoid '
+                                'the :00 and :30 minute marks when the user '
+                                'is approximate ("every morning around 9" -> '
+                                '"57 8 * * *"): everyone who asks for "9am" '
+                                'lands on the same wall-clock marks. '
+                                'Recurring jobs auto-expire after 7 days — '
+                                'tell the user about that limit. durable: '
+                                'true persists to scheduled_tasks.json so '
+                                'the job survives restarts; the default '
+                                'false keeps it session-only. Only use '
+                                'durable when the user explicitly asks the '
+                                'task to persist.',
                  'input_schema': {'type': 'object',
                                   'properties': {
                                       'cron': {'type': 'string'},
