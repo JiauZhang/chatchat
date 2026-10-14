@@ -5,7 +5,7 @@ import sys
 from argparse import Namespace
 
 from chatchat.cli.team import LEAD, _run
-from chatchat.client import load_secret
+from chatchat.client import load_profile
 from chatchat.cli import config as config_cli
 
 
@@ -117,27 +117,31 @@ def test_config_refuses_to_overwrite_a_secret_file_it_cannot_read(monkeypatch,
     assert target.read_text() == '{not json'
 
 
-def test_config_refuses_a_provider_that_is_not_registered(monkeypatch,
-                                                          tmp_path, capsys):
+def test_config_accepts_any_profile_name(monkeypatch, tmp_path, capsys):
+    """Profiles are user data now: there is no registry to refuse a name."""
     target = _config(monkeypatch, tmp_path, 'nope.api_key=x')
-    assert 'nope' in capsys.readouterr().out
-    assert not target.exists()
+    assert json.loads(target.read_text()) == {'nope': {'api_key': 'x'}}
 
 
-def test_config_lists_the_builtin_names_without_importing_them(monkeypatch,
-                                                               tmp_path,
-                                                               capsys):
-    _home(monkeypatch, tmp_path, 'CHATCHAT_SECRET_FILE', 'state/secrets.json')
+def test_config_lists_official_providers_and_configured_profiles(monkeypatch,
+                                                                 tmp_path,
+                                                                 capsys):
+    target = tmp_path / 'state' / 'secrets.json'
+    _home(monkeypatch, tmp_path, 'CHATCHAT_SECRET_FILE', str(target))
+    target.parent.mkdir(parents=True)
+    target.write_text(json.dumps({'agnes': {'api_key': 'k'}}))
     config_cli.parse_config(Namespace(list=True, cfgs=None))
     printed = capsys.readouterr().out
-    assert 'agnes' in printed and 'openrouter' in printed
+    assert 'openai' in printed and 'anthropic' in printed
+    assert 'agnes' in printed
 
 
 def test_a_tilde_in_chatchat_home_is_expanded_while_reading_secrets(monkeypatch,
                                                                     tmp_path):
     (tmp_path / '.pyclaw').mkdir()
     (tmp_path / '.pyclaw' / 'chatchat.json').write_text(
-        json.dumps({'agnes': {'api_key': 'from-home'}}))
+        json.dumps({'agnes': {'api_key': 'from-home',
+                              'base_url': 'https://apihub.agnes-ai.com/v1'}}))
     _home(monkeypatch, tmp_path, 'CHATCHAT_HOME', '~/.pyclaw')
     monkeypatch.delenv('CHATCHAT_SECRET_FILE', raising=False)
-    assert load_secret('agnes') == {'api_key': 'from-home'}
+    assert load_profile('agnes')['api_key'] == 'from-home'

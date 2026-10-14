@@ -1,19 +1,17 @@
 from __future__ import annotations
 
 from chatchat.runtime.thinking import Thinking
+from chatchat.wires import Delta, ToolCall, get_wire  # noqa: F401
 
 import asyncio
 import json
 import os
 from dataclasses import dataclass, field
-from importlib import import_module
 from inspect import signature
 from pathlib import Path
 from typing import Optional
 
 import aiohttp
-
-from chatchat.providers import get_provider, provider_names
 
 
 @dataclass
@@ -66,28 +64,6 @@ class Usage:
 
 
 @dataclass
-class ToolCall:
-    index: int = 0
-    id: str = ''
-    name: str = ''
-    arguments: str = ''
-
-
-@dataclass
-class Delta:
-    role: str = ''
-    content: str = ''
-    tool_calls: list[ToolCall] = field(default_factory=list)
-    reasoning_content: str = ''
-
-
-@dataclass
-class ChunkChoice:
-    index: int = 0
-    delta: Delta = field(default_factory=Delta)
-
-
-@dataclass
 class Message:
     content: str = ''
     tool_calls: list[ToolCall] = field(default_factory=list)
@@ -108,7 +84,8 @@ class Message:
             if tc.name and not t.name:
                 t.name = tc.name
             if tc.arguments:
-                t.arguments = tc.arguments if _is_json(t.arguments) else t.arguments + tc.arguments
+                t.arguments = t.arguments if _is_json(t.arguments) \
+                    else t.arguments + tc.arguments
 
 
 def _is_json(s: str) -> bool:
@@ -119,31 +96,8 @@ def _is_json(s: str) -> bool:
     return True
 
 
-def to_openai(messages: list[dict]) -> list[dict]:
-    out = []
-    for m in messages:
-        c = m.get('content')
-        if isinstance(c, list) and c:
-            if m.get('role') == 'assistant':
-                calls = [{'id': t.get('id'), 'type': 'function',
-                          'function': {'name': t.get('name'),
-                                       'arguments': json.dumps(t.get('input', {}))}}
-                         for t in c if t.get('type') == 'tool_use']
-                out.append({'role': 'assistant', 'content': None, 'tool_calls': calls})
-            else:
-                out += [{'role': 'tool', 'tool_call_id': t.get('tool_use_id'),
-                         'content': t.get('content', '')} for t in c]
-        else:
-            out.append({'role': m.get('role', 'user'), 'content': c or ''})
-    return out
-
-
-def to_openai_tools(schemas: list[dict]) -> list[dict]:
-    return [{'type': 'function', 'function': {
-        'name': s['name'],
-        'description': s.get('description', ''),
-        'parameters': s.get('input_schema', {}),
-    }} for s in schemas]
+OFFICIAL_BASE_URLS = {'openai': 'https://api.openai.com/v1',
+                      'anthropic': 'https://api.anthropic.com'}
 
 
 def secret_file() -> Path:
@@ -157,55 +111,47 @@ def _default_secret_paths():
     return [secret_file(), chatchat_home / 'chatchat.json']
 
 
-def load_secret(provider: str) -> dict:
-    env = os.environ.get(f'CHATCHAT_{provider.upper()}_API_KEY')
-    if env:
-        return {'api_key': env}
+def _profile_entry(provider: str) -> dict:
     for f in _default_secret_paths():
-        if f.exists():
-            try:
-                data = json.loads(f.read_text())
-            except ValueError:
-                continue
-            if isinstance(data, dict) and provider in data and isinstance(data[provider], dict):
-                return dict(data[provider])
+        if not f.exists():
+            continue
+        try:
+            data = json.loads(f.read_text())
+        except ValueError:
+            continue
+        if isinstance(data, dict) and isinstance(data.get(provider), dict):
+            return dict(data[provider])
     return {}
 
 
-def _to_chunk(ch: dict, model: str) -> ChunkChoice:
-    d = ch.get('delta', {})
-    tcs = [ToolCall(index=tc.get('index', 0), id=tc.get('id') or '',
-                    name=(tc.get('function') or {}).get('name') or '',
-                    arguments=(tc.get('function') or {}).get('arguments') or '')
-           for tc in (d.get('tool_calls') or [])]
-    delta = Delta(role=d.get('role') or '', content=d.get('content') or '',
-                  reasoning_content=d.get('reasoning_content') or '', tool_calls=tcs)
-    return ChunkChoice(delta=delta)
-
-
-class BaseClient:
-
-    def __init__(self, provider, base_url, model=None, instruction=None, http_options={}):
-        self.provider = provider
-        self.base_url = base_url.rstrip('/')
-        self.model = model
-        self.instruction = instruction
-        secret = load_secret(provider)
-        if 'api_key' not in secret:
-            raise RuntimeError(
-                f'Provider "{provider}" 未配置 api_key。'
-                f'请设置 CHATCHAT_{provider.upper()}_API_KEY '
-                f'或在 ~/.chatchat.json / ~/.chatchat/chatchat.json 的 {provider} 下配置。')
-        self.api_key = secret['api_key']
-        self._extra = secret
-
-
-def dynamic_import_client(provider):
-    client_class = get_provider(provider)
-    if client_class is None:
-        raise RuntimeError(f'provider `{provider}` 不受支持，'
-                           f'支持的 providers: {provider_names()}')
-    return client_class
+def load_profile(provider: str) -> dict:
+    env = f'CHATCHAT_{provider.upper()}_'
+    entry = _profile_entry(provider)
+    wire_type = (os.environ.get(env + 'TYPE')
+                 or entry.get('type') or '').strip().lower()
+    if not wire_type:
+        wire_type = 'anthropic' if provider == 'anthropic' else 'openai'
+    if wire_type not in ('openai', 'anthropic'):
+        raise RuntimeError(
+            f'Provider "{provider}" 的 type 必须是 openai 或 anthropic，'
+            f'不是 {wire_type!r}。')
+    base_url = (os.environ.get(env + 'BASE_URL')
+                or entry.get('base_url')
+                or OFFICIAL_BASE_URLS.get(provider, ''))
+    if not base_url:
+        raise RuntimeError(
+            f'Provider "{provider}" 未配置 base_url。'
+            f'请在配置文件的 {provider} 条目中添加 base_url，'
+            f'或设置 CHATCHAT_{provider.upper()}_BASE_URL。'
+            f'保留名 openai / anthropic 可省略 base_url。')
+    api_key = os.environ.get(env + 'API_KEY') or entry.get('api_key')
+    if not api_key:
+        raise RuntimeError(
+            f'Provider "{provider}" 未配置 api_key。'
+            f'请设置 CHATCHAT_{provider.upper()}_API_KEY '
+            f'或在 ~/.chatchat.json / ~/.chatchat/chatchat.json 的 '
+            f'{provider} 下配置。')
+    return {'type': wire_type, 'base_url': base_url, 'api_key': api_key}
 
 
 class Client:
@@ -216,14 +162,11 @@ class Client:
         self.model = model
         self.instruction = instruction
         self.thinking = thinking
-        spec = dynamic_import_client(provider)(
-            model=model, instruction=instruction, http_options=http_options)
-        self.base_url = spec.base_url
-        self.api_key = spec.api_key
-        self._headers = {
-            'Authorization': f'Bearer {self.api_key}',
-            'Content-Type': 'application/json',
-        }
+        profile = load_profile(provider)
+        self.base_url = profile['base_url']
+        self.api_key = profile['api_key']
+        self._wire = get_wire(profile['type'])
+        self._headers = self._wire.headers(self.api_key)
         self._timeout = aiohttp.ClientTimeout(total=(http_options or {}).get('timeout', 120))
 
     def _messages(self, messages):
@@ -234,34 +177,18 @@ class Client:
     async def respond(self, messages: list[dict], tools: Optional[list[dict]] = None,
                       *, stream_cb=None):
         msgs = self._messages(messages)
-        tools_openai = to_openai_tools(tools) if tools else None
-        payload = {'model': self.model, 'messages': to_openai(msgs), 'stream': True,
-                   'stream_options': {'include_usage': True}}
-        payload.update(self.thinking.request())
-        if tools_openai:
-            payload['tools'] = tools_openai
+        payload = self._wire.payload(msgs, tools, self.model, self.thinking)
         aggregated = Message()
         self._last_usage = Usage()
         async with aiohttp.ClientSession(timeout=self._timeout) as session:
-            async with session.post(self.base_url + '/chat/completions',
+            async with session.post(self._wire.endpoint(self.base_url),
                                     json=payload, headers=self._headers) as resp:
                 resp.raise_for_status()
                 async for line in resp.content:
-                    if not line:
-                        continue
-                    raw = line.strip()
-                    if raw == b'[DONE]':
-                        break
-                    if raw.startswith(b'data:'):
-                        raw = raw[5:].strip()
-                    try:
-                        data = json.loads(raw)
-                    except json.JSONDecodeError:
-                        continue
-                    if data.get('usage'):
-                        self._last_usage = Usage.from_dict(data['usage'])
-                    for choice in (data.get('choices') or []):
-                        delta = _to_chunk(choice, self.model).delta
+                    usage, deltas = self._wire.parse(line)
+                    if usage:
+                        self._last_usage.add(Usage.from_dict(usage))
+                    for delta in deltas:
                         aggregated.accumulate(delta)
                         if stream_cb:
                             if delta.reasoning_content:

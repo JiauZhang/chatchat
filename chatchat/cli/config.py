@@ -1,27 +1,37 @@
 import json
 from pathlib import Path
 
-from chatchat.client import secret_file
-from chatchat.providers import provider_names
+from chatchat.client import OFFICIAL_BASE_URLS, _default_secret_paths, secret_file
+
+
+def _configured_names():
+    names = set()
+    for f in _default_secret_paths():
+        if not f.exists():
+            continue
+        try:
+            data = json.loads(f.read_text())
+        except ValueError:
+            continue
+        if isinstance(data, dict):
+            names |= {k for k, v in data.items() if isinstance(v, dict)}
+    return names
 
 
 def parse_config(args):
     if args.list:
-        print(f'supported providers: {provider_names()}')
+        print(f'official providers: {", ".join(sorted(OFFICIAL_BASE_URLS))}')
+        custom = sorted(_configured_names() - set(OFFICIAL_BASE_URLS))
+        print(f'configured profiles: {", ".join(custom) if custom else "(none)"}')
     elif args.cfgs:
         cfg = args.cfgs.split('=')
         provider_key = cfg[0].split('.')
         usage = 'Usage: chatchat config {provider}.api_key=YOUR_API_KEY'
-        if len(cfg) != 2 or len(provider_key) != 2:
+        if len(cfg) != 2 or len(provider_key) != 2 or not provider_key[0]:
             print(usage)
             return
 
         (provider, key), value = provider_key, cfg[1]
-        if provider not in provider_names():
-            print(f'provider `{provider}` is currently NOT supported!')
-            print(f'supported providers: {provider_names()}')
-            return
-
         path = secret_file()
         secret_data = {}
         if path.exists():
