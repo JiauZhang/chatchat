@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from chatchat.runtime.thinking import Thinking
-from chatchat.wires import Delta, ToolCall, get_wire  # noqa: F401
+from chatchat.protocols import Delta, ToolCall, get_protocol  # noqa: F401
 
 import asyncio
 import json
@@ -127,14 +127,14 @@ def _profile_entry(provider: str) -> dict:
 def load_profile(provider: str) -> dict:
     env = f'CHATCHAT_{provider.upper()}_'
     entry = _profile_entry(provider)
-    wire_type = (os.environ.get(env + 'TYPE')
+    protocol_type = (os.environ.get(env + 'TYPE')
                  or entry.get('type') or '').strip().lower()
-    if not wire_type:
-        wire_type = 'anthropic' if provider == 'anthropic' else 'openai'
-    if wire_type not in ('openai', 'anthropic'):
+    if not protocol_type:
+        protocol_type = 'anthropic' if provider == 'anthropic' else 'openai'
+    if protocol_type not in ('openai', 'anthropic'):
         raise RuntimeError(
             f'Provider "{provider}" 的 type 必须是 openai 或 anthropic，'
-            f'不是 {wire_type!r}。')
+            f'不是 {protocol_type!r}。')
     base_url = (os.environ.get(env + 'BASE_URL')
                 or entry.get('base_url')
                 or OFFICIAL_BASE_URLS.get(provider, ''))
@@ -151,7 +151,7 @@ def load_profile(provider: str) -> dict:
             f'请设置 CHATCHAT_{provider.upper()}_API_KEY '
             f'或在 ~/.chatchat.json / ~/.chatchat/chatchat.json 的 '
             f'{provider} 下配置。')
-    return {'type': wire_type, 'base_url': base_url, 'api_key': api_key}
+    return {'type': protocol_type, 'base_url': base_url, 'api_key': api_key}
 
 
 class Client:
@@ -165,8 +165,8 @@ class Client:
         profile = load_profile(provider)
         self.base_url = profile['base_url']
         self.api_key = profile['api_key']
-        self._wire = get_wire(profile['type'])
-        self._headers = self._wire.headers(self.api_key)
+        self._protocol = get_protocol(profile['type'])
+        self._headers = self._protocol.headers(self.api_key)
         self._timeout = aiohttp.ClientTimeout(total=(http_options or {}).get('timeout', 120))
 
     def _messages(self, messages):
@@ -177,15 +177,15 @@ class Client:
     async def respond(self, messages: list[dict], tools: Optional[list[dict]] = None,
                       *, stream_cb=None):
         msgs = self._messages(messages)
-        payload = self._wire.payload(msgs, tools, self.model, self.thinking)
+        payload = self._protocol.payload(msgs, tools, self.model, self.thinking)
         aggregated = Message()
         self._last_usage = Usage()
         async with aiohttp.ClientSession(timeout=self._timeout) as session:
-            async with session.post(self._wire.endpoint(self.base_url),
+            async with session.post(self._protocol.endpoint(self.base_url),
                                     json=payload, headers=self._headers) as resp:
                 resp.raise_for_status()
                 async for line in resp.content:
-                    usage, deltas = self._wire.parse(line)
+                    usage, deltas = self._protocol.parse(line)
                     if usage:
                         self._last_usage.add(Usage.from_dict(usage))
                     for delta in deltas:

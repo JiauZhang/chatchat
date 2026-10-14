@@ -20,7 +20,7 @@ def test_official_openai_needs_only_an_api_key(monkeypatch, tmp_path):
                        'api_key': 'sk-x'}
 
 
-def test_official_anthropic_carries_its_own_wire_type(monkeypatch, tmp_path):
+def test_official_anthropic_carries_its_own_protocol_type(monkeypatch, tmp_path):
     _secret_file(monkeypatch, tmp_path, {'anthropic': {'api_key': 'sk-a'}})
     profile = load_profile('anthropic')
     assert profile['type'] == 'anthropic'
@@ -34,7 +34,7 @@ def test_official_name_can_still_declare_a_proxy_base_url(monkeypatch, tmp_path)
     assert load_profile('anthropic')['base_url'] == 'https://relay.local'
 
 
-def test_a_custom_profile_defaults_to_the_openai_wire(monkeypatch, tmp_path):
+def test_a_custom_profile_defaults_to_the_openai_protocol(monkeypatch, tmp_path):
     _secret_file(monkeypatch, tmp_path,
                  {'agnes': {'api_key': 'sk-1',
                             'base_url': 'https://apihub.agnes-ai.com/v1'}})
@@ -43,7 +43,7 @@ def test_a_custom_profile_defaults_to_the_openai_wire(monkeypatch, tmp_path):
     assert profile['base_url'] == 'https://apihub.agnes-ai.com/v1'
 
 
-def test_a_custom_profile_can_declare_the_anthropic_wire(monkeypatch, tmp_path):
+def test_a_custom_profile_can_declare_the_anthropic_protocol(monkeypatch, tmp_path):
     _secret_file(monkeypatch, tmp_path,
                  {'kimi': {'type': 'anthropic', 'api_key': 'sk-k',
                            'base_url': 'https://api.moonshot.ai'}})
@@ -65,7 +65,7 @@ def test_a_profile_without_api_key_is_refused(monkeypatch, tmp_path):
     assert 'api_key' in str(e.value)
 
 
-def test_an_unknown_wire_type_is_refused(monkeypatch, tmp_path):
+def test_an_unknown_protocol_type_is_refused(monkeypatch, tmp_path):
     _secret_file(monkeypatch, tmp_path,
                  {'agnes': {'type': 'grpc', 'api_key': 'k',
                             'base_url': 'https://x.example'}})

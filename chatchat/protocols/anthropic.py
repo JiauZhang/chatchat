@@ -1,6 +1,6 @@
 import json
 
-from chatchat.wires import Delta, ToolCall
+from chatchat.protocols import Delta, ToolCall
 
 VERSION = '2023-06-01'
 

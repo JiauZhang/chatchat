@@ -3,7 +3,7 @@ import asyncio
 import chatchat.client as client_mod
 from chatchat.runtime.thinking import Thinking
 from chatchat.client import Client, Usage
-from chatchat.wires import get_wire
+from chatchat.protocols import get_protocol
 from helpers import mock_team
 
 
@@ -73,7 +73,7 @@ def _payload_for(monkeypatch, thinking) -> dict:
     c.model = 'deepseek-flash'
     c.thinking = thinking
     c.instruction = None
-    c._wire = get_wire('openai')
+    c._protocol = get_protocol('openai')
     c.base_url = 'https://api.deepseek.com'
     c.api_key = 'x'
     c._headers = {}

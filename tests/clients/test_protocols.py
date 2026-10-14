@@ -3,10 +3,10 @@ import json
 import pytest
 
 from chatchat.runtime.thinking import Thinking
-from chatchat.wires import get_wire
-from chatchat.wires.anthropic import parse as a_parse
-from chatchat.wires.openai import parse as o_parse
-from chatchat.wires.openai import to_openai
+from chatchat.protocols import get_protocol
+from chatchat.protocols.anthropic import parse as a_parse
+from chatchat.protocols.openai import parse as o_parse
+from chatchat.protocols.openai import to_openai
 
 
 USER_TOOL_RESULT = [
@@ -23,7 +23,7 @@ TOOLS = [{'name': 'weather', 'description': 'look up weather',
 
 
 def test_openai_payload_keeps_the_stream_and_thinking_shape():
-    body = get_wire('openai').payload(
+    body = get_protocol('openai').payload(
         [{'role': 'user', 'content': 'hi'}], None, 'm1', Thinking('off'))
     assert body['model'] == 'm1'
     assert body['stream'] is True
@@ -32,17 +32,17 @@ def test_openai_payload_keeps_the_stream_and_thinking_shape():
 
 
 def test_openai_payload_converts_tools_to_function_schemas():
-    body = get_wire('openai').payload([], TOOLS, 'm1', Thinking('off'))
+    body = get_protocol('openai').payload([], TOOLS, 'm1', Thinking('off'))
     assert body['tools'][0]['type'] == 'function'
     assert body['tools'][0]['function']['parameters']['properties'] == \
         {'city': {'type': 'string'}}
 
 
 def test_openai_endpoint_and_headers():
-    wire = get_wire('openai')
-    assert wire.endpoint('https://api.example.com/v1') == \
+    protocol = get_protocol('openai')
+    assert protocol.endpoint('https://api.example.com/v1') == \
         'https://api.example.com/v1/chat/completions'
-    assert wire.headers('sk-1')['Authorization'] == 'Bearer sk-1'
+    assert protocol.headers('sk-1')['Authorization'] == 'Bearer sk-1'
 
 
 def test_openai_parse_reads_text_and_usage():
@@ -63,7 +63,7 @@ def test_openai_parse_skips_noise():
 def test_anthropic_extracts_system_and_requires_max_tokens():
     messages = [{'role': 'system', 'content': 'be brief'},
                 {'role': 'user', 'content': 'hi'}]
-    body = get_wire('anthropic').payload(messages, None, 'm1', Thinking('off'))
+    body = get_protocol('anthropic').payload(messages, None, 'm1', Thinking('off'))
     assert body['system'] == 'be brief'
     assert body['messages'] == [{'role': 'user', 'content': 'hi'}]
     assert body['max_tokens'] > 0
@@ -71,7 +71,7 @@ def test_anthropic_extracts_system_and_requires_max_tokens():
 
 
 def test_anthropic_tools_pass_through_with_input_schema():
-    body = get_wire('anthropic').payload([], TOOLS, 'm1', Thinking('off'))
+    body = get_protocol('anthropic').payload([], TOOLS, 'm1', Thinking('off'))
     assert body['tools'][0] == {'name': 'weather',
                                 'description': 'look up weather',
                                 'input_schema': {'type': 'object',
@@ -82,7 +82,7 @@ def test_anthropic_tools_pass_through_with_input_schema():
 def test_anthropic_internal_blocks_go_through_verbatim():
     messages = [{'role': 'assistant', 'content': ASSISTANT_TOOL_USE},
                 {'role': 'user', 'content': USER_TOOL_RESULT}]
-    body = get_wire('anthropic').payload(messages, None, 'm1', Thinking('off'))
+    body = get_protocol('anthropic').payload(messages, None, 'm1', Thinking('off'))
     assert body['messages'][0]['content'][0]['type'] == 'tool_use'
     assert body['messages'][0]['content'][0]['input'] == {'city': 'Beijing'}
     assert body['messages'][1]['content'][0]['type'] == 'tool_result'
@@ -90,11 +90,11 @@ def test_anthropic_internal_blocks_go_through_verbatim():
 
 
 def test_anthropic_endpoint_headers_and_parse_noise():
-    wire = get_wire('anthropic')
-    assert wire.endpoint('https://api.anthropic.com') == \
+    protocol = get_protocol('anthropic')
+    assert protocol.endpoint('https://api.anthropic.com') == \
         'https://api.anthropic.com/v1/messages'
-    assert wire.headers('sk-a')['x-api-key'] == 'sk-a'
-    assert wire.headers('sk-a')['anthropic-version']
+    assert protocol.headers('sk-a')['x-api-key'] == 'sk-a'
+    assert protocol.headers('sk-a')['anthropic-version']
     assert a_parse(b'event: ping') == (None, [])
     assert a_parse(b'data: {"type":"content_block_stop"}') == (None, [])
 
@@ -134,18 +134,18 @@ def test_anthropic_parse_streams_text_thinking_and_tool_use():
 
 
 def test_anthropic_thinking_request_shares_the_reference_shape():
-    body = get_wire('anthropic').payload(
+    body = get_protocol('anthropic').payload(
         [{'role': 'user', 'content': 'hi'}], None, 'm1',
         Thinking('on', budget=8000))
     assert body['thinking'] == {'type': 'enabled', 'budget_tokens': 8000}
 
 
-def test_get_wire_refuses_unknown_types():
+def test_get_protocol_refuses_unknown_types():
     with pytest.raises(ValueError):
-        get_wire('grpc')
+        get_protocol('grpc')
 
 
-def test_openai_wire_maps_tool_flow_exactly_as_before():
+def test_openai_protocol_maps_tool_flow_exactly_as_before():
     messages = [{'role': 'user', 'content': 'weather?'},
                 {'role': 'assistant', 'content': ASSISTANT_TOOL_USE},
                 {'role': 'user', 'content': USER_TOOL_RESULT}]
