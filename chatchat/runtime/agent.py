@@ -414,8 +414,12 @@ class Agent:
                         tu.name, tu.input, self, tu.id)
                 finally:
                     self._in_tool = None
+                content = outcome.text
+                if outcome.blocks:
+                    content = ([{'type': 'text', 'text': outcome.text}]
+                               if outcome.text else []) + list(outcome.blocks)
                 results.append({'type': 'tool_result',
-                                'tool_use_id': tu.id, 'content': outcome.text})
+                                'tool_use_id': tu.id, 'content': content})
                 if outcome.additional_context:
                     results.append({'type': 'text',
                                     'text': outcome.additional_context})

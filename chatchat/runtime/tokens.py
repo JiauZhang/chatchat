@@ -3,11 +3,26 @@ from __future__ import annotations
 import json
 
 CHARS_PER_TOKEN = 4
+IMAGE_BUDGET_TOKENS = 1000
 
 
 def measured(usage: dict) -> int:
     return (int(usage.get('prompt_tokens') or 0)
             + int(usage.get('completion_tokens') or 0))
+
+
+def _image_count(content) -> int:
+    if not isinstance(content, list):
+        return 0
+    total = 0
+    for block in content:
+        if not isinstance(block, dict):
+            continue
+        if block.get('type') == 'image':
+            total += 1
+        elif block.get('type') == 'tool_result':
+            total += _image_count(block.get('content'))
+    return total
 
 
 def _text_of(content) -> str:
@@ -33,7 +48,9 @@ def _text_of(content) -> str:
 
 
 def rough(message: dict) -> int:
-    return len(_text_of(message.get('content'))) // CHARS_PER_TOKEN
+    content = message.get('content')
+    return (len(_text_of(content)) // CHARS_PER_TOKEN
+            + _image_count(content) * IMAGE_BUDGET_TOKENS)
 
 
 def context_estimate(messages: list[dict]) -> int:

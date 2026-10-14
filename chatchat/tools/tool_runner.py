@@ -160,12 +160,15 @@ class ToolRunnerMixin:
                  agent=getattr(agent, 'name', ''),
                  tool=name, tool_use_id=tool_use_id,
                  **(out.meta or {}))
+            blocks = list(out.blocks)
             out = out.text
         else:
             noted()
+            blocks = []
             if not isinstance(out, str):
                 out = str(out)
         return ToolOutcome(out, _joined(extra, await self._post_tool_context(
             agent, tool_use_id, name, input, out),
             self._matched_rules(tool, input, out),
-            await self._note_file_changed(agent, tool, input)))
+            await self._note_file_changed(agent, tool, input)),
+            blocks=blocks)

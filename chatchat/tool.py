@@ -30,6 +30,7 @@ def describe_tools(tools, context: ToolContext) -> list[dict]:
 class ToolResult:
     text: str
     meta: dict | None = None
+    blocks: list = ()
 
 
 @dataclass
@@ -37,6 +38,7 @@ class ToolOutcome:
     text: str
     additional_context: str = ''
     denied: bool = False
+    blocks: list = ()
 
 
 class Tool:
