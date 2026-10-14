@@ -1,110 +1,96 @@
-### Large Language Models Python API
-<table align="center">
-    <tr>
-        <th>Provider</th>
-        <th>Model</th>
-    </tr>
-    <tr>
-        <td align="center">Google</td>
-        <td>
-            <code>gemini-2.5-flash</code>
-        </td>
-    </tr>
-    <tr>
-        <td align="center">DeepSeek</td>
-        <td>
-            <code>deepseek-chat</code> <code>deepseek-reasoner</code> <code>deepseek-coder</code>
-        </td>
-    </tr>
-    <tr>
-        <td align="center">百度</td>
-        <td>
-            <code>ernie-lite-8k</code> <code>ernie-tiny-8k</code> <code>ernie-speed-8k</code> <code>ernie-speed-128k</code>
-        </td>
-    </tr>
-    <tr>
-        <td align="center">阿里巴巴</td>
-        <td>
-            <code>qwen3-max</code> <code>qwen-plus</code> <code>qwen-flash</code> <code>qwen-turbo</code>
-        </td>
-    </tr>
-    <tr>
-        <td align="center">讯飞</td>
-        <td>
-            <code>lite</code> <code>generalv3</code> <code>pro-128k</code> <code>generalv3.5</code> <code>max-32k</code> <code>4.0Ultra</code>
-        </td>
-    </tr>
-    <tr>
-        <td align="center">腾讯</td>
-        <td>
-            <code>hunyuan-lite</code> <code>hunyuan-standard</code> <code>hunyuan-standard-256K</code> <code>hunyuan-pro</code>
-        </td>
-    </tr>
-    <tr>
-        <td align="center">智谱</td>
-        <td>
-            <code>glm-4-plus</code> <code>glm-4-air</code> <code>glm-4-long</code> <code>glm-4-flash</code>
-        </td>
-    </tr>
-</table>
+# chatchat
 
-### Install
+A Python agent runtime: a `Team` of agents with tools, hooks, skills and
+sub-agents — and the LLM client underneath it, speaking two API protocols.
+
+## Install
+
 ```shell
 pip install chatchat
 ```
 
-### Chat in the Terminal
-```shell
-$ chatchat run baidu ernie-lite-8k
-user> http://github.com/JiauZhang/chatchat 这个网址是干啥的？
-assistant> 这个网址 <http://github.com/JiauZhang/chatchat> 是一个指向GitHub上的一个开源项目的链接。
+## Configure
 
-"chatchat" 看起来像是一个项目名称或别名，由 "JiauZhang" 创建并托管在GitHub上。
-GitHub是一个流行的代码托管和协作平台，允许开发者存储、分享和协作开发代码。
+There is no built-in provider list. A provider is a profile — your data, in
+`~/.chatchat/chatchat.json`:
 
-要了解这个网址具体是干什么的，你可以访问该链接并查看项目详情。
-通常，项目页面会包含项目的描述、代码、文档、问题跟踪等。通过查看这些信息，
-你可以了解该项目的目的、功能、使用方法等。
-
-请注意，由于这是一个开源项目，其具体内容和用途可能因项目而异。
-如果你对特定项目或其用途有更多疑问，建议直接访问GitHub上的项目页面或查看相关文档和说明。
-user> /exit
-
-$ chatchat run google gemini-2.0-flash --proxy YOUR_PROXY
-user> Introduce yourself briefly.
-assistant> Hello! I am a large language model, trained by Google.
-I am designed to provide information and complete tasks based on the prompts I receive.
-I can generate text, translate languages, write different kinds of creative content,
-and answer your questions in an informative way. How can I help you today?
-user> /exit
+```json
+{
+  "agnes": {
+    "base_url": "https://apihub.agnes-ai.com/v1",
+    "api_key": "YOUR_API_KEY"
+  },
+  "kimi": {
+    "type": "anthropic",
+    "base_url": "https://api.moonshot.ai",
+    "api_key": "YOUR_API_KEY"
+  }
+}
 ```
 
-### Usage
+| field | meaning |
+|---|---|
+| `base_url` | where to send requests. Required for custom profiles |
+| `type` | the API protocol: `openai` (default) or `anthropic`. Selects the request encoding, the SSE parser and the auth header |
+| `api_key` | the credential |
+
+Two reserved names work with no `base_url` at all — they carry their own
+official endpoints:
+
+- `openai` → `https://api.openai.com/v1`
+- `anthropic` → `https://api.anthropic.com` (and implies `type: anthropic`)
+
+Environment variables override or replace profile entries:
+`CHATCHAT_<NAME>_API_KEY`, `CHATCHAT_<NAME>_BASE_URL`, `CHATCHAT_<NAME>_TYPE`.
+
+Or write entries from the command line:
+
 ```shell
-# set YOUR secret keys
-# tencent
-chatchat config tencent.api_key=YOUR_API_KEY
-# baidu
-chatchat config baidu.api_key=YOUR_API_KEY
-# list info of all supported providers
+chatchat config agnes.base_url=https://apihub.agnes-ai.com/v1
+chatchat config agnes.api_key=YOUR_API_KEY
 chatchat config --list
 ```
-> Refer to [\[examples\]](./examples)
 
-### Agent runtime
+## Chat in the terminal
+
+```shell
+$ chatchat run agnes agnes-3.0-flash
+user> Introduce yourself briefly.
+assistant> Hello! I am a large language model ...
+user> /exit
+```
+
+## Agent runtime
+
 The same package runs a whole agent: a `Team` of agents, tools, hooks, skills
 and sub-agents. Each example is runnable and shows one shape.
 
 ```shell
-python examples/team.py --provider zhipu --model glm-4-flash     # lead + teammates over a mailbox
-python examples/agenttool.py                                     # an agent spawning sub-agents
-python examples/agent.py                                         # one agent, no team
-python examples/tool.py                                          # your own tools and ToolContext
-python examples/hooks.py                                         # hooks around tool calls and turns
-python examples/custom_provider.py                               # register a provider of your own
+python examples/team.py --provider agnes --model agnes-3.0-flash  # lead + teammates over a mailbox
+python examples/agenttool.py                                      # an agent spawning sub-agents
+python examples/agent.py                                          # one agent, no team
+python examples/tool.py                                           # your own tools and ToolContext
+python examples/hooks.py                                          # hooks around tool calls and turns
 ```
 
-### Sponsor
+## How a request flows
+
+```
+your messages (Claude-style blocks)
+        │
+        ▼
+chatchat/protocols/   openai.py    → POST /chat/completions   (Bearer auth)
+                      anthropic.py → POST /v1/messages        (x-api-key auth)
+        │
+        ▼
+unified Delta stream back to the agent loop
+```
+
+A third-party endpoint needs no code — only a profile entry. Anything that
+speaks the OpenAI or the Anthropic protocol works.
+
+## Sponsor
+
 <table align="center">
     <thead>
         <tr>
