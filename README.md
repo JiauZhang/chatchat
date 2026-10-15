@@ -76,18 +76,23 @@ python examples/hooks.py                                          # hooks around
 ## How a request flows
 
 ```
-your messages (Claude-style blocks)
+your messages (Claude-style blocks, owned by the kernel)
         │
         ▼
-chatchat/protocols/   openai.py    → POST /chat/completions   (Bearer auth)
-                      anthropic.py → POST /v1/messages        (x-api-key auth)
-        │
-        ▼
+chatchat/protocols/   openai.py    → POST /responses      (Responses API: chain
+        │                                          or full input, encrypted
+        │                                          reasoning replayed)
+        │              anthropic.py → POST /v1/messages    (Messages API: blocks
+        ▼                                          pass through verbatim)
 unified Delta stream back to the agent loop
 ```
 
-A third-party endpoint needs no code — only a profile entry. Anything that
-speaks the OpenAI or the Anthropic protocol works.
+History lives in the kernel. A fresh or compacted history goes out as the full
+input; a verified prefix goes out as a delta with `previous_response_id`
+rolling to the latest response each turn, falling back to the full input
+whenever the chain is rejected. A third-party endpoint needs no code — only a
+profile entry. Anything that speaks the Responses or the Anthropic protocol
+works.
 
 ## Sponsor
 
