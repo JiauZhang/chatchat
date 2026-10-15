@@ -2,7 +2,7 @@ import asyncio
 from pathlib import Path
 
 from chatchat.protocols.anthropic import payload as a_payload
-from chatchat.protocols.openai import to_openai
+from chatchat.protocols.openai import payload as o_payload
 from chatchat.runtime.thinking import Thinking
 from chatchat.runtime.tokens import rough
 from chatchat.tool import Tool, ToolContext, ToolResult
@@ -18,37 +18,28 @@ def test_openai_user_image_becomes_a_content_part():
         {'type': 'text', 'text': 'what is this?'},
         PNG,
     ]}]
-    out = to_openai(messages)
-    assert out == [{'role': 'user', 'content': [
-        {'type': 'text', 'text': 'what is this?'},
-        {'type': 'image_url',
-         'image_url': {'url': 'data:image/png;base64,aGk='}},
-    ]}]
+    body = o_payload(messages, None, 'm1', Thinking('off'))
+    assert body['input'][0]['content'] == [
+        {'type': 'input_text', 'text': 'what is this?'},
+        {'type': 'input_image', 'image_url': 'data:image/png;base64,aGk='},
+    ]
 
 
-def test_openai_tool_result_images_bypass_into_a_user_message():
+def test_openai_tool_result_images_ride_the_function_output():
     messages = [{'role': 'user', 'content': [
         {'type': 'tool_result', 'tool_use_id': 't1', 'content': [
             {'type': 'text', 'text': 'captured'},
             PNG,
         ]},
     ]}]
-    out = to_openai(messages)
-    assert out == [
-        {'role': 'tool', 'tool_call_id': 't1', 'content': 'captured'},
-        {'role': 'user', 'content': [
-            {'type': 'image_url',
-             'image_url': {'url': 'data:image/png;base64,aGk='}},
-        ]},
-    ]
+    body = o_payload(messages, None, 'm1', Thinking('off'))
+    assert body['input'][0] == {'type': 'function_call_output',
+                                'call_id': 't1',
+                                'output': [{'type': 'input_text',
+                                            'text': 'captured'},
+                                           {'type': 'input_image',
+                                            'image_url': 'data:image/png;base64,aGk='}]}
 
-
-def test_openai_plain_string_tool_results_are_untouched():
-    messages = [{'role': 'user', 'content': [
-        {'type': 'tool_result', 'tool_use_id': 't1', 'content': 'plain'},
-    ]}]
-    assert to_openai(messages) == [
-        {'role': 'tool', 'tool_call_id': 't1', 'content': 'plain'}]
 
 
 def test_anthropic_passes_image_blocks_through_verbatim():

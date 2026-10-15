@@ -389,6 +389,9 @@ class Agent:
                        'usage': self.client._last_usage.to_dict()}
                 if thinking_parts:
                     msg['thinking'] = ''.join(thinking_parts)
+                items = getattr(self.client, '_last_response_items', None)
+                if items:
+                    msg['response_items'] = items
                 self._emit_progress(msg, usage=self.client._last_usage.to_dict())
                 self.messages.append(msg)
                 self._record(msg)
@@ -400,6 +403,9 @@ class Agent:
                              'usage': self.client._last_usage.to_dict()}
             if thinking_parts:
                 assistant_msg['thinking'] = ''.join(thinking_parts)
+            items = getattr(self.client, '_last_response_items', None)
+            if items:
+                assistant_msg['response_items'] = items
             self._emit_progress(assistant_msg,
                                 usage=self.client._last_usage.to_dict())
             self.messages.append(assistant_msg)

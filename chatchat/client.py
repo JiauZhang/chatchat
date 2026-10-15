@@ -167,6 +167,9 @@ class Client:
         self.api_key = profile['api_key']
         self._protocol = get_protocol(profile['type'])
         self._headers = self._protocol.headers(self.api_key)
+        self._chain = (self._protocol.new_chain()
+                       if hasattr(self._protocol, 'new_chain') else None)
+        self._last_response_items = []
         self._timeout = aiohttp.ClientTimeout(total=(http_options or {}).get('timeout', 120))
 
     def _messages(self, messages):
@@ -177,24 +180,31 @@ class Client:
     async def respond(self, messages: list[dict], tools: Optional[list[dict]] = None,
                       *, stream_cb=None):
         msgs = self._messages(messages)
-        payload = self._protocol.payload(msgs, tools, self.model, self.thinking)
+        chain, self._chain = getattr(self, '_chain', None), None
+        payload = self._protocol.payload(msgs, tools, self.model,
+                                         self.thinking, chain)
         aggregated = Message()
         self._last_usage = Usage()
+        self._last_response_items = []
         async with aiohttp.ClientSession(timeout=self._timeout) as session:
-            async with session.post(self._protocol.endpoint(self.base_url),
-                                    json=payload, headers=self._headers) as resp:
-                resp.raise_for_status()
-                async for line in resp.content:
-                    usage, deltas = self._protocol.parse(line)
-                    if usage:
-                        self._last_usage.add(Usage.from_dict(usage))
-                    for delta in deltas:
-                        aggregated.accumulate(delta)
-                        if stream_cb:
-                            if delta.reasoning_content:
-                                stream_cb(delta.reasoning_content, 'reason')
-                            if delta.content and not delta.reasoning_content:
-                                stream_cb(delta.content, 'text')
+            try:
+                response = await self._stream(session, payload, aggregated,
+                                              stream_cb)
+            except aiohttp.ClientResponseError as e:
+                if not (chain and chain.response_id) \
+                        or e.status not in (400, 404):
+                    raise
+                payload = {**payload, 'previous_response_id': None,
+                           'input': self._protocol.input_items(msgs)}
+                response = await self._stream(session, payload, aggregated,
+                                              stream_cb)
+        if response and hasattr(self._protocol, 'advance'):
+            self._chain = self._protocol.advance(chain, response.get('id'),
+                                                 msgs)
+        output = (response or {}).get('output') or []
+        self._last_response_items = [i for i in output
+                                     if isinstance(i, dict)
+                                     and i.get('type') == 'reasoning']
         if not aggregated.tool_calls:
             return aggregated.content
         outs = []
@@ -207,6 +217,24 @@ class Client:
                     stream_cb(f'[warn] tool 参数解析失败: {t.arguments[:80]!r}', 'warn')
             outs.append(ToolUse(t.name, inp, t.id))
         return outs
+
+    async def _stream(self, session, payload, aggregated, stream_cb):
+        response = None
+        async with session.post(self._protocol.endpoint(self.base_url),
+                                json=payload, headers=self._headers) as resp:
+            resp.raise_for_status()
+            async for line in resp.content:
+                usage, deltas, response = self._protocol.parse(line)
+                if usage:
+                    self._last_usage.add(Usage.from_dict(usage))
+                for delta in deltas:
+                    aggregated.accumulate(delta)
+                    if stream_cb:
+                        if delta.reasoning_content:
+                            stream_cb(delta.reasoning_content, 'reason')
+                        if delta.content and not delta.reasoning_content:
+                            stream_cb(delta.content, 'text')
+        return response
 
     async def chat(self, text: str, *, model: str = None, history: Optional[list[dict]] = None,
                    tools: Optional[list[dict]] = None, stream_cb=None):

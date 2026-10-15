@@ -1,10 +1,10 @@
 import json
 
-from chatchat.protocols import Delta, ToolCall
+from chatchat.protocols import Chain, Delta, ToolCall
 
 
 def endpoint(base_url):
-    return base_url.rstrip('/') + '/chat/completions'
+    return base_url.rstrip('/') + '/responses'
 
 
 def headers(api_key):
@@ -12,14 +12,37 @@ def headers(api_key):
             'Content-Type': 'application/json'}
 
 
+def new_chain():
+    return Chain()
+
+
+def _tail_fp(message):
+    return f'{message.get("role")}:{len(str(message.get("content")))}'
+
+
+def _chained(messages, chain):
+    return (chain is not None and chain.response_id
+            and len(messages) >= chain.sent
+            and _tail_fp(messages[chain.sent - 1]) == chain.tail_fp)
+
+
+def advance(chain, response_id, messages):
+    return Chain(response_id=response_id, sent=len(messages),
+                 tail_fp=_tail_fp(messages[-1]) if messages else '')
+
+
 def _image_part(block):
     source = block.get('source') or {}
     media = source.get('media_type') or 'image/png'
-    return {'type': 'image_url',
-            'image_url': {'url': f'data:{media};base64,{source.get("data", "")}'}}
+    return {'type': 'input_image',
+            'image_url': f'data:{media};base64,{source.get("data", "")}'}
 
 
-def _user_parts(blocks):
+def _input_text(text):
+    return {'type': 'input_text', 'text': text or ''}
+
+
+def _parts(blocks):
     parts = []
     for b in blocks:
         if not isinstance(b, dict):
@@ -27,90 +50,122 @@ def _user_parts(blocks):
         if b.get('type') == 'image':
             parts.append(_image_part(b))
         elif b.get('type') == 'text':
-            parts.append({'type': 'text', 'text': b.get('text') or ''})
+            parts.append(_input_text(b.get('text')))
     return parts
 
 
-def _split_tool_result(block):
-    content = block.get('content')
+def _tool_output(content):
     if not isinstance(content, list):
-        return content or '', []
-    text = '\n'.join(x.get('text') or '' for x in content
-                     if isinstance(x, dict) and x.get('type') == 'text')
-    images = [x for x in content
-              if isinstance(x, dict) and x.get('type') == 'image']
-    return text, images
+        return content or ''
+    return _parts(content)
 
 
-def to_openai(messages):
-    out = []
+def input_items(messages):
+    items = []
     for m in messages:
-        role = m.get('role', 'user')
+        role = m.get('role')
         c = m.get('content')
-        if isinstance(c, list) and c:
-            if role == 'assistant':
-                calls = [{'id': t.get('id'), 'type': 'function',
-                          'function': {'name': t.get('name'),
-                                       'arguments': json.dumps(t.get('input', {}))}}
-                         for t in c if t.get('type') == 'tool_use']
-                out.append({'role': 'assistant', 'content': None, 'tool_calls': calls})
-            elif not any(isinstance(b, dict) and b.get('type') == 'tool_result'
-                         for b in c):
-                out.append({'role': role, 'content': _user_parts(c)})
+        if role == 'system':
+            continue
+        if role == 'assistant':
+            items += [dict(item) for item in (m.get('response_items') or [])]
+            if isinstance(c, list):
+                items += [{'type': 'function_call', 'call_id': b.get('id'),
+                           'name': b.get('name'),
+                           'arguments': json.dumps(b.get('input', {}))}
+                          for b in c if b.get('type') == 'tool_use']
+            elif c:
+                items.append({'role': 'assistant',
+                              'content': [{'type': 'output_text',
+                                           'text': c}]})
+            continue
+        if isinstance(c, list):
+            has_result = any(isinstance(b, dict) and b.get('type') == 'tool_result'
+                             for b in c)
+            if has_result:
+                for b in c:
+                    if not isinstance(b, dict):
+                        continue
+                    if b.get('type') == 'tool_result':
+                        items.append({'type': 'function_call_output',
+                                      'call_id': b.get('tool_use_id'),
+                                      'output': _tool_output(b.get('content'))})
+                    elif b.get('type') == 'text':
+                        items.append({'role': 'user',
+                                      'content': [_input_text(b.get('text'))]})
             else:
-                images = []
-                for t in c:
-                    if isinstance(t, dict) and t.get('type') == 'tool_result':
-                        text, found = _split_tool_result(t)
-                        images += found
-                    else:
-                        text = t.get('content', '')
-                    out.append({'role': 'tool',
-                                'tool_call_id': t.get('tool_use_id'),
-                                'content': text})
-                if images:
-                    out.append({'role': 'user',
-                                'content': [_image_part(b) for b in images]})
-        else:
-            out.append({'role': role, 'content': c or ''})
-    return out
+                parts = _parts(c)
+                if parts:
+                    items.append({'role': 'user', 'content': parts})
+            continue
+        items.append({'role': role or 'user', 'content': c or ''})
+    return items
 
 
-def to_openai_tools(schemas):
-    return [{'type': 'function', 'function': {
-        'name': s['name'],
-        'description': s.get('description', ''),
-        'parameters': s.get('input_schema', {}),
-    }} for s in schemas]
-
-
-def payload(messages, tools, model, thinking):
-    body = {'model': model, 'messages': to_openai(messages), 'stream': True,
-            'stream_options': {'include_usage': True}}
-    body.update(thinking.request())
+def payload(messages, tools, model, thinking, chain=None):
+    system = [m['content'] for m in messages
+              if m.get('role') == 'system' and m.get('content')]
+    body = {'model': model, 'stream': True, 'store': True,
+            'include': ['reasoning.encrypted_content']}
+    if system:
+        body['instructions'] = '\n\n'.join(system)
+    if _chained(messages, chain):
+        body['previous_response_id'] = chain.response_id
+        body['input'] = input_items(messages[chain.sent:])
+    else:
+        body['input'] = input_items(messages)
+    if thinking.mode != 'off' and thinking.effort:
+        body['reasoning'] = {'effort': thinking.effort}
     if tools:
-        body['tools'] = to_openai_tools(tools)
+        body['tools'] = [{'type': 'function', 'name': s['name'],
+                          'description': s.get('description', ''),
+                          'parameters': s.get('input_schema', {})}
+                         for s in tools]
     return body
+
+
+def _usage(u):
+    usage = {'prompt_tokens': u.get('input_tokens', 0),
+             'completion_tokens': u.get('output_tokens', 0),
+             'total_tokens': u.get('total_tokens')
+                             or (u.get('input_tokens', 0)
+                                 + u.get('output_tokens', 0))}
+    details = u.get('input_tokens_details') or {}
+    if details.get('cached_tokens'):
+        usage['prompt_tokens_details'] = {
+            'cached_tokens': details['cached_tokens']}
+    return usage
 
 
 def parse(line):
     line = line.strip()
-    if not line or line == b'[DONE]':
-        return None, []
-    if line.startswith(b'data:'):
-        line = line[5:].strip()
+    if not line.startswith(b'data:'):
+        return None, [], None
     try:
-        data = json.loads(line)
+        data = json.loads(line[5:].strip())
     except json.JSONDecodeError:
-        return None, []
-    deltas = []
-    for ch in data.get('choices') or []:
-        d = ch.get('delta', {})
-        tcs = [ToolCall(index=tc.get('index', 0), id=tc.get('id') or '',
-                        name=(tc.get('function') or {}).get('name') or '',
-                        arguments=(tc.get('function') or {}).get('arguments') or '')
-               for tc in d.get('tool_calls') or []]
-        deltas.append(Delta(role=d.get('role') or '', content=d.get('content') or '',
-                            reasoning_content=d.get('reasoning_content') or '',
-                            tool_calls=tcs))
-    return data.get('usage'), deltas
+        return None, [], None
+    kind = data.get('type')
+    if kind == 'response.output_text.delta':
+        return None, [Delta(content=data.get('delta') or '')], None
+    if kind in ('response.reasoning_text.delta',
+                'response.reasoning_summary_text.delta'):
+        return None, [Delta(reasoning_content=data.get('delta') or '')], None
+    if kind == 'response.output_item.added':
+        item = data.get('item') or {}
+        if item.get('type') == 'function_call':
+            tc = ToolCall(index=data.get('output_index', 0),
+                          id=item.get('call_id') or '',
+                          name=item.get('name') or '')
+            return None, [Delta(tool_calls=[tc])], None
+        if item.get('type') == 'reasoning':
+            return None, [], None
+        return None, [], None
+    if kind == 'response.function_call_arguments.delta':
+        tc = ToolCall(index=data.get('output_index', 0),
+                      arguments=data.get('delta') or '')
+        return None, [Delta(tool_calls=[tc])], None
+    if kind == 'response.completed':
+        response = data.get('response') or {}
+        return _usage(response.get('usage') or {}), [], response
+    return None, [], None

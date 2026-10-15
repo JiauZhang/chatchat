@@ -83,17 +83,10 @@ def _payload_for(monkeypatch, thinking) -> dict:
     return captured['payload']
 
 
-def test_respond_payload_carries_the_thinking_setting(monkeypatch):
-    for thinking, expected in ((Thinking('off'), 'disabled'),
-                               (Thinking(), 'enabled')):
-        assert _payload_for(monkeypatch, thinking)['thinking'] == {
-            'type': expected}
-    budgeted = _payload_for(monkeypatch, Thinking('on', budget=8000))
-    assert budgeted['thinking'] == {'type': 'enabled', 'budget_tokens': 8000}
-    effort = _payload_for(monkeypatch, Thinking(effort='high'))
-    assert effort['reasoning_effort'] == 'high'
-    assert 'reasoning_effort' not in _payload_for(monkeypatch,
-                                                  Thinking('off'))
+def test_respond_payload_carries_the_reasoning_setting(monkeypatch):
+    effort = _payload_for(monkeypatch, Thinking('on', effort='high'))
+    assert effort['reasoning'] == {'effort': 'high'}
+    assert 'reasoning' not in _payload_for(monkeypatch, Thinking('off'))
 
 
 def test_the_mock_client_answers_the_model_question_a_real_one_answers():

@@ -14,7 +14,7 @@ def headers(api_key):
             'Content-Type': 'application/json'}
 
 
-def payload(messages, tools, model, thinking, max_tokens=8192):
+def payload(messages, tools, model, thinking, chain=None, max_tokens=8192):
     system = [m['content'] for m in messages
               if m.get('role') == 'system' and m.get('content')]
     body = {'model': model, 'max_tokens': max_tokens, 'stream': True,
@@ -46,33 +46,33 @@ def _usage(u):
 def parse(line):
     line = line.strip()
     if not line.startswith(b'data:'):
-        return None, []
+        return None, [], None
     try:
         data = json.loads(line[5:].strip())
     except json.JSONDecodeError:
-        return None, []
+        return None, [], None
     kind = data.get('type')
     if kind == 'message_start':
-        return _usage((data.get('message') or {}).get('usage') or {}), []
+        return _usage((data.get('message') or {}).get('usage') or {}), [], None
     if kind == 'message_delta':
         u = data.get('usage') or {}
         return {'completion_tokens': u.get('output_tokens', 0),
-                'total_tokens': u.get('output_tokens', 0)}, []
+                'total_tokens': u.get('output_tokens', 0)}, [], None
     if kind == 'content_block_start':
         block = data.get('content_block') or {}
         if block.get('type') != 'tool_use':
-            return None, []
+            return None, [], None
         return None, [Delta(tool_calls=[ToolCall(index=data.get('index', 0),
                                                  id=block.get('id') or '',
-                                                 name=block.get('name') or '')])]
+                                                 name=block.get('name') or '')])], None
     if kind == 'content_block_delta':
         delta = data.get('delta') or {}
         dtype = delta.get('type')
         if dtype == 'text_delta':
-            return None, [Delta(content=delta.get('text') or '')]
+            return None, [Delta(content=delta.get('text') or '')], None
         if dtype == 'thinking_delta':
-            return None, [Delta(reasoning_content=delta.get('thinking') or '')]
+            return None, [Delta(reasoning_content=delta.get('thinking') or '')], None
         if dtype == 'input_json_delta':
             return None, [Delta(tool_calls=[ToolCall(index=data.get('index', 0),
-                                                     arguments=delta.get('partial_json') or '')])]
-    return None, []
+                                                     arguments=delta.get('partial_json') or '')])], None
+    return None, [], None
