@@ -5,7 +5,7 @@ import pytest
 from chatchat.runtime.thinking import Thinking
 from chatchat.protocols.anthropic import payload as a_payload
 from chatchat.protocols.anthropic import parse as a_parse
-from chatchat.protocols.openai import (Chain, advance, parse as o_parse,
+from chatchat.protocols.openai import (parse as o_parse,
                                        payload as o_payload)
 from chatchat.protocols.openai import endpoint, headers, input_items
 
@@ -40,7 +40,7 @@ def test_openai_payload_uses_instructions_for_system():
     body = o_payload(messages, None, 'm1', Thinking('off'))
     assert body['instructions'] == 'be brief'
     assert body['input'] == [{'role': 'user', 'content': 'hi'}]
-    assert body['stream'] is True and body['store'] is True
+    assert body['stream'] is True and body['store'] is False
     assert body['include'] == ['reasoning.encrypted_content']
     assert 'reasoning' not in body and 'thinking' not in body
 
@@ -108,45 +108,8 @@ def test_openai_effort_maps_to_the_reasoning_field():
     assert 'reasoning' not in o_payload(messages, None, 'm1', Thinking('off'))
 
 
-def test_openai_chain_sends_only_the_delta():
-    messages = [{'role': 'user', 'content': 'weather?'},
-                {'role': 'assistant', 'content': ASSISTANT_TOOL_USE},
-                {'role': 'user', 'content': USER_TOOL_RESULT}]
-    chain = advance(None, 'resp_1', messages)
-    grown = messages + [{'role': 'user', 'content': 'and tomorrow?'}]
-    body = o_payload(grown, None, 'm1', Thinking('off'), chain)
-    assert body['previous_response_id'] == 'resp_1'
-    assert body['input'] == [{'role': 'user', 'content': 'and tomorrow?'}]
 
 
-def test_openai_a_rewritten_history_resets_the_chain():
-    messages = [{'role': 'user', 'content': 'weather?'},
-                {'role': 'assistant', 'content': ASSISTANT_TOOL_USE},
-                {'role': 'user', 'content': USER_TOOL_RESULT}]
-    chain = advance(None, 'resp_1', messages)
-    compacted = [{'role': 'user', 'content': 'summary of all of it'},
-                 messages[-1]]
-    body = o_payload(compacted, None, 'm1', Thinking('off'), chain)
-    assert 'previous_response_id' not in body
-    assert body['input'][0] == {'role': 'user',
-                                'content': 'summary of all of it'}
-
-
-def test_openai_a_fresh_chain_sends_everything():
-    messages = [{'role': 'user', 'content': 'hi'}]
-    body = o_payload(messages, None, 'm1', Thinking('off'), Chain())
-    assert 'previous_response_id' not in body
-    assert body['input'] == [{'role': 'user', 'content': 'hi'}]
-
-
-def test_chain_advance_rolls_the_head_to_the_latest_response():
-    messages = [{'role': 'user', 'content': 'hi'}]
-    chain = advance(None, 'resp_1', messages)
-    assert chain.response_id == 'resp_1' and chain.sent == 1
-    assert chain.tail_fp
-    grown = messages + [{'role': 'user', 'content': 'more'}]
-    nxt = advance(chain, 'resp_2', grown)
-    assert nxt.response_id == 'resp_2' and nxt.sent == 2
 
 
 def test_openai_parse_reads_text_usage_and_response():

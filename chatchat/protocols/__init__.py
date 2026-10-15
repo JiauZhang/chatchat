@@ -17,13 +17,6 @@ class Delta:
     reasoning_content: str = ''
 
 
-@dataclass
-class Chain:
-    response_id: str = ''
-    sent: int = 0
-    tail_fp: str = ''
-
-
 from chatchat.protocols import anthropic, openai  # noqa: E402
 
 PROTOCOLS = {'openai': openai, 'anthropic': anthropic}

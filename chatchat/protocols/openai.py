@@ -1,6 +1,6 @@
 import json
 
-from chatchat.protocols import Chain, Delta, ToolCall
+from chatchat.protocols import Delta, ToolCall
 
 
 def endpoint(base_url):
@@ -10,25 +10,6 @@ def endpoint(base_url):
 def headers(api_key):
     return {'Authorization': f'Bearer {api_key}',
             'Content-Type': 'application/json'}
-
-
-def new_chain():
-    return Chain()
-
-
-def _tail_fp(message):
-    return f'{message.get("role")}:{len(str(message.get("content")))}'
-
-
-def _chained(messages, chain):
-    return (chain is not None and chain.response_id
-            and len(messages) >= chain.sent
-            and _tail_fp(messages[chain.sent - 1]) == chain.tail_fp)
-
-
-def advance(chain, response_id, messages):
-    return Chain(response_id=response_id, sent=len(messages),
-                 tail_fp=_tail_fp(messages[-1]) if messages else '')
 
 
 def _image_part(block):
@@ -105,15 +86,11 @@ def input_items(messages):
 def payload(messages, tools, model, thinking, chain=None):
     system = [m['content'] for m in messages
               if m.get('role') == 'system' and m.get('content')]
-    body = {'model': model, 'stream': True, 'store': True,
-            'include': ['reasoning.encrypted_content']}
+    body = {'model': model, 'stream': True, 'store': False,
+            'include': ['reasoning.encrypted_content'],
+            'input': input_items(messages)}
     if system:
         body['instructions'] = '\n\n'.join(system)
-    if _chained(messages, chain):
-        body['previous_response_id'] = chain.response_id
-        body['input'] = input_items(messages[chain.sent:])
-    else:
-        body['input'] = input_items(messages)
     if thinking.mode != 'off' and thinking.effort:
         body['reasoning'] = {'effort': thinking.effort}
     if tools:
