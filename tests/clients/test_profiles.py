@@ -3,9 +3,7 @@ import os
 
 import pytest
 
-from pathlib import Path
-
-from chatchat.client import _home_dir, expand_home, load_profile
+from chatchat.client import load_profile
 
 
 def _secret_file(monkeypatch, tmp_path, data):
@@ -91,18 +89,3 @@ def test_env_alone_can_serve_a_profile(monkeypatch, tmp_path):
     assert load_profile('openai')['api_key'] == 'sk-env'
 
 
-def test_expand_home_resolves_tilde_without_trusting_home(monkeypatch):
-    monkeypatch.setenv('HOME', '/nonexistent-home')
-    assert expand_home('~/.chatchat/config.json') == \
-        _home_dir() / '.chatchat' / 'config.json'
-
-
-def test_home_dir_falls_back_to_the_real_user_home(monkeypatch):
-    import pwd
-    monkeypatch.setenv('HOME', '/')
-    real = pwd.getpwuid(os.getuid()).pw_dir
-    assert str(_home_dir()) == real
-
-
-def test_expand_home_passes_absolute_paths_through():
-    assert expand_home('/etc/config.json') == Path('/etc/config.json')

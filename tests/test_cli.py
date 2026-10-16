@@ -1,6 +1,6 @@
 import asyncio
 import json
-import os
+from pathlib import Path
 import subprocess
 import sys
 from argparse import Namespace
@@ -137,13 +137,10 @@ def test_config_lists_configured_profiles(monkeypatch, tmp_path, capsys):
     assert 'official' not in printed
 
 
-def test_the_secret_file_defaults_to_chatchat_config(monkeypatch, tmp_path):
-    """The tilde is resolved against the real user home, never a broken $HOME."""
-    _home(monkeypatch, tmp_path, 'HOME', '/')
+def test_the_secret_file_defaults_to_chatchat_config(monkeypatch):
     monkeypatch.delenv('CHATCHAT_SECRET_FILE', raising=False)
-    import pwd
-    real = pwd.getpwuid(os.getuid()).pw_dir
-    assert str(secret_file()) == f'{real}/.chatchat/config.json'
+    assert str(secret_file()) == \
+        str(Path('~/.chatchat/config.json').expanduser())
 
 
 def test_profiles_live_in_their_own_file_not_chatchat_home(monkeypatch,

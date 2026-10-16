@@ -96,27 +96,9 @@ def _is_json(s: str) -> bool:
     return True
 
 
-def _home_dir() -> Path:
-    home = os.environ.get('HOME') or ''
-    if home not in ('', '/', '~'):
-        return Path(home)
-    try:
-        import pwd
-        return Path(pwd.getpwuid(os.getuid()).pw_dir or os.path.sep)
-    except Exception:
-        return Path.home()
-
-
-def expand_home(raw: str) -> Path:
-    if not raw.startswith('~'):
-        return Path(raw)
-    parts = Path(raw).parts
-    return _home_dir().joinpath(*parts[1:]) if len(parts) > 1 else _home_dir()
-
-
 def secret_file() -> Path:
-    return expand_home(os.environ.get('CHATCHAT_SECRET_FILE',
-                                      '~/.chatchat/config.json'))
+    return Path(os.environ.get('CHATCHAT_SECRET_FILE',
+                               '~/.chatchat/config.json')).expanduser()
 
 
 def _profile_entry(provider: str) -> dict:
