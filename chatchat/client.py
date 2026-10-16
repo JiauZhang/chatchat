@@ -96,61 +96,65 @@ def _is_json(s: str) -> bool:
     return True
 
 
-OFFICIAL_BASE_URLS = {'openai': 'https://api.openai.com/v1',
-                      'anthropic': 'https://api.anthropic.com'}
+def _home_dir() -> Path:
+    home = os.environ.get('HOME') or ''
+    if home not in ('', '/', '~'):
+        return Path(home)
+    try:
+        import pwd
+        return Path(pwd.getpwuid(os.getuid()).pw_dir or os.path.sep)
+    except Exception:
+        return Path.home()
+
+
+def expand_home(raw: str) -> Path:
+    if not raw.startswith('~'):
+        return Path(raw)
+    parts = Path(raw).parts
+    return _home_dir().joinpath(*parts[1:]) if len(parts) > 1 else _home_dir()
 
 
 def secret_file() -> Path:
-    return Path(os.environ.get('CHATCHAT_SECRET_FILE',
-                               '~/.chatchat.json')).expanduser()
-
-
-def _default_secret_paths():
-    chatchat_home = Path(os.environ.get('CHATCHAT_HOME',
-                                        '~/.chatchat')).expanduser()
-    return [secret_file(), chatchat_home / 'chatchat.json']
+    return expand_home(os.environ.get('CHATCHAT_SECRET_FILE',
+                                      '~/.chatchat/config.json'))
 
 
 def _profile_entry(provider: str) -> dict:
-    for f in _default_secret_paths():
-        if not f.exists():
-            continue
-        try:
-            data = json.loads(f.read_text())
-        except ValueError:
-            continue
-        if isinstance(data, dict) and isinstance(data.get(provider), dict):
-            return dict(data[provider])
+    path = secret_file()
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text())
+    except ValueError:
+        return {}
+    if isinstance(data, dict) and isinstance(data.get(provider), dict):
+        return dict(data[provider])
     return {}
 
 
 def load_profile(provider: str) -> dict:
     env = f'CHATCHAT_{provider.upper()}_'
     entry = _profile_entry(provider)
+    hint = (f'请在 config 文件（{secret_file()}）的 {provider} 条目中配置，'
+            f'或用 CHATCHAT_{provider.upper()}_ 环境变量。')
+
+    def missing(field: str) -> RuntimeError:
+        return RuntimeError(f'Provider "{provider}" 未配置 {field}。{hint}')
+
     protocol_type = (os.environ.get(env + 'TYPE')
-                 or entry.get('type') or '').strip().lower()
+                     or entry.get('type') or '').strip().lower()
     if not protocol_type:
-        protocol_type = 'anthropic' if provider == 'anthropic' else 'openai'
+        raise missing('type')
     if protocol_type not in ('openai', 'anthropic'):
         raise RuntimeError(
             f'Provider "{provider}" 的 type 必须是 openai 或 anthropic，'
             f'不是 {protocol_type!r}。')
-    base_url = (os.environ.get(env + 'BASE_URL')
-                or entry.get('base_url')
-                or OFFICIAL_BASE_URLS.get(provider, ''))
+    base_url = os.environ.get(env + 'BASE_URL') or entry.get('base_url')
     if not base_url:
-        raise RuntimeError(
-            f'Provider "{provider}" 未配置 base_url。'
-            f'请在配置文件的 {provider} 条目中添加 base_url，'
-            f'或设置 CHATCHAT_{provider.upper()}_BASE_URL。'
-            f'保留名 openai / anthropic 可省略 base_url。')
+        raise missing('base_url')
     api_key = os.environ.get(env + 'API_KEY') or entry.get('api_key')
     if not api_key:
-        raise RuntimeError(
-            f'Provider "{provider}" 未配置 api_key。'
-            f'请设置 CHATCHAT_{provider.upper()}_API_KEY '
-            f'或在 ~/.chatchat.json / ~/.chatchat/chatchat.json 的 '
-            f'{provider} 下配置。')
+        raise missing('api_key')
     return {'type': protocol_type, 'base_url': base_url, 'api_key': api_key}
 
 

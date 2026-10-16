@@ -1,11 +1,12 @@
 import asyncio
 import json
+import os
 import subprocess
 import sys
 from argparse import Namespace
 
 from chatchat.cli.team import LEAD, _run
-from chatchat.client import load_profile
+from chatchat.client import load_profile, secret_file
 from chatchat.cli import config as config_cli
 
 
@@ -123,25 +124,40 @@ def test_config_accepts_any_profile_name(monkeypatch, tmp_path, capsys):
     assert json.loads(target.read_text()) == {'nope': {'api_key': 'x'}}
 
 
-def test_config_lists_official_providers_and_configured_profiles(monkeypatch,
-                                                                 tmp_path,
-                                                                 capsys):
-    target = tmp_path / 'state' / 'secrets.json'
+def test_config_lists_configured_profiles(monkeypatch, tmp_path, capsys):
+    target = tmp_path / 'state' / 'config.json'
     _home(monkeypatch, tmp_path, 'CHATCHAT_SECRET_FILE', str(target))
     target.parent.mkdir(parents=True)
-    target.write_text(json.dumps({'agnes': {'api_key': 'k'}}))
+    target.write_text(json.dumps(
+        {'agnes': {'type': 'openai', 'base_url': 'https://x.example/v1',
+                   'api_key': 'k'}}))
     config_cli.parse_config(Namespace(list=True, cfgs=None))
     printed = capsys.readouterr().out
-    assert 'openai' in printed and 'anthropic' in printed
-    assert 'agnes' in printed
+    assert 'agnes' in printed and 'config file' in printed
+    assert 'official' not in printed
 
 
-def test_a_tilde_in_chatchat_home_is_expanded_while_reading_secrets(monkeypatch,
-                                                                    tmp_path):
+def test_the_secret_file_defaults_to_chatchat_config(monkeypatch, tmp_path):
+    """The tilde is resolved against the real user home, never a broken $HOME."""
+    _home(monkeypatch, tmp_path, 'HOME', '/')
+    monkeypatch.delenv('CHATCHAT_SECRET_FILE', raising=False)
+    import pwd
+    real = pwd.getpwuid(os.getuid()).pw_dir
+    assert str(secret_file()) == f'{real}/.chatchat/config.json'
+
+
+def test_profiles_live_in_their_own_file_not_chatchat_home(monkeypatch,
+                                                           tmp_path):
+    """CHATCHAT_HOME no longer decides where credentials live."""
     (tmp_path / '.pyclaw').mkdir()
     (tmp_path / '.pyclaw' / 'chatchat.json').write_text(
-        json.dumps({'agnes': {'api_key': 'from-home',
-                              'base_url': 'https://apihub.agnes-ai.com/v1'}}))
+        json.dumps({'agnes': {'type': 'openai',
+                              'base_url': 'https://apihub.agnes-ai.com/v1',
+                              'api_key': 'from-home'}}))
     _home(monkeypatch, tmp_path, 'CHATCHAT_HOME', '~/.pyclaw')
     monkeypatch.delenv('CHATCHAT_SECRET_FILE', raising=False)
-    assert load_profile('agnes')['api_key'] == 'from-home'
+    try:
+        load_profile('agnes')
+        assert False, 'chatchat.json under CHATCHAT_HOME must be ignored'
+    except RuntimeError as e:
+        assert 'base_url' in str(e) or 'agnes' in str(e)
