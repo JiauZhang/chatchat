@@ -50,7 +50,8 @@ def test_openai_payload_converts_the_tool_flow():
                 {'role': 'assistant', 'content': ASSISTANT_TOOL_USE},
                 {'role': 'user', 'content': USER_TOOL_RESULT}]
     body = o_payload(messages, TOOLS, 'm1', Thinking('off'))
-    assert body['input'][1] == {'type': 'function_call', 'call_id': 't1',
+    assert body['input'][1] == {'type': 'function_call', 'id': 'fc_t1',
+                                'call_id': 't1',
                                 'name': 'weather',
                                 'arguments': '{"city": "Beijing"}'}
     assert body['input'][2] == {'type': 'function_call_output',
@@ -65,13 +66,27 @@ def test_openai_payload_converts_the_tool_flow():
                                                  'city': {'type': 'string'}}}}]
 
 
-def test_openai_replays_reasoning_items_before_their_tool_calls():
+def test_openai_replays_the_response_output_verbatim():
+    """The saved output items (reasoning, function_call with both ids) go back
+    exactly as the API emitted them; nothing is re-synthesised on top."""
+    fc = {'type': 'function_call', 'id': 'fc_1', 'call_id': 't1',
+          'name': 'weather', 'arguments': '{"city": "Beijing"}'}
     messages = [{'role': 'user', 'content': 'weather?'},
                 {'role': 'assistant', 'content': ASSISTANT_TOOL_USE,
-                 'response_items': [REASONING_ITEM]}]
+                 'response_items': [REASONING_ITEM, fc]}]
     body = o_payload(messages, None, 'm1', Thinking('off'))
     assert body['input'][1] == REASONING_ITEM
-    assert body['input'][2]['type'] == 'function_call'
+    assert body['input'][2] == fc
+    assert len(body['input']) == 3
+
+
+def test_openai_synthesises_function_calls_without_saved_output():
+    messages = [{'role': 'user', 'content': 'weather?'},
+                {'role': 'assistant', 'content': ASSISTANT_TOOL_USE}]
+    body = o_payload(messages, None, 'm1', Thinking('off'))
+    assert body['input'][1] == {'type': 'function_call', 'id': 'fc_t1',
+                                'call_id': 't1', 'name': 'weather',
+                                'arguments': '{"city": "Beijing"}'}
 
 
 def test_openai_user_image_becomes_an_input_image_part():

@@ -172,9 +172,7 @@ class Client:
             response = await self._stream(session, payload, aggregated,
                                           stream_cb)
         output = (response or {}).get('output') or []
-        self._last_response_items = [i for i in output
-                                     if isinstance(i, dict)
-                                     and i.get('type') == 'reasoning']
+        self._last_response_items = [i for i in output if isinstance(i, dict)]
         if not aggregated.tool_calls:
             return aggregated.content
         outs = []

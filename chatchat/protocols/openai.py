@@ -49,9 +49,12 @@ def input_items(messages):
         if role == 'system':
             continue
         if role == 'assistant':
-            items += [dict(item) for item in (m.get('response_items') or [])]
-            if isinstance(c, list):
-                items += [{'type': 'function_call', 'call_id': b.get('id'),
+            replay = m.get('response_items')
+            if replay:
+                items += [dict(item) for item in replay]
+            elif isinstance(c, list):
+                items += [{'type': 'function_call', 'id': f"fc_{b.get('id')}",
+                           'call_id': b.get('id'),
                            'name': b.get('name'),
                            'arguments': json.dumps(b.get('input', {}))}
                           for b in c if b.get('type') == 'tool_use']
