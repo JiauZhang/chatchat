@@ -42,7 +42,6 @@ def test_spawn_subagent_emits_progress_with_usage():
     assert progress[0].data["prompt"] == "干活"
     assert progress[0].data["subagent_type"] == "coder"
     msgs = [ev.data["message"] for ev in progress if "message" in ev.data]
-    tool_use = next(m for m in msgs if m["role"] == "assistant" and any(b.get("type") == "tool_use" for b in m["content"]))
     assert any(m["role"] == "user" for m in msgs)
     assert progress[-1].data["done"] is True
     with_usage = [ev for ev in progress if "usage" in ev.data]

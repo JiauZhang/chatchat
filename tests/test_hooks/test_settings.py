@@ -1,6 +1,6 @@
 import json
 
-from chatchat.hooks.schemas import HookCommand, IndividualHookConfig
+from chatchat.hooks.schemas import HookCommand
 from chatchat.hooks.settings import dedupe_hooks, get_all_hooks, is_hook_equal, hook_from_dict, settings_file_paths
 
 

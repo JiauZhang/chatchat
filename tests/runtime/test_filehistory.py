@@ -1,8 +1,6 @@
 """The file history has to be able to put a workspace back, so every promise
 the rewind dialog makes is tested here."""
 
-from pathlib import Path
-
 from chatchat.runtime.filehistory import FileHistory
 
 

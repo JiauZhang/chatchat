@@ -119,8 +119,6 @@ def test_a_persisted_team_records_the_leader_conversation(tmp_path):
 
 
 def test_teammates_are_recorded_while_the_team_lives(tmp_path):
-    store_dir = None
-
     async def main():
         team = mock_team("pyclaw-5", team_store=(store_dir := tmp_path / "teams"), mailbox_dir=tmp_path / "mailboxes")
         team.join_team("parser")

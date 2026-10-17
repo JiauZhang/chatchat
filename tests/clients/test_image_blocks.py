@@ -1,11 +1,10 @@
 import asyncio
-from pathlib import Path
 
 from chatchat.protocols.anthropic import payload as a_payload
 from chatchat.protocols.openai import payload as o_payload
 from chatchat.runtime.thinking import Thinking
 from chatchat.runtime.tokens import rough
-from chatchat.tool import Tool, ToolContext, ToolResult
+from chatchat.tool import Tool, ToolResult
 from helpers import mock_team
 
 PNG = {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "aGk="}}

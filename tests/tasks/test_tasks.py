@@ -1,7 +1,7 @@
 import asyncio
 import json
 
-from chatchat.tasks.tasks import Claim, TaskItem, TaskList, work_prompt
+from chatchat.tasks.tasks import Claim, TaskItem, TaskList
 from helpers import mock_team
 
 

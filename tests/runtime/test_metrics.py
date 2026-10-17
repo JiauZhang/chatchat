@@ -1,7 +1,5 @@
 """A turn's cost is more than tokens: what it touched, how long it took, what it was refused."""
 
-from unittest.mock import ANY
-
 from chatchat.runtime.metrics import Metrics
 
 

@@ -7,7 +7,6 @@ from chatchat.hooks.events import (
     register_hook_event_handler,
     register_runtime_handler,
 )
-from chatchat.hooks.schemas import get_hook_display_text
 
 
 def default_hook_logger(event):

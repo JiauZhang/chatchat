@@ -672,7 +672,3 @@ class Team(SubagentsMixin, TeamSchemasMixin, ToolRunnerMixin):
         agent = self.agents.get(agent_id)
         if agent is not None:
             asyncio.get_running_loop().create_task(agent.stop())
-
-
-def create_team(name: str, client=None, client_factory=None, lead_instruction: str = "", **kw) -> Team:
-    return Team(name, client=client, client_factory=client_factory, lead_instruction=lead_instruction, **kw)

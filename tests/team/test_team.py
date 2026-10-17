@@ -3,7 +3,6 @@ import inspect
 import json
 
 from chatchat.client import MockClient, ToolUse
-from chatchat.team import team as core_team
 from chatchat.tools import team_tools as core_tools
 from chatchat.team.agents import AgentDefinition
 from chatchat.team.inbox_poller import InboxPoller

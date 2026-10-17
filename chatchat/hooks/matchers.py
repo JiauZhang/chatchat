@@ -1,5 +1,4 @@
 import fnmatch
-import json
 import re
 
 _IF_CONDITION_RE = re.compile(r"^(\w+)\((.*)\)$")

@@ -4,6 +4,10 @@ import copy
 import inspect
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from chatchat.runtime.filehistory import FileHistory
 
 
 DEFAULT_MAX_RESULT_CHARS = 50_000
@@ -13,7 +17,7 @@ _TRUNCATED = "\n\n... [output exceeded {limit} characters and was truncated] ...
 @dataclass
 class ToolContext:
     cwd: Path
-    files: "FileHistory | None" = None
+    files: FileHistory | None = None
     extra_dirs: tuple = ()
 
     def track_edit(self, path) -> None:
