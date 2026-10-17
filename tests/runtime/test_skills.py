@@ -184,7 +184,7 @@ def test_a_team_without_skills_does_not_offer_the_tool(tmp_path):
     assert "Skill" not in asyncio.run(main())
 
 
-def test_the_skill_tool_description_lists_what_is_available(tmp_path):
+def test_the_skill_tool_description_is_static_the_listing_rides_an_attachment(tmp_path):
     import asyncio
 
     from helpers import mock_team
@@ -195,7 +195,8 @@ def test_the_skill_tool_description_lists_what_is_available(tmp_path):
         return schema["description"]
 
     description = asyncio.run(main())
-    assert "- notes: work on notes" in description
+    assert "system-reminder" in description
+    assert "- notes:" not in description
 
 
 def test_using_a_skill_gives_the_model_its_full_body(tmp_path):
@@ -256,3 +257,72 @@ def test_using_a_skill_tells_the_host_what_it_declared_it_needs(tmp_path):
 
     asyncio.run(main())
     assert granted == [("Read", "Grep")]
+
+
+def test_a_conditional_skill_hides_from_the_model_until_a_path_activates_it(tmp_path):
+    home = tmp_path / "home" / "skills"
+    _skill(home, "tester", "name: tester\ndescription: the testing rules\npaths: test_*.py\n")
+    registry = SkillRegistry.discover(cwd=tmp_path / "ws", home=tmp_path / "home", subdir="skills")
+    version = registry.listing_version
+
+    assert [skill.name for skill in registry.for_model()] == []
+    assert [skill.name for skill in registry.for_user()] == ["tester"]
+
+    fresh = registry.activate_for_paths([str(tmp_path / "ws" / "test_x.py")])
+    assert [skill.name for skill in fresh] == ["tester"]
+    assert [skill.name for skill in registry.for_model()] == ["tester"]
+    assert registry.listing_version > version
+    assert registry.activate_for_paths([str(tmp_path / "ws" / "test_x.py")]) == []
+
+
+def test_a_non_matching_path_leaves_the_conditional_skill_hidden(tmp_path):
+    home = tmp_path / "home" / "skills"
+    _skill(home, "tester", "name: tester\ndescription: the testing rules\npaths: test_*.py\n")
+    registry = SkillRegistry.discover(cwd=tmp_path / "ws", home=tmp_path / "home", subdir="skills")
+    assert registry.activate_for_paths([str(tmp_path / "ws" / "src" / "main.py")]) == []
+    assert registry.for_model() == []
+
+
+def test_touching_a_matching_file_lists_the_skill_in_a_system_reminder(tmp_path):
+    import asyncio
+
+    from chatchat.client import MockClient, ToolUse
+    from chatchat.team.team import Team
+    from chatchat.tool import Tool
+
+    home = tmp_path / "home" / "skills"
+    _skill(home, "tester", "name: tester\ndescription: the testing rules\npaths: test_*.py\n")
+    registry = SkillRegistry.discover(cwd=tmp_path / "ws", home=tmp_path / "home", subdir="skills")
+    touched = tmp_path / "ws" / "test_x.py"
+    touched.parent.mkdir(parents=True)
+    touched.write_text("x", encoding="utf-8")
+
+    async def handler(messages, tools=None, *, stream_cb=None):
+        if any(isinstance(m.get("content"), list) for m in messages):
+            return "done"
+        return [ToolUse("Read", {"file_path": str(touched)}, "t1")]
+
+    def read(context, file_path):
+        return "content"
+
+    async def main():
+        team = Team(
+            "cond",
+            MockClient(handler=handler),
+            skills=registry,
+            tools=[
+                Tool(tool=read, name="Read", description="read a file", read_only=True, get_path=lambda a: a.get("file_path"))
+            ],
+        )
+        await team.query("look at the test file")
+        return team
+
+    team = asyncio.run(main())
+
+    assert registry.activated == {"tester"}
+    reminders = [
+        m["content"]
+        for m in team.lead.messages
+        if m["role"] == "user" and isinstance(m["content"], str) and "Available skills:" in m["content"]
+    ]
+    assert any("- tester: the testing rules" in reminder for reminder in reminders)

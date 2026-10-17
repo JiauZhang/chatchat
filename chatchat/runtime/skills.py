@@ -96,6 +96,8 @@ class Skill:
 class SkillRegistry:
     skills: dict = field(default_factory=dict)
     problems: list = field(default_factory=list)
+    activated: set = field(default_factory=set)
+    listing_version: int = 0
 
     @classmethod
     def discover(cls, cwd, home, subdir: str = ".pyclaw") -> "SkillRegistry":
@@ -128,12 +130,39 @@ class SkillRegistry:
         """Add a skill that ships with the program rather than a directory, so
         it is listed, invoked and gated exactly like one read from disk."""
         self.skills[skill.name] = skill
+        self.listing_version += 1
 
     def for_model(self) -> list:
-        return [skill for skill in self.all() if not skill.disable_model_invocation]
+        """What the model sees. A conditional skill (paths frontmatter) stays
+        hidden until a touched file matches it and activate_for_paths turns it
+        on; after that it is listed like any other skill for the session."""
+        return [
+            skill
+            for skill in self.all()
+            if not skill.disable_model_invocation and (not skill.paths or skill.name in self.activated)
+        ]
+
+    def conditional(self) -> list:
+        return [skill for skill in self.all() if skill.paths]
+
+    def activate_for_paths(self, paths) -> list:
+        """Activate conditional skills whose patterns match any touched path.
+        Returns the skills that became available; each activation bumps the
+        listing version so the agent loop re-emits the listing attachment."""
+        fresh = []
+        for path in paths or ():
+            for skill in self.conditional():
+                if skill.name in self.activated:
+                    continue
+                if skill.matches(path):
+                    self.activated.add(skill.name)
+                    self.listing_version += 1
+                    fresh.append(skill)
+        return fresh
 
     def for_user(self) -> list:
-        """What the terminal can type as a slash command."""
+        """What the terminal can type as a slash command. Conditional skills
+        stay listed here: the user may invoke them before any file matches."""
         return [skill for skill in self.all() if skill.user_invocable]
 
     def get(self, name: str):

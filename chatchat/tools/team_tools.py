@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import inspect
 
-from chatchat.runtime.skills import listing_budget
 from chatchat.runtime.structured import STRUCTURED_OUTPUT_TOOL
 from chatchat.tool import Tool, ToolContext, describe_tools, tool
 from chatchat.tasks.cron import human
@@ -722,13 +721,14 @@ def team_tools(team) -> list[Tool]:
         tools += [send_message, task_output, task_stop, team_create, team_delete]
     if team.tasks is not None:
         tools += [task_create, task_list, task_get, task_update]
-    if team.skills.for_model():
-        listing = team.skills.listing(listing_budget(team.context_window))
+    if team.skills.all():
         tools.append(
             use_skill.with_description(
                 "Load the full instructions of one skill when the task at hand "
-                "is one it covers. The listing below only says what each skill "
-                "is for; the steps come from this call.\n\nAvailable skills:\n" + listing
+                "is one it covers. The steps come from this call. Available "
+                "skills are listed in system-reminder messages in the "
+                "conversation, so a skill the user added mid-session or one "
+                "that just activated on a touched file shows up there."
             )
         )
     if team.can_worktree:

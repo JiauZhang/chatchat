@@ -146,10 +146,10 @@ def test_a_skill_the_user_keeps_for_themselves_is_closed_to_the_model():
         team.skills.register(Skill(name="commit", description="write a message", body_text="open"))
         refused = await _tools.use_skill(None, team=team, agent=team.lead, input={"skill": "debug"})
         allowed = await _tools.use_skill(None, team=team, agent=team.lead, input={"skill": "commit"})
-        listed = [schema["description"] for schema in team.tool_schemas(CTX) if schema["name"] == "Skill"]
+        listed = [skill.name for skill in team.skills.for_model()]
         return refused, allowed, listed
 
     refused, allowed, listed = asyncio.run(main())
     assert refused.startswith("Error:") and "debug" in refused
     assert allowed == "open"
-    assert listed and "commit" in listed[0] and "debug" not in listed[0]
+    assert listed == ["commit"]

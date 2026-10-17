@@ -56,6 +56,22 @@ class ToolRunnerMixin:
             path = Path(self.tool_context.cwd) / path
         return _rule_note(self.rules.relevant(str(path)), str(raw))
 
+    def _tool_paths(self, tool, input: dict) -> list[str]:
+        if tool is None or tool.get_path is None:
+            return []
+        raw = tool.get_path(input)
+        if not raw:
+            return []
+        path = Path(str(raw)).expanduser()
+        path = path if path.is_absolute() else Path(self.tool_context.cwd) / path
+        return [str(path)]
+
+    def _activate_conditional_skills(self, tool, input: dict) -> None:
+        skills = getattr(self, "skills", None)
+        if skills is None:
+            return
+        skills.activate_for_paths(self._tool_paths(tool, input))
+
     def reset_rules(self) -> None:
         if self.rules is not None:
             self.rules.reset()
@@ -105,6 +121,7 @@ class ToolRunnerMixin:
         tool = next((t for t in pool if t.name == name), None)
         if tool is None:
             return ToolOutcome(f'Error: tool "{name}" is not available to this agent', extra)
+        self._activate_conditional_skills(tool, input)
         try:
             out = await tool(agent.tool_context, **input)
         except Exception as e:

@@ -10,6 +10,7 @@ from chatchat.runtime.context import spawn_task
 from chatchat.team.inbox_poller import InboxPoller
 from chatchat.team.mailbox import Mailbox, parse_protocol, shutdown_approved
 from chatchat.runtime.metrics import Metrics
+from chatchat.runtime.skills import listing_budget
 from chatchat.tasks.task import Task, generate_task_id
 from chatchat.tasks.tasks import work_prompt
 from chatchat.hooks.output import describe_blocking
@@ -85,6 +86,7 @@ class Agent:
         self._pending = 0
         self._done = 0
         self._attachments: list[str] = []
+        self._skill_listing_seen = -1
         self._stop_hook_active = False
         self._work_abort = AbortSignal()
         self._in_tool: str | None = None
@@ -168,6 +170,23 @@ class Agent:
         text = "\n\n".join(self._attachments)
         self._attachments.clear()
         return text
+
+    def _queue_skill_listing(self) -> None:
+        """The skill listing rides a system-reminder attachment instead of the
+        Skill tool's description: a mutating description busts the tools cache
+        (claude-code measured 10.2% of fleet cache_creation tokens on exactly
+        that), and this is also how a conditionally activated skill becomes
+        visible the moment it activates."""
+        skills = getattr(self.team, "skills", None)
+        if skills is None:
+            return
+        version = getattr(skills, "listing_version", 0)
+        if version == self._skill_listing_seen:
+            return
+        self._skill_listing_seen = version
+        listing = skills.listing(listing_budget(self.team.context_window))
+        if listing:
+            self._attachments.append(f"<system-reminder>\nAvailable skills:\n{listing}\n</system-reminder>")
 
     async def chat(self, text: str) -> str:
         self._clear_idle()
@@ -318,7 +337,10 @@ class Agent:
         await self.poll_inbox()
 
         if not self._internal:
+            before = len(self.messages)
             self.messages = await self.team.maybe_compact(self.messages, agent=self)
+            if len(self.messages) < before:
+                self._skill_listing_seen = -1
 
         stream_state = {"reason_emitted": False}
         thinking_parts = []
@@ -340,6 +362,7 @@ class Agent:
         while True:
             self.ctx.abort.check()
             self._work_abort.check()
+            self._queue_skill_listing()
             attachment = self._drain_attachments()
             if attachment:
                 msg = {"role": "user", "content": attachment}
