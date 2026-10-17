@@ -114,3 +114,28 @@ def test_team_remove_agent_definition():
         assert not team.remove_agent_definition("coder")
 
     asyncio.run(main())
+
+
+def test_resolve_agent_model_accepts_the_config_shapes():
+    from chatchat.team.agents import resolve_agent_model
+
+    assert resolve_agent_model("", "deepseek") == (None, "")
+    assert resolve_agent_model("inherit", "deepseek") == (None, "")
+    assert resolve_agent_model("deepseek-chat", "deepseek") == ("deepseek-chat", "")
+    assert resolve_agent_model("deepseek/deepseek-chat", "deepseek") == ("deepseek-chat", "")
+
+
+def test_resolve_agent_model_refuses_the_rest_loudly():
+    from chatchat.team.agents import resolve_agent_model
+
+    model, problem = resolve_agent_model("sonnet", "deepseek")
+    assert model is None and "claude-code alias" in problem
+    model, problem = resolve_agent_model("openai/gpt-4o", "deepseek")
+    assert model is None and "not available to provider 'deepseek'" in problem
+
+
+def test_the_cc_alias_is_flagged_at_load_time():
+    from chatchat.team.agents import agent_model_problem
+
+    assert "claude-code alias" in agent_model_problem("sonnet")
+    assert agent_model_problem("deepseek-chat") == ""

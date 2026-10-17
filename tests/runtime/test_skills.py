@@ -101,7 +101,7 @@ def test_a_directory_without_a_skill_file_is_ignored(tmp_path):
 def test_a_broken_frontmatter_block_is_reported_not_raised(tmp_path):
     home = tmp_path / "home" / "skills"
     directory = _skill(home, "broken", "name: broken\ndescription: d\n")
-    (directory / "SKILL.md").write_text("---\nname: [unclosed\n---\nbody\n", encoding="utf-8")
+    (directory / "SKILL.md").write_text('---\nname: "unclosed quote\n---\nbody\n', encoding="utf-8")
     registry = SkillRegistry.discover(cwd=tmp_path / "ws", home=tmp_path / "home", subdir="skills")
     assert registry.all() == []
     assert any("broken" in problem for problem in registry.problems)

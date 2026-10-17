@@ -5,7 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path, PurePath
 
-import yaml
+from chatchat.runtime.markdown import parse_frontmatter
 
 
 MAX_LISTING_DESC_CHARS = 250
@@ -170,10 +170,12 @@ class SkillRegistry:
 
 def _read(directory: Path, file: Path, source: str):
     try:
-        front, _body = _split(file.read_text(encoding="utf-8"))
-        meta = yaml.safe_load(front)
-    except (OSError, ValueError, yaml.YAMLError) as exc:
+        text = file.read_text(encoding="utf-8")
+    except OSError as exc:
         return None, f"{directory.name}: {exc}"
+    meta, _body = parse_frontmatter(text)
+    if meta is None:
+        return None, f"{directory.name}: frontmatter is not valid YAML"
     if not isinstance(meta, dict):
         return None, f"{directory.name}: frontmatter is not a mapping"
     name = str(meta.get("name") or directory.name)

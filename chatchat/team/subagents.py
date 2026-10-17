@@ -4,6 +4,7 @@ import time
 from chatchat.runtime.abort import AbortSignal
 from chatchat.runtime.agent import Agent
 from chatchat.runtime.context import AgentContext
+from chatchat.team.agents import resolve_agent_model
 from chatchat.team.sidechain import SidechainWriter
 from chatchat.tasks.task import rand_name
 from chatchat.hooks.events import AGENT_PROGRESS, emit
@@ -42,7 +43,9 @@ class SubagentsMixin:
         writer = None
         if self.sidechain_dir is not None:
             writer = SidechainWriter(self.sidechain_dir, name, self.name, subagent_type or "", prompt)
-        model = model or defn.model
+        model, problem = resolve_agent_model(model or defn.model, self._provider)
+        if problem:
+            raise ValueError(problem)
         agent = Agent(
             agent_id,
             name,
