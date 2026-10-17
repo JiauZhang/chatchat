@@ -2,6 +2,7 @@ import asyncio
 import json
 
 from chatchat.tasks.tasks import Claim, TaskItem, TaskList
+from chatchat.team.team import LEAD_NAME
 from helpers import mock_team
 
 
@@ -314,3 +315,54 @@ def test_stopping_a_teammate_hands_its_open_tasks_back(tmp_path):
     assert team.tasks.get(finished.id).owner == "worker"
     assert len(notice) == 1
     assert "Half done" in notice[0].text
+
+
+def test_task_create_fires_the_hook_with_the_real_task_id(tmp_path):
+    async def main():
+        team = mock_team("task-hooks", tasks_dir=tmp_path)
+        seen = []
+        team.hooks.register("TaskCreated", fn=lambda inp: seen.append(inp) or True)
+        await team.execute_tool("TaskCreate", {"subject": "Fix login", "description": "the form posts nowhere"}, team.lead)
+        await team.execute_tool("TaskCreate", {"subject": "Fix logout", "description": "nothing clears"}, team.lead)
+        return seen
+
+    seen = asyncio.run(main())
+    assert [inp["task_id"] for inp in seen] == ["1", "2"]
+    assert seen[0]["task_subject"] == "Fix login"
+    assert seen[0]["task_description"] == "the form posts nowhere"
+    assert seen[0]["teammate_name"] == LEAD_NAME
+
+
+def test_a_blocked_task_created_hook_rolls_the_task_back(tmp_path):
+    async def main():
+        team = mock_team("task-hooks-block", tasks_dir=tmp_path)
+        team.hooks.register("TaskCreated", fn=lambda inp: False, error_message="not while the suite is red")
+        out = await team.execute_tool(
+            "TaskCreate", {"subject": "Fix login", "description": "the form posts nowhere"}, team.lead
+        )
+        return out, team.tasks.all()
+
+    out, tasks = asyncio.run(main())
+    assert tasks == []
+    assert "not while the suite is red" in out.text
+
+
+def test_completing_a_task_fires_the_hook_and_a_block_keeps_it_open(tmp_path):
+    async def main(folder, block):
+        team = mock_team("task-hooks-done", tasks_dir=tmp_path / folder)
+        seen = []
+        if block:
+            team.hooks.register("TaskCompleted", fn=lambda inp: False, error_message="hold the line")
+        else:
+            team.hooks.register("TaskCompleted", fn=lambda inp: seen.append(inp["task_id"]) or True)
+        await team.execute_tool("TaskCreate", {"subject": "Fix login", "description": "the form posts nowhere"}, team.lead)
+        out = await team.execute_tool("TaskUpdate", {"task_id": "1", "status": "completed"}, team.lead)
+        return out, team.tasks.get("1").status, seen
+
+    out, status, seen = asyncio.run(main("open", False))
+    assert seen == ["1"]
+    assert status == "completed"
+
+    out, status, seen = asyncio.run(main("held", True))
+    assert status == "pending"
+    assert "hold the line" in out.text

@@ -225,6 +225,11 @@ async def task_create(context, team, agent, input: dict, tool_use_id: str = "") 
     task = team.tasks.create(
         subject, description, active_form=str(input.get("active_form") or ""), metadata=input.get("metadata") or {}
     )
+    if agent is not None and not agent._internal:
+        created = await team.hooks.execute_task_created_hooks(agent, str(task.id), task.subject, task.description)
+        if created.blocking_error is not None:
+            team.tasks.delete(str(task.id))
+            return f"Error: {describe_blocking(created.blocking_error)}"
     return f"Task #{task.id} created: {task.subject}"
 
 
@@ -314,6 +319,12 @@ async def task_update(context, team, agent, input: dict, tool_use_id: str = "") 
             parts.append(key)
     if not parts:
         return "Error: TaskUpdate was given nothing to change"
+    if fields.get("status") == "completed" and agent is not None and not agent._internal:
+        task = team.tasks.get(task_id)
+        if task is not None:
+            done = await team.hooks.execute_task_completed_hooks(agent, str(task.id), task.subject, task.description)
+            if done.blocking_error is not None:
+                return f"Error: {describe_blocking(done.blocking_error)}"
     if fields and team.tasks.update(task_id, **fields) is None:
         return f'Error: status must be one of {", ".join(TASK_STATUSES)}, or "deleted" to remove the task'
     return f"Task #{task_id} updated: " + ", ".join(parts)
