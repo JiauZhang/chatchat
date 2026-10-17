@@ -1,5 +1,6 @@
 """Worktrees are only useful if a session really moves into one, so every test
 here runs against a real git repository."""
+
 import asyncio
 import os
 import re
@@ -11,24 +12,23 @@ import pytest
 from chatchat.tool import ToolContext
 from helpers import mock_team
 
-git = pytest.importorskip('shutil').which('git')
+git = pytest.importorskip("shutil").which("git")
 
 
 def _repo(tmp_path):
-    root = tmp_path / 'repo'
+    root = tmp_path / "repo"
     root.mkdir()
-    subprocess.run([git, 'init', '-q'], cwd=root, check=True)
-    subprocess.run([git, 'config', 'user.email', 'test@example.com'],
-                   cwd=root, check=True)
-    subprocess.run([git, 'config', 'user.name', 'test'], cwd=root, check=True)
-    (root / 'a.txt').write_text('committed\n', encoding='utf-8')
-    subprocess.run([git, 'add', 'a.txt'], cwd=root, check=True)
-    subprocess.run([git, 'commit', '-qm', 'first'], cwd=root, check=True)
+    subprocess.run([git, "init", "-q"], cwd=root, check=True)
+    subprocess.run([git, "config", "user.email", "test@example.com"], cwd=root, check=True)
+    subprocess.run([git, "config", "user.name", "test"], cwd=root, check=True)
+    (root / "a.txt").write_text("committed\n", encoding="utf-8")
+    subprocess.run([git, "add", "a.txt"], cwd=root, check=True)
+    subprocess.run([git, "commit", "-qm", "first"], cwd=root, check=True)
     return root
 
 
 def _team(root, **kw):
-    return mock_team('wt', tool_context=ToolContext(cwd=root), **kw)
+    return mock_team("wt", tool_context=ToolContext(cwd=root), **kw)
 
 
 def _run(coro):
@@ -41,18 +41,16 @@ def test_a_session_can_move_into_a_fresh_worktree(tmp_path):
 
     async def main():
         team = _team(root)
-        team.hooks.register('CwdChanged', '*',
-                            fn=lambda inp: seen.append(inp['cwd']) or True)
-        await team.enter_worktree('experiment')
-        (team.tool_context.cwd / 'b.txt').write_text('only there\n',
-                                                    encoding='utf-8')
+        team.hooks.register("CwdChanged", "*", fn=lambda inp: seen.append(inp["cwd"]) or True)
+        await team.enter_worktree("experiment")
+        (team.tool_context.cwd / "b.txt").write_text("only there\n", encoding="utf-8")
         return team
 
     team = _run(main())
-    assert team.worktree['name'] == 'experiment'
+    assert team.worktree["name"] == "experiment"
     assert team.tool_context.cwd != root
-    assert (root / 'b.txt').exists() is False
-    assert (team.tool_context.cwd / 'a.txt').exists()
+    assert (root / "b.txt").exists() is False
+    assert (team.tool_context.cwd / "a.txt").exists()
     assert seen and str(root) in str(seen[0])
 
 
@@ -61,16 +59,16 @@ def test_two_worktrees_cannot_be_entered_at_once(tmp_path):
 
     async def main():
         team = _team(root)
-        await team.enter_worktree('one')
-        error = ''
+        await team.enter_worktree("one")
+        error = ""
         try:
-            await team.enter_worktree('two')
+            await team.enter_worktree("two")
         except ValueError as exc:
             error = str(exc)
         return team, error
 
     team, error = _run(main())
-    assert 'already' in error and team.worktree['name'] == 'one'
+    assert "already" in error and team.worktree["name"] == "one"
 
 
 def test_leaving_can_keep_or_destroy_the_worktree(tmp_path):
@@ -78,11 +76,11 @@ def test_leaving_can_keep_or_destroy_the_worktree(tmp_path):
 
     async def main():
         team = _team(root)
-        await team.enter_worktree('kept')
+        await team.enter_worktree("kept")
         kept = team.tool_context.cwd
         await team.exit_worktree(keep=True)
         team2 = _team(root)
-        await team2.enter_worktree('gone')
+        await team2.enter_worktree("gone")
         removed = team2.tool_context.cwd
         await team2.exit_worktree()
         return kept, removed, team.tool_context.cwd, team2.worktree
@@ -95,35 +93,33 @@ def test_leaving_can_keep_or_destroy_the_worktree(tmp_path):
 
 
 def test_a_directory_without_git_refuses(tmp_path):
-    plain = tmp_path / 'plain'
+    plain = tmp_path / "plain"
     plain.mkdir()
 
     async def main():
-        return await _team(plain).enter_worktree('nope')
+        return await _team(plain).enter_worktree("nope")
 
     message = _run(main())
-    assert message.startswith('Error:') and 'git' in message
+    assert message.startswith("Error:") and "git" in message
 
 
-def test_the_worktree_tools_are_offered_only_where_the_work_can_be_isolated(
-        tmp_path):
+def test_the_worktree_tools_are_offered_only_where_the_work_can_be_isolated(tmp_path):
     root = _repo(tmp_path)
-    plain = tmp_path / 'plain'
+    plain = tmp_path / "plain"
     plain.mkdir()
 
     async def main():
         in_repo = _team(root)
         elsewhere = _team(plain)
-        names = lambda team: [schema['name'] for schema in
-                              team.tool_schemas(team.tool_context)]
+        names = lambda team: [schema["name"] for schema in team.tool_schemas(team.tool_context)]
         without = names(elsewhere)
-        elsewhere.hooks.register('WorktreeCreate', '*', fn=lambda inp: 'x')
+        elsewhere.hooks.register("WorktreeCreate", "*", fn=lambda inp: "x")
         return names(in_repo), without, names(elsewhere)
 
     in_repo, without, with_hook = _run(main())
-    assert {'EnterWorktree', 'ExitWorktree'} <= set(in_repo)
-    assert 'EnterWorktree' not in without
-    assert 'EnterWorktree' in with_hook
+    assert {"EnterWorktree", "ExitWorktree"} <= set(in_repo)
+    assert "EnterWorktree" not in without
+    assert "EnterWorktree" in with_hook
 
 
 def test_a_worktree_without_a_name_gets_a_readable_one(tmp_path):
@@ -132,14 +128,14 @@ def test_a_worktree_without_a_name_gets_a_readable_one(tmp_path):
     async def main():
         team = _team(root)
         await team.enter_worktree()
-        first = (team.worktree['name'], team.tool_context.cwd)
+        first = (team.worktree["name"], team.tool_context.cwd)
         await team.exit_worktree(keep=True)
         again = _team(root)
         await again.enter_worktree()
-        return first, (again.worktree['name'], again.tool_context.cwd)
+        return first, (again.worktree["name"], again.tool_context.cwd)
 
     (name, path), (second_name, second_path) = _run(main())
-    assert re.fullmatch(r'[a-z]+-[a-z]+-[a-z]+', name)
+    assert re.fullmatch(r"[a-z]+-[a-z]+-[a-z]+", name)
     assert (second_name, second_path) == (name, path)
 
 
@@ -149,9 +145,9 @@ def test_a_name_that_could_escape_the_worktrees_directory_is_refused(tmp_path):
     async def one(name):
         return await _team(root).enter_worktree(name)
 
-    for name in ('../elsewhere', 'a b', '.', '..', 'x' * 65, '/abs', 'a//b'):
-        assert _run(one(name)).startswith('Error:'), name
-    assert not (root / '.pyclaw').exists()
+    for name in ("../elsewhere", "a b", ".", "..", "x" * 65, "/abs", "a//b"):
+        assert _run(one(name)).startswith("Error:"), name
+    assert not (root / ".pyclaw").exists()
 
 
 def test_a_nested_name_is_flattened_into_one_branch_and_directory(tmp_path):
@@ -159,31 +155,28 @@ def test_a_nested_name_is_flattened_into_one_branch_and_directory(tmp_path):
 
     async def main():
         team = _team(root)
-        await team.enter_worktree('asm/feature')
+        await team.enter_worktree("asm/feature")
         return team
 
     team = _run(main())
-    assert team.tool_context.cwd == root / '.pyclaw' / 'worktrees' / 'asm+feature'
-    assert team.worktree['branch'] == 'worktree-asm+feature'
-    listed = subprocess.run([git, 'branch', '--list'], cwd=root,
-                            capture_output=True, text=True).stdout
-    assert 'worktree-asm+feature' in listed
+    assert team.tool_context.cwd == root / ".pyclaw" / "worktrees" / "asm+feature"
+    assert team.worktree["branch"] == "worktree-asm+feature"
+    listed = subprocess.run([git, "branch", "--list"], cwd=root, capture_output=True, text=True).stdout
+    assert "worktree-asm+feature" in listed
 
 
 def test_the_record_says_which_branch_the_work_left_behind(tmp_path):
     root = _repo(tmp_path)
-    branch = subprocess.run([git, 'rev-parse', '--abbrev-ref', 'HEAD'],
-                            cwd=root, capture_output=True,
-                            text=True).stdout.strip()
+    branch = subprocess.run([git, "rev-parse", "--abbrev-ref", "HEAD"], cwd=root, capture_output=True, text=True).stdout.strip()
 
     async def main():
         team = _team(root)
-        await team.enter_worktree('trip')
+        await team.enter_worktree("trip")
         return team
 
     record = _run(main()).worktree
-    assert record['origin_branch'] == branch
-    assert re.fullmatch(r'[0-9a-f]{40}', record['origin_head'])
+    assert record["origin_branch"] == branch
+    assert re.fullmatch(r"[0-9a-f]{40}", record["origin_head"])
 
 
 def test_an_untouched_worktree_is_removed_without_a_fuss(tmp_path):
@@ -191,20 +184,20 @@ def test_an_untouched_worktree_is_removed_without_a_fuss(tmp_path):
 
     async def main():
         team = _team(root)
-        await team.enter_worktree('clean')
+        await team.enter_worktree("clean")
         return await team.exit_worktree()
 
     message = _run(main())
-    assert 'removed' in message and 'Discarded' not in message
-    assert not (root / '.pyclaw' / 'worktrees' / 'clean').exists()
+    assert "removed" in message and "Discarded" not in message
+    assert not (root / ".pyclaw" / "worktrees" / "clean").exists()
 
 
 def test_work_that_lives_only_in_the_worktree_is_not_thrown_away(tmp_path):
     root = _repo(tmp_path)
 
     async def enter(team):
-        await team.enter_worktree('careful')
-        (team.tool_context.cwd / 'new.txt').write_text('work\n', encoding='utf-8')
+        await team.enter_worktree("careful")
+        (team.tool_context.cwd / "new.txt").write_text("work\n", encoding="utf-8")
 
     async def refused():
         team = _team(root)
@@ -213,8 +206,8 @@ def test_work_that_lives_only_in_the_worktree_is_not_thrown_away(tmp_path):
         return message, team.tool_context.cwd, team.worktree
 
     message, cwd, record = _run(refused())
-    assert message.startswith('Error:') and '1 uncommitted file' in message
-    assert cwd == record['path'] and record is not None
+    assert message.startswith("Error:") and "1 uncommitted file" in message
+    assert cwd == record["path"] and record is not None
 
     async def discarded():
         team = _team(root)
@@ -224,7 +217,7 @@ def test_work_that_lives_only_in_the_worktree_is_not_thrown_away(tmp_path):
         return message, cwd
 
     message, path = _run(discarded())
-    assert 'Discarded 1 uncommitted file' in message
+    assert "Discarded 1 uncommitted file" in message
     assert not path.exists()
 
 
@@ -233,18 +226,18 @@ def test_commits_made_only_on_the_worktree_branch_count_as_work(tmp_path):
 
     async def main():
         team = _team(root)
-        await team.enter_worktree('committed')
+        await team.enter_worktree("committed")
         workdir = team.tool_context.cwd
-        (workdir / 'b.txt').write_text('work\n', encoding='utf-8')
-        subprocess.run([git, 'add', 'b.txt'], cwd=workdir, check=True)
-        subprocess.run([git, 'commit', '-qm', 'work'], cwd=workdir, check=True)
+        (workdir / "b.txt").write_text("work\n", encoding="utf-8")
+        subprocess.run([git, "add", "b.txt"], cwd=workdir, check=True)
+        subprocess.run([git, "commit", "-qm", "work"], cwd=workdir, check=True)
         refused = await team.exit_worktree()
         return refused, team
 
     refused, team = _run(main())
-    assert refused.startswith('Error:') and '1 commit' in refused
+    assert refused.startswith("Error:") and "1 commit" in refused
     done = _run(team.exit_worktree(discard=True))
-    assert 'Discarded 1 commit' in done
+    assert "Discarded 1 commit" in done
 
 
 def test_a_worktree_that_is_still_there_is_entered_again(tmp_path):
@@ -252,45 +245,42 @@ def test_a_worktree_that_is_still_there_is_entered_again(tmp_path):
 
     async def main():
         team = _team(root)
-        await team.enter_worktree('again')
+        await team.enter_worktree("again")
         path = team.tool_context.cwd
-        (path / 'keep.txt').write_text('still here\n', encoding='utf-8')
+        (path / "keep.txt").write_text("still here\n", encoding="utf-8")
         await team.exit_worktree(keep=True)
         later = _team(root)
-        message = await later.enter_worktree('again')
+        message = await later.enter_worktree("again")
         return path, later, message
 
     path, later, message = _run(main())
     assert later.tool_context.cwd == path
-    assert (later.tool_context.cwd / 'keep.txt').exists()
-    assert 'again' in message
+    assert (later.tool_context.cwd / "keep.txt").exists()
+    assert "again" in message
 
 
 def test_a_hook_can_isolate_the_work_where_there_is_no_git(tmp_path):
-    plain = tmp_path / 'plain'
+    plain = tmp_path / "plain"
     plain.mkdir()
-    elsewhere = tmp_path / 'isolated'
+    elsewhere = tmp_path / "isolated"
 
     async def main():
         team = _team(plain)
         seen = []
-        team.hooks.register('WorktreeCreate', '*',
-                            fn=lambda inp: seen.append(dict(inp))
-                            or str(elsewhere))
-        message = await team.enter_worktree('by-hook')
+        team.hooks.register("WorktreeCreate", "*", fn=lambda inp: seen.append(dict(inp)) or str(elsewhere))
+        message = await team.enter_worktree("by-hook")
         removed = []
-        team.hooks.register('WorktreeRemove', '*',
-                            fn=lambda inp: removed.append(dict(inp)) or True)
+        team.hooks.register("WorktreeRemove", "*", fn=lambda inp: removed.append(dict(inp)) or True)
         refused = await team.exit_worktree()
         gone = await team.exit_worktree(discard=True)
         return message, seen, removed, refused, gone, team
 
     message, created, removed, refused, gone, team = _run(main())
     assert str(elsewhere) in message and team.worktree is None
-    assert created[0]['name'] == 'by-hook'
-    assert refused.startswith('Error:') and 'could not say' in refused
-    assert removed[0]['worktree_path'] == str(elsewhere)
-    assert 'Back at' in gone
+    assert created[0]["name"] == "by-hook"
+    assert refused.startswith("Error:") and "could not say" in refused
+    assert removed[0]["worktree_path"] == str(elsewhere)
+    assert "Back at" in gone
 
 
 def test_the_process_directory_moves_with_the_session_and_comes_back(tmp_path):
@@ -300,25 +290,23 @@ def test_the_process_directory_moves_with_the_session_and_comes_back(tmp_path):
     async def main():
         team = _team(root)
         team._cwd_changed = os.chdir
-        await team.enter_worktree('inside')
+        await team.enter_worktree("inside")
         inside = Path(os.getcwd())
         await team.exit_worktree(keep=True)
         return inside, Path(os.getcwd())
 
     inside, after = _run(main())
-    assert inside == root / '.pyclaw' / 'worktrees' / 'inside'
+    assert inside == root / ".pyclaw" / "worktrees" / "inside"
     assert after == root
     os.chdir(before)
 
 
 def _with_remote(root):
-    remote = root.parent / 'origin.git'
-    subprocess.run([git, 'init', '-q', '--bare', str(remote)], check=True)
-    subprocess.run([git, 'remote', 'add', 'origin', str(remote)], cwd=root,
-                   check=True)
-    subprocess.run([git, 'push', '-q', '-u', 'origin', 'HEAD'], cwd=root,
-                   check=True)
-    subprocess.run([git, 'fetch', '-q', 'origin'], cwd=root, check=True)
+    remote = root.parent / "origin.git"
+    subprocess.run([git, "init", "-q", "--bare", str(remote)], check=True)
+    subprocess.run([git, "remote", "add", "origin", str(remote)], cwd=root, check=True)
+    subprocess.run([git, "push", "-q", "-u", "origin", "HEAD"], cwd=root, check=True)
+    subprocess.run([git, "fetch", "-q", "origin"], cwd=root, check=True)
     return remote
 
 
@@ -328,12 +316,11 @@ def _worktree(root, name, *, days_old=0, dirty=False, commit=False):
     create(root, name)
     path = worktree_path(root, name)
     if dirty:
-        (path / 'loose.txt').write_text('not committed\n', encoding='utf-8')
+        (path / "loose.txt").write_text("not committed\n", encoding="utf-8")
     if commit:
-        (path / 'work.txt').write_text('committed here\n', encoding='utf-8')
-        subprocess.run([git, 'add', 'work.txt'], cwd=path, check=True)
-        subprocess.run([git, 'commit', '-qm', 'only here'], cwd=path,
-                       check=True)
+        (path / "work.txt").write_text("committed here\n", encoding="utf-8")
+        subprocess.run([git, "add", "work.txt"], cwd=path, check=True)
+        subprocess.run([git, "commit", "-qm", "only here"], cwd=path, check=True)
     if days_old:
         stamp = time.time() - days_old * 86400
         os.utime(path, (stamp, stamp))
@@ -345,22 +332,20 @@ def test_an_abandoned_generated_worktree_is_swept(tmp_path):
 
     root = _repo(tmp_path)
     _with_remote(root)
-    old = _worktree(root, 'calm-building-anchor', days_old=40)
-    recent = _worktree(root, 'quiet-mapping-lantern', days_old=2)
-    named = _worktree(root, 'my-feature', days_old=40)
-    dirty = _worktree(root, 'tidy-weaving-harbour', days_old=40, dirty=True)
-    committed = _worktree(root, 'nimble-planting-orbit', days_old=40,
-                          commit=True)
+    old = _worktree(root, "calm-building-anchor", days_old=40)
+    recent = _worktree(root, "quiet-mapping-lantern", days_old=2)
+    named = _worktree(root, "my-feature", days_old=40)
+    dirty = _worktree(root, "tidy-weaving-harbour", days_old=40, dirty=True)
+    committed = _worktree(root, "nimble-planting-orbit", days_old=40, commit=True)
 
     gone = sweep_worktrees(root)
 
     assert gone == [old]
     assert recent.is_dir() and named.is_dir()
     assert dirty.is_dir() and committed.is_dir()
-    branches = subprocess.run([git, 'branch', '--list'], cwd=root,
-                             capture_output=True, text=True).stdout
-    assert 'worktree-calm-building-anchor' not in branches
-    assert 'worktree-my-feature' in branches
+    branches = subprocess.run([git, "branch", "--list"], cwd=root, capture_output=True, text=True).stdout
+    assert "worktree-calm-building-anchor" not in branches
+    assert "worktree-my-feature" in branches
 
 
 def test_the_sweep_lets_the_worktree_the_session_is_in_alone(tmp_path):
@@ -368,7 +353,7 @@ def test_the_sweep_lets_the_worktree_the_session_is_in_alone(tmp_path):
 
     root = _repo(tmp_path)
     _with_remote(root)
-    mine = _worktree(root, name_for('conv-sweep', root), days_old=60)
+    mine = _worktree(root, name_for("conv-sweep", root), days_old=60)
 
     assert sweep_worktrees(root, keep=[mine]) == []
     assert mine.is_dir()
@@ -378,7 +363,7 @@ def test_the_sweep_lets_the_worktree_the_session_is_in_alone(tmp_path):
 def test_generated_names_are_told_apart_from_the_ones_people_choose():
     from chatchat.team.worktrees import is_generated
 
-    assert is_generated('calm-building-anchor') is True
-    assert is_generated('my-feature') is False
-    assert is_generated('calm-building-anchor-extra') is False
-    assert is_generated('calm-singing-anchor') is False
+    assert is_generated("calm-building-anchor") is True
+    assert is_generated("my-feature") is False
+    assert is_generated("calm-building-anchor-extra") is False
+    assert is_generated("calm-singing-anchor") is False

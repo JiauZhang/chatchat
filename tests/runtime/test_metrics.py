@@ -1,4 +1,5 @@
 """A turn's cost is more than tokens: what it touched, how long it took, what it was refused."""
+
 from unittest.mock import ANY
 
 from chatchat.runtime.metrics import Metrics
@@ -6,10 +7,17 @@ from chatchat.runtime.metrics import Metrics
 
 def test_a_fresh_turn_reports_nothing_happened():
     metrics = Metrics()
-    assert metrics.as_dict() == {'tool_calls': 0, 'tool_ms': 0,
-                                 'lines_added': 0, 'lines_removed': 0,
-                                 'api_ms': 0, 'requests': 0, 'hooks': 0,
-                                 'hook_ms': 0, 'denials': 0}
+    assert metrics.as_dict() == {
+        "tool_calls": 0,
+        "tool_ms": 0,
+        "lines_added": 0,
+        "lines_removed": 0,
+        "api_ms": 0,
+        "requests": 0,
+        "hooks": 0,
+        "hook_ms": 0,
+        "denials": 0,
+    }
 
 
 def test_a_tool_call_adds_its_own_measured_time_and_its_diff():
@@ -63,11 +71,13 @@ from chatchat.tool import ToolResult, tool
 from helpers import mock_team
 
 
-@tool(name='Tee', description='write a file',
-      parameters={'type': 'object', 'properties': {
-          'path': {'type': 'string'}}, 'required': ['path']})
+@tool(
+    name="Tee",
+    description="write a file",
+    parameters={"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]},
+)
 def tee(context, path):
-    return ToolResult('written', {'num_added': 5, 'num_removed': 2})
+    return ToolResult("written", {"num_added": 5, "num_removed": 2})
 
 
 def _instrumented_team(name):
@@ -78,8 +88,8 @@ def test_a_tool_call_is_measured_on_the_agent_that_made_it():
     import asyncio
 
     async def main():
-        team, _ = _instrumented_team('met1')
-        await team.execute_tool('Tee', {'path': 'a.txt'}, team.lead)
+        team, _ = _instrumented_team("met1")
+        await team.execute_tool("Tee", {"path": "a.txt"}, team.lead)
         return team.lead.metrics
 
     metrics = asyncio.run(main())
@@ -92,13 +102,13 @@ def test_a_refused_call_is_counted_as_a_denial():
     import asyncio
 
     async def main():
-        team, _ = _instrumented_team('met2')
-        team.hooks.register('PreToolUse', 'Tee', fn=lambda inp: False)
-        outcome = await team.execute_tool('Tee', {'path': 'a.txt'}, team.lead)
+        team, _ = _instrumented_team("met2")
+        team.hooks.register("PreToolUse", "Tee", fn=lambda inp: False)
+        outcome = await team.execute_tool("Tee", {"path": "a.txt"}, team.lead)
         return outcome, team.lead.metrics
 
     outcome, metrics = asyncio.run(main())
-    assert 'hook blocked' in outcome.text
+    assert "hook blocked" in outcome.text
     assert metrics.denials == 1
     assert metrics.tool_calls == 0
 
@@ -107,10 +117,9 @@ def test_hooks_that_run_for_a_call_are_counted():
     import asyncio
 
     async def main():
-        team, _ = _instrumented_team('met3')
-        team.hooks.register('PostToolUse', 'Tee',
-                            fn=lambda inp: True, timeout=5)
-        await team.execute_tool('Tee', {'path': 'a.txt'}, team.lead)
+        team, _ = _instrumented_team("met3")
+        team.hooks.register("PostToolUse", "Tee", fn=lambda inp: True, timeout=5)
+        await team.execute_tool("Tee", {"path": "a.txt"}, team.lead)
         return team.lead.metrics
 
     metrics = asyncio.run(main())
@@ -122,10 +131,10 @@ def test_a_turn_is_measured_on_its_own_and_adds_into_the_agent_total():
     import asyncio
 
     async def main():
-        team, _ = _instrumented_team('met4')
+        team, _ = _instrumented_team("met4")
         lead = team.lead
         lead._begin_turn()
-        await team.execute_tool('Tee', {'path': 'a.txt'}, lead)
+        await team.execute_tool("Tee", {"path": "a.txt"}, lead)
         lead.metrics.api_round(120)
         before = lead.total_metrics
         lead._end_turn()
@@ -143,10 +152,10 @@ def test_a_closed_turn_leaves_nothing_in_the_next_one():
     import asyncio
 
     async def main():
-        team, _ = _instrumented_team('met4b')
+        team, _ = _instrumented_team("met4b")
         lead = team.lead
         lead._begin_turn()
-        await team.execute_tool('Tee', {'path': 'a.txt'}, lead)
+        await team.execute_tool("Tee", {"path": "a.txt"}, lead)
         lead._end_turn()
         lead._begin_turn()
         return lead
@@ -160,13 +169,13 @@ def test_the_team_reads_back_the_last_turn_and_the_session_total():
     import asyncio
 
     async def main():
-        team, _ = _instrumented_team('met5')
+        team, _ = _instrumented_team("met5")
         team.lead._begin_turn()
-        await team.execute_tool('Tee', {'path': 'a.txt'}, team.lead)
+        await team.execute_tool("Tee", {"path": "a.txt"}, team.lead)
         team.lead._end_turn()
-        worker = team.create_agent('worker', instruction='help')
+        worker = team.create_agent("worker", instruction="help")
         worker._begin_turn()
-        await team.execute_tool('Tee', {'path': 'b.txt'}, worker)
+        await team.execute_tool("Tee", {"path": "b.txt"}, worker)
         worker._end_turn()
         turn = team.turn_metrics()
         total = team.total_metrics()
@@ -183,11 +192,11 @@ def test_clearing_the_session_clears_the_measured_totals_too():
     import asyncio
 
     async def respond(messages, tools=None, *, stream_cb=None):
-        return 'done'
+        return "done"
 
     async def main():
-        team = mock_team('met6', handler=respond, tools=[tee])
-        await team.execute_tool('Tee', {'path': 'a.txt'}, team.lead)
+        team = mock_team("met6", handler=respond, tools=[tee])
+        await team.execute_tool("Tee", {"path": "a.txt"}, team.lead)
         team.lead.last_metrics = team.lead.metrics
         team.reset_usage()
         return team.total_metrics(), team.turn_metrics()

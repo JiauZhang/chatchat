@@ -2,33 +2,31 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-GENERAL_PURPOSE = 'general-purpose'
+GENERAL_PURPOSE = "general-purpose"
 
 
 @dataclass
 class AgentDefinition:
     agent_type: str
-    system_prompt: str = ''
+    system_prompt: str = ""
     tools: list = field(default_factory=list)
     model: str | None = None
     permission_mode: str | None = None
     default: bool = False
-    addenda: str = ''
-    description: str = ''
+    addenda: str = ""
+    description: str = ""
     memory: str | None = None
 
     def full_prompt(self) -> str:
         parts = [p.strip() for p in (self.system_prompt, self.addenda) if p.strip()]
-        return '\n'.join(parts)
+        return "\n".join(parts)
 
 
-def general_purpose(system_prompt: str = '', tools: list = None) -> AgentDefinition:
-    return AgentDefinition(GENERAL_PURPOSE, system_prompt=system_prompt,
-                           tools=list(tools or []), default=True)
+def general_purpose(system_prompt: str = "", tools: list = None) -> AgentDefinition:
+    return AgentDefinition(GENERAL_PURPOSE, system_prompt=system_prompt, tools=list(tools or []), default=True)
 
 
 class AgentRegistry:
-
     def __init__(self):
         self._defs: dict[str, AgentDefinition] = {}
         self._default: AgentDefinition | None = None
@@ -39,21 +37,36 @@ class AgentRegistry:
             self._default = defn
         return defn
 
-    def define(self, agent_type: str, *, system_prompt: str = '', tools: list = None,
-               model: str | None = None, addenda: str = '', default: bool = False,
-               description: str = '',
-               memory: str | None = None) -> AgentDefinition:
-        return self.register(AgentDefinition(
-            agent_type, system_prompt=system_prompt, tools=list(tools or []),
-            model=model, addenda=addenda, default=default,
-            description=description, memory=memory))
+    def define(
+        self,
+        agent_type: str,
+        *,
+        system_prompt: str = "",
+        tools: list = None,
+        model: str | None = None,
+        addenda: str = "",
+        default: bool = False,
+        description: str = "",
+        memory: str | None = None,
+    ) -> AgentDefinition:
+        return self.register(
+            AgentDefinition(
+                agent_type,
+                system_prompt=system_prompt,
+                tools=list(tools or []),
+                model=model,
+                addenda=addenda,
+                default=default,
+                description=description,
+                memory=memory,
+            )
+        )
 
     def get(self, agent_type: str | None) -> AgentDefinition:
         if agent_type:
             defn = self._defs.get(agent_type)
             if defn is None:
-                raise KeyError(f'unknown agent type "{agent_type}"; '
-                               f'registered: {sorted(self._defs)}')
+                raise KeyError(f'unknown agent type "{agent_type}"; registered: {sorted(self._defs)}')
             return defn
         if self._default is None:
             self.register(general_purpose())
@@ -73,5 +86,4 @@ class AgentRegistry:
         return sorted(self._defs)
 
     def describe(self) -> list[tuple[str, str]]:
-        return [(d.agent_type, d.description) for d in self._defs.values()
-                if d.description]
+        return [(d.agent_type, d.description) for d in self._defs.values() if d.description]

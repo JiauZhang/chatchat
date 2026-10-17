@@ -7,9 +7,10 @@ from chatchat.cli.team import cli_team
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
-    '-V', '--version',
-    action='version',
-    version=f'%(prog)s {__version__}',
+    "-V",
+    "--version",
+    action="version",
+    version=f"%(prog)s {__version__}",
 )
 parser.set_defaults(parser=None)
 subparser = parser.add_subparsers()
@@ -21,11 +22,13 @@ cli_team(subparser)
 
 args = parser.parse_args()
 
+
 def main():
     if args.parser:
         args.parser(args)
     else:
         parser.print_help()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

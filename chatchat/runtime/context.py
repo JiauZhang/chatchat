@@ -16,15 +16,14 @@ class AgentContext:
     leader: bool = False
 
 
-_current: contextvars.ContextVar[AgentContext | None] = \
-    contextvars.ContextVar('chatchat_agent_context', default=None)
+_current: contextvars.ContextVar[AgentContext | None] = contextvars.ContextVar("chatchat_agent_context", default=None)
 
 
 def current_agent() -> AgentContext | None:
     return _current.get()
 
 
-def spawn_task(ctx: AgentContext, coro, *, name: str = '') -> asyncio.Task:
+def spawn_task(ctx: AgentContext, coro, *, name: str = "") -> asyncio.Task:
     loop = asyncio.get_running_loop()
 
     async def _run():

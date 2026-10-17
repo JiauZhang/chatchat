@@ -3,39 +3,59 @@ from dataclasses import dataclass, field
 from chatchat.runtime.context import current_agent
 
 HOOK_EVENTS = (
-    'PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'Notification',
-    'UserPromptSubmit', 'SessionStart', 'SessionEnd', 'Stop', 'StopFailure',
-    'SubagentStart', 'SubagentStop', 'PreCompact', 'PostCompact',
-    'PermissionRequest', 'PermissionDenied', 'Setup', 'TeammateIdle',
-    'TaskCreated', 'TaskCompleted', 'Elicitation', 'ElicitationResult',
-    'ConfigChange', 'WorktreeCreate', 'WorktreeRemove', 'InstructionsLoaded',
-    'CwdChanged', 'FileChanged',
+    "PreToolUse",
+    "PostToolUse",
+    "PostToolUseFailure",
+    "Notification",
+    "UserPromptSubmit",
+    "SessionStart",
+    "SessionEnd",
+    "Stop",
+    "StopFailure",
+    "SubagentStart",
+    "SubagentStop",
+    "PreCompact",
+    "PostCompact",
+    "PermissionRequest",
+    "PermissionDenied",
+    "Setup",
+    "TeammateIdle",
+    "TaskCreated",
+    "TaskCompleted",
+    "Elicitation",
+    "ElicitationResult",
+    "ConfigChange",
+    "WorktreeCreate",
+    "WorktreeRemove",
+    "InstructionsLoaded",
+    "CwdChanged",
+    "FileChanged",
 )
 
-ALWAYS_EMITTED_HOOK_EVENTS = ('SessionStart', 'Setup')
+ALWAYS_EMITTED_HOOK_EVENTS = ("SessionStart", "Setup")
 
 MAX_PENDING_EVENTS = 100
 
 
 @dataclass
 class HookStartedEvent:
-    type: str = 'started'
-    hook_id: str = ''
-    hook_name: str = ''
-    hook_event: str = ''
+    type: str = "started"
+    hook_id: str = ""
+    hook_name: str = ""
+    hook_event: str = ""
 
 
 @dataclass
 class HookResponseEvent:
-    type: str = 'response'
-    hook_id: str = ''
-    hook_name: str = ''
-    hook_event: str = ''
-    output: str = ''
-    stdout: str = ''
-    stderr: str = ''
+    type: str = "response"
+    hook_id: str = ""
+    hook_name: str = ""
+    hook_event: str = ""
+    output: str = ""
+    stdout: str = ""
+    stderr: str = ""
     exit_code: int | None = None
-    outcome: str = ''
+    outcome: str = ""
 
 
 HookExecutionEvent = HookStartedEvent | HookResponseEvent
@@ -45,24 +65,24 @@ _event_handler = None
 _all_hook_events_enabled = True
 
 
-AGENT_TEXT = 'agent.text'
-AGENT_REASON_START = 'agent.reason_start'
-AGENT_TURN_FINISHED = 'agent.turn_finished'
-AGENT_WARN = 'agent.warn'
-AGENT_TOOL_CALL = 'agent.tool_call'
-AGENT_TOOL_RESULT = 'agent.tool_result'
-AGENT_PROGRESS = 'agent.progress'
-AGENT_STATE = 'agent.state'
-AGENT_COMPACT = 'agent.compact'
-TEAM_SETTLED = 'team.settled'
-AGENT_JOB = 'agent.job'
+AGENT_TEXT = "agent.text"
+AGENT_REASON_START = "agent.reason_start"
+AGENT_TURN_FINISHED = "agent.turn_finished"
+AGENT_WARN = "agent.warn"
+AGENT_TOOL_CALL = "agent.tool_call"
+AGENT_TOOL_RESULT = "agent.tool_result"
+AGENT_PROGRESS = "agent.progress"
+AGENT_STATE = "agent.state"
+AGENT_COMPACT = "agent.compact"
+TEAM_SETTLED = "team.settled"
+AGENT_JOB = "agent.job"
 
 
 @dataclass
 class RuntimeEvent:
     kind: str
-    agent: str = ''
-    team: str = ''
+    agent: str = ""
+    team: str = ""
     data: dict = field(default_factory=dict)
 
 
@@ -86,7 +106,7 @@ def clear_runtime_sinks():
     _runtime_pending.clear()
 
 
-def emit(kind: str, *, agent: str = '', team: str | None = None, **fields):
+def emit(kind: str, *, agent: str = "", team: str | None = None, **fields):
     """Emit an event, stamped with the team that is running it.
 
     The stamp comes from the emitting agent's own context, so a listener can
@@ -95,7 +115,7 @@ def emit(kind: str, *, agent: str = '', team: str | None = None, **fields):
     """
     if team is None:
         ctx = current_agent()
-        team = ctx.team_name if ctx is not None else ''
+        team = ctx.team_name if ctx is not None else ""
     ev = RuntimeEvent(kind, agent=agent, team=team, data=fields)
     if _runtime_sinks:
         for fn in list(_runtime_sinks):
@@ -144,15 +164,29 @@ def _emit(event: HookExecutionEvent):
 
 def emit_started(hook_id: str, hook_name: str, hook_event: str):
     if _should_emit(hook_event):
-        _emit(HookStartedEvent(hook_id=hook_id, hook_name=hook_name,
-                               hook_event=hook_event))
+        _emit(HookStartedEvent(hook_id=hook_id, hook_name=hook_name, hook_event=hook_event))
 
 
-def emit_response(hook_id: str, hook_name: str, hook_event: str,
-                  output: str = '', stdout: str = '', stderr: str = '',
-                  exit_code: int | None = None, outcome: str = ''):
+def emit_response(
+    hook_id: str,
+    hook_name: str,
+    hook_event: str,
+    output: str = "",
+    stdout: str = "",
+    stderr: str = "",
+    exit_code: int | None = None,
+    outcome: str = "",
+):
     if _should_emit(hook_event):
-        _emit(HookResponseEvent(hook_id=hook_id, hook_name=hook_name,
-                                hook_event=hook_event, output=output,
-                                stdout=stdout, stderr=stderr,
-                                exit_code=exit_code, outcome=outcome))
+        _emit(
+            HookResponseEvent(
+                hook_id=hook_id,
+                hook_name=hook_name,
+                hook_event=hook_event,
+                output=output,
+                stdout=stdout,
+                stderr=stderr,
+                exit_code=exit_code,
+                outcome=outcome,
+            )
+        )

@@ -1,19 +1,19 @@
 from __future__ import annotations
 
+import copy
 import inspect
 from dataclasses import dataclass
 from pathlib import Path
 
 
 DEFAULT_MAX_RESULT_CHARS = 50_000
-_TRUNCATED = ('\n\n... [output exceeded {limit} characters and was '
-              'truncated] ...')
+_TRUNCATED = "\n\n... [output exceeded {limit} characters and was truncated] ..."
 
 
 @dataclass
 class ToolContext:
     cwd: Path
-    files: 'FileHistory | None' = None
+    files: "FileHistory | None" = None
     extra_dirs: tuple = ()
 
     def track_edit(self, path) -> None:
@@ -22,8 +22,7 @@ class ToolContext:
 
 
 def describe_tools(tools, context: ToolContext) -> list[dict]:
-    return [{'name': t.name, 'description': t.describe(context),
-             'input_schema': t.parameters or {}} for t in tools]
+    return [{"name": t.name, "description": t.describe(context), "input_schema": t.parameters or {}} for t in tools]
 
 
 @dataclass
@@ -36,17 +35,26 @@ class ToolResult:
 @dataclass
 class ToolOutcome:
     text: str
-    additional_context: str = ''
+    additional_context: str = ""
     denied: bool = False
     blocks: list = ()
 
 
 class Tool:
-
-    def __init__(self, *, tool, name, description, parameters=None,
-                 read_only=False, get_path=None,
-                 max_result_chars: int = DEFAULT_MAX_RESULT_CHARS,
-                 on_start=None, on_end=None, on_error=None):
+    def __init__(
+        self,
+        *,
+        tool,
+        name,
+        description,
+        parameters=None,
+        read_only=False,
+        get_path=None,
+        max_result_chars: int = DEFAULT_MAX_RESULT_CHARS,
+        on_start=None,
+        on_end=None,
+        on_error=None,
+    ):
         self.tool = tool
         self.name = name
         self.description = description
@@ -58,6 +66,16 @@ class Tool:
         self.on_end = on_end
         self.on_error = on_error
 
+    def with_description(self, description):
+        clone = copy.copy(self)
+        clone.description = description
+        return clone
+
+    def with_parameters(self, parameters):
+        clone = copy.copy(self)
+        clone.parameters = parameters
+        return clone
+
     def describe(self, context: ToolContext) -> str:
         if callable(self.description):
             return self.description(context)
@@ -68,7 +86,7 @@ class Tool:
         if not isinstance(text, str) or len(text) <= self.max_result_chars:
             return result
         note = _TRUNCATED.format(limit=self.max_result_chars)
-        kept = text[:max(0, self.max_result_chars - len(note))] + note
+        kept = text[: max(0, self.max_result_chars - len(note))] + note
         if isinstance(result, ToolResult):
             result.text = kept
         else:
@@ -92,32 +110,47 @@ class Tool:
         return result
 
     def to_dict(self, context: ToolContext):
-        parameters = {} if self.parameters is None else {'parameters': self.parameters}
+        parameters = {} if self.parameters is None else {"parameters": self.parameters}
         return {
-            'type': 'function',
-            'function': {
-                'name': self.name,
-                'description': self.describe(context),
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.describe(context),
                 **parameters,
-            }
+            },
         }
 
 
-def tool(*, name, description, parameters=None, read_only=False,
-         get_path=None, max_result_chars: int = DEFAULT_MAX_RESULT_CHARS,
-         on_start=None, on_end=None, on_error=None):
+def tool(
+    *,
+    name,
+    description,
+    parameters=None,
+    read_only=False,
+    get_path=None,
+    max_result_chars: int = DEFAULT_MAX_RESULT_CHARS,
+    on_start=None,
+    on_end=None,
+    on_error=None,
+):
     def decorator(func):
         return Tool(
-            tool=func, name=name, description=description, parameters=parameters,
-            read_only=read_only, get_path=get_path,
+            tool=func,
+            name=name,
+            description=description,
+            parameters=parameters,
+            read_only=read_only,
+            get_path=get_path,
             max_result_chars=max_result_chars,
-            on_start=on_start, on_end=on_end, on_error=on_error,
+            on_start=on_start,
+            on_end=on_end,
+            on_error=on_error,
         )
+
     return decorator
 
 
 class Tools:
-
     def __init__(self, *tools: Tool):
         self.tools = tools
         self.name_to_tool = {}

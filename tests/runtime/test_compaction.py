@@ -1,5 +1,6 @@
 """A compaction that keeps failing must stop spending requests on itself until
 the next turn, while a manual /compact stays available."""
+
 import asyncio
 
 from helpers import mock_team
@@ -9,9 +10,10 @@ RESERVE = 2_000
 
 
 def _full():
-    return [{'role': 'user', 'content': 'hi'},
-            {'role': 'assistant', 'content': 'a',
-             'usage': {'prompt_tokens': 7_000, 'completion_tokens': 50}}]
+    return [
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": "a", "usage": {"prompt_tokens": 7_000, "completion_tokens": 50}},
+    ]
 
 
 def _team(fallback, calls):
@@ -19,8 +21,7 @@ def _team(fallback, calls):
         calls.append(len(messages))
         return fallback(messages)
 
-    team = mock_team('cmp', lambda m, t=None, stream_cb=None: 'ok',
-                     context_window=WINDOW, compact_reserve=RESERVE)
+    team = mock_team("cmp", lambda m, t=None, stream_cb=None: "ok", context_window=WINDOW, compact_reserve=RESERVE)
     team._compact_fn = compact
     return team
 
@@ -42,7 +43,7 @@ def _attempt(fallback, times=1):
 
 def test_a_compaction_that_raises_counts_as_one_failure():
     def broken(messages):
-        raise RuntimeError('the model refused')
+        raise RuntimeError("the model refused")
 
     team, calls, kept = _attempt(broken)
     assert calls == [2]

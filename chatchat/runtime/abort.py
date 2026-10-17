@@ -6,6 +6,7 @@ import asyncio
 class Abort(Exception):
     pass
 
+
 class AbortSignal:
     def __init__(self):
         self._aborted = False

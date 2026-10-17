@@ -7,9 +7,9 @@ from jsonschema import validators
 
 DEFAULT_RETRIES = 5
 
-RETRY_ENV = 'MAX_STRUCTURED_OUTPUT_RETRIES'
+RETRY_ENV = "MAX_STRUCTURED_OUTPUT_RETRIES"
 
-STRUCTURED_OUTPUT_TOOL = 'StructuredOutput'
+STRUCTURED_OUTPUT_TOOL = "StructuredOutput"
 
 
 def retries() -> int:
@@ -28,14 +28,13 @@ def schema_problem(schema) -> str:
         _type(schema).check_schema(schema)
     except Exception as exc:
         return str(exc).splitlines()[0]
-    return ''
+    return ""
 
 
 def mismatch(schema, payload) -> str:
-    errors = sorted(_type(schema)(schema).iter_errors(payload),
-                    key=lambda error: list(error.absolute_path))
+    errors = sorted(_type(schema)(schema).iter_errors(payload), key=lambda error: list(error.absolute_path))
     parts = []
     for error in errors:
-        path = '/'.join(str(part) for part in error.absolute_path) or 'root'
-        parts.append(f'{path}: {error.message}')
-    return ', '.join(parts)
+        path = "/".join(str(part) for part in error.absolute_path) or "root"
+        parts.append(f"{path}: {error.message}")
+    return ", ".join(parts)

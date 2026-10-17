@@ -9,8 +9,8 @@ import yaml
 
 
 MAX_LISTING_DESC_CHARS = 250
-ELLIPSIS = '…'
-ARGUMENTS = '$ARGUMENTS'
+ELLIPSIS = "…"
+ARGUMENTS = "$ARGUMENTS"
 LISTING_CONTEXT_PERCENT = 0.01
 CHARS_PER_TOKEN = 4
 DEFAULT_LISTING_CHARS = 8_000
@@ -19,29 +19,28 @@ DEFAULT_LISTING_CHARS = 8_000
 def listing_budget(context_window: int = 0) -> int:
     if context_window <= 0:
         return DEFAULT_LISTING_CHARS
-    return max(1, int(context_window * CHARS_PER_TOKEN
-                      * LISTING_CONTEXT_PERCENT))
+    return max(1, int(context_window * CHARS_PER_TOKEN * LISTING_CONTEXT_PERCENT))
 
 
 def _split(text: str) -> tuple[str, str]:
     lines = text.splitlines(keepends=True)
-    if not lines or lines[0].strip() != '---':
-        raise ValueError('frontmatter block is missing')
+    if not lines or lines[0].strip() != "---":
+        raise ValueError("frontmatter block is missing")
     for index, line in enumerate(lines[1:], start=1):
-        if line.strip() == '---':
-            return ''.join(lines[1:index]), ''.join(lines[index + 1:])
-    raise ValueError('frontmatter block is not closed')
+        if line.strip() == "---":
+            return "".join(lines[1:index]), "".join(lines[index + 1 :])
+    raise ValueError("frontmatter block is not closed")
 
 
 def _flag(value) -> bool:
     if isinstance(value, str):
-        return value.strip().lower() in ('1', 'true', 'yes', 'on')
+        return value.strip().lower() in ("1", "true", "yes", "on")
     return bool(value)
 
 
 def _names(value) -> tuple:
     if isinstance(value, str):
-        return tuple(word.strip() for word in value.split(',') if word.strip())
+        return tuple(word.strip() for word in value.split(",") if word.strip())
     if isinstance(value, (list, tuple)):
         return tuple(str(word).strip() for word in value if str(word).strip())
     return ()
@@ -51,14 +50,14 @@ def _names(value) -> tuple:
 class Skill:
     name: str
     description: str
-    when_to_use: str = ''
+    when_to_use: str = ""
     allowed_tools: tuple = ()
     paths: tuple = ()
-    model: str = ''
-    source: str = 'user'
+    model: str = ""
+    source: str = "user"
     directory: Path = None
     body_text: str | None = None
-    argument_hint: str = ''
+    argument_hint: str = ""
     user_invocable: bool = True
     disable_model_invocation: bool = False
     builder: Callable[[str], str] | None = None
@@ -67,14 +66,13 @@ class Skill:
     def body(self) -> str:
         if self.body_text is None:
             try:
-                _front, body = _split(
-                    (self.directory / 'SKILL.md').read_text(encoding='utf-8'))
+                _front, body = _split((self.directory / "SKILL.md").read_text(encoding="utf-8"))
             except OSError:
-                body = ''
-            self.body_text = body.lstrip('\n')
+                body = ""
+            self.body_text = body.lstrip("\n")
         return self.body_text
 
-    def render(self, args: str = '') -> str:
+    def render(self, args: str = "") -> str:
         """What the skill hands over when it is called. A skill that ships with
         the program builds its own text from whatever is live right now; a
         directory one fills in its argument."""
@@ -85,15 +83,13 @@ class Skill:
             return text
         if ARGUMENTS in text:
             return text.replace(ARGUMENTS, args)
-        return text.rstrip('\n') + f'\n\nArgs: {args}\n'
+        return text.rstrip("\n") + f"\n\nArgs: {args}\n"
 
     def matches(self, path: str) -> bool:
         if not self.paths:
             return True
         pure = PurePath(path)
-        return any(fnmatch.fnmatch(path, pattern)
-                   or fnmatch.fnmatch(pure.name, pattern)
-                   for pattern in self.paths)
+        return any(fnmatch.fnmatch(path, pattern) or fnmatch.fnmatch(pure.name, pattern) for pattern in self.paths)
 
 
 @dataclass
@@ -102,12 +98,11 @@ class SkillRegistry:
     problems: list = field(default_factory=list)
 
     @classmethod
-    def discover(cls, cwd, home, subdir: str = '.pyclaw') -> 'SkillRegistry':
-        return cls.load([(Path(cwd) / subdir / 'skills', 'project'),
-                         (Path(home) / 'skills', 'user')])
+    def discover(cls, cwd, home, subdir: str = ".pyclaw") -> "SkillRegistry":
+        return cls.load([(Path(cwd) / subdir / "skills", "project"), (Path(home) / "skills", "user")])
 
     @classmethod
-    def load(cls, roots) -> 'SkillRegistry':
+    def load(cls, roots) -> "SkillRegistry":
         registry = cls()
         for root, source in roots:
             registry._load(Path(root), source)
@@ -117,7 +112,7 @@ class SkillRegistry:
         if not root.is_dir():
             return
         for directory in sorted(root.iterdir()):
-            file = directory / 'SKILL.md'
+            file = directory / "SKILL.md"
             if not file.is_file():
                 continue
             skill, problem = _read(directory, file, source)
@@ -135,8 +130,7 @@ class SkillRegistry:
         self.skills[skill.name] = skill
 
     def for_model(self) -> list:
-        return [skill for skill in self.all()
-                if not skill.disable_model_invocation]
+        return [skill for skill in self.all() if not skill.disable_model_invocation]
 
     def for_user(self) -> list:
         """What the terminal can type as a slash command."""
@@ -150,58 +144,60 @@ class SkillRegistry:
         for skill in self.for_model():
             description = skill.description
             if skill.when_to_use:
-                description = f'{description} - {skill.when_to_use}'
+                description = f"{description} - {skill.when_to_use}"
             if len(description) > MAX_LISTING_DESC_CHARS:
-                description = (description[:MAX_LISTING_DESC_CHARS - 1]
-                               + ELLIPSIS)
+                description = description[: MAX_LISTING_DESC_CHARS - 1] + ELLIPSIS
             rows.append((skill.name, description))
         return rows
 
     def listing(self, budget: int) -> str:
         rows = self.entries()
         if not rows:
-            return ''
-        full = '\n'.join(f'- {name}: {description}'
-                         for name, description in rows)
+            return ""
+        full = "\n".join(f"- {name}: {description}" for name, description in rows)
         if len(full) <= budget:
             return full
-        fixed = sum(len(f'- {name}: ') for name, _row in rows)
+        fixed = sum(len(f"- {name}: ") for name, _row in rows)
         room = budget - fixed - (len(rows) - 1)
         per = max(1, room // len(rows))
         lines = []
         for name, description in rows:
             if len(description) > per:
-                description = (description[:max(1, per - 1)] + ELLIPSIS
-                               if per > 1 else ELLIPSIS)
-            lines.append(f'- {name}: {description}')
-        return '\n'.join(lines)
+                description = description[: max(1, per - 1)] + ELLIPSIS if per > 1 else ELLIPSIS
+            lines.append(f"- {name}: {description}")
+        return "\n".join(lines)
 
 
 def _read(directory: Path, file: Path, source: str):
     try:
-        front, _body = _split(file.read_text(encoding='utf-8'))
+        front, _body = _split(file.read_text(encoding="utf-8"))
         meta = yaml.safe_load(front)
     except (OSError, ValueError, yaml.YAMLError) as exc:
-        return None, f'{directory.name}: {exc}'
+        return None, f"{directory.name}: {exc}"
     if not isinstance(meta, dict):
-        return None, f'{directory.name}: frontmatter is not a mapping'
-    name = str(meta.get('name') or directory.name)
-    description = str(meta.get('description') or '').strip()
+        return None, f"{directory.name}: frontmatter is not a mapping"
+    name = str(meta.get("name") or directory.name)
+    description = str(meta.get("description") or "").strip()
     if not description:
-        return None, f'{name}: no description to match a request against'
-    model = str(meta.get('model') or '')
-    hint = meta.get('argument-hint')
-    return Skill(name=name, description=description,
-                 when_to_use=str(meta.get('when_to_use') or '').strip(),
-                 allowed_tools=_names(meta.get('allowed-tools')),
-                 paths=_names(meta.get('paths')),
-                 model='' if model == 'inherit' else model, source=source,
-                 argument_hint=('' if hint is None else
-                                ' '.join(str(word) for word in hint)
-                                if isinstance(hint, (list, tuple))
-                                else str(hint).strip()),
-                 user_invocable=True if 'user-invocable' not in meta
-                 else _flag(meta.get('user-invocable')),
-                 disable_model_invocation=_flag(
-                     meta.get('disable-model-invocation')),
-                 directory=directory), ''
+        return None, f"{name}: no description to match a request against"
+    model = str(meta.get("model") or "")
+    hint = meta.get("argument-hint")
+    return Skill(
+        name=name,
+        description=description,
+        when_to_use=str(meta.get("when_to_use") or "").strip(),
+        allowed_tools=_names(meta.get("allowed-tools")),
+        paths=_names(meta.get("paths")),
+        model="" if model == "inherit" else model,
+        source=source,
+        argument_hint=(
+            ""
+            if hint is None
+            else " ".join(str(word) for word in hint)
+            if isinstance(hint, (list, tuple))
+            else str(hint).strip()
+        ),
+        user_invocable=True if "user-invocable" not in meta else _flag(meta.get("user-invocable")),
+        disable_model_invocation=_flag(meta.get("disable-model-invocation")),
+        directory=directory,
+    ), ""

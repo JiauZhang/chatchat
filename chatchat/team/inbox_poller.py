@@ -3,8 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from chatchat.team.mailbox import (Mailbox, Message, format_teammate_batch,
-                                   is_structured_protocol_message)
+from chatchat.team.mailbox import Mailbox, Message, format_teammate_batch, is_structured_protocol_message
 
 logger = logging.getLogger(__name__)
 
@@ -12,12 +11,16 @@ DEFAULT_INTERVAL = 0.5
 
 
 class InboxPoller:
-    def __init__(self, inbox: Mailbox, queue: asyncio.Queue | None = None,
-                 handlers: dict[str, callable] | None = None,
-                 interval: float = DEFAULT_INTERVAL,
-                 lead_name: str = 'team-lead',
-                 on_enqueue: callable | None = None,
-                 task_feed: callable | None = None):
+    def __init__(
+        self,
+        inbox: Mailbox,
+        queue: asyncio.Queue | None = None,
+        handlers: dict[str, callable] | None = None,
+        interval: float = DEFAULT_INTERVAL,
+        lead_name: str = "team-lead",
+        on_enqueue: callable | None = None,
+        task_feed: callable | None = None,
+    ):
         self.inbox = inbox
         self.queue = queue if queue is not None else asyncio.Queue()
         self.handlers = handlers or {}
@@ -64,7 +67,7 @@ class InboxPoller:
             try:
                 text = await self.poll_once()
             except Exception:
-                logger.exception('inbox poll failed; retrying next tick')
+                logger.exception("inbox poll failed; retrying next tick")
                 continue
             if text is not None and self.queue is not None:
                 if self.on_enqueue is not None:

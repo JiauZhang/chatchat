@@ -32,10 +32,10 @@ class Metrics:
     def refused(self) -> None:
         self.denials += 1
 
-    def __add__(self, other: 'Metrics') -> 'Metrics':
-        return Metrics(**{field.name: getattr(self, field.name)
-                          + getattr(other, field.name)
-                          for field in dataclasses.fields(self)})
+    def __add__(self, other: "Metrics") -> "Metrics":
+        return Metrics(
+            **{field.name: getattr(self, field.name) + getattr(other, field.name) for field in dataclasses.fields(self)}
+        )
 
     def as_dict(self) -> dict:
         return dataclasses.asdict(self)

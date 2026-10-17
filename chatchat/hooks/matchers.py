@@ -2,14 +2,14 @@ import fnmatch
 import json
 import re
 
-_IF_CONDITION_RE = re.compile(r'^(\w+)\((.*)\)$')
+_IF_CONDITION_RE = re.compile(r"^(\w+)\((.*)\)$")
 
 
 def matches_pattern(match_query: str, matcher: str) -> bool:
-    if not matcher or matcher == '*':
+    if not matcher or matcher == "*":
         return True
-    if re.fullmatch(r'[a-zA-Z0-9_|]+', matcher):
-        return match_query in matcher.split('|')
+    if re.fullmatch(r"[a-zA-Z0-9_|]+", matcher):
+        return match_query in matcher.split("|")
     try:
         return re.search(matcher, match_query) is not None
     except re.error:
@@ -37,4 +37,4 @@ def if_matches(if_str: str, tool_name: str, tool_input: dict) -> bool:
 
 
 def if_condition_applies(hook_event: str) -> bool:
-    return hook_event in ('PreToolUse', 'PostToolUse', 'PostToolUseFailure')
+    return hook_event in ("PreToolUse", "PostToolUse", "PostToolUseFailure")

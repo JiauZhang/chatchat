@@ -1,0 +1,13 @@
+#!/bin/sh
+# Auto-format staged python files; re-stage anything the formatter changed.
+files=$(git diff --cached --name-only --diff-filter=ACMR | grep '\.py$')
+[ -z "$files" ] && exit 0
+ruff format $files >/dev/null 2>&1 || {
+    echo "pre-commit: ruff format failed; is ruff on PATH?" >&2
+    exit 1
+}
+changed=$(git diff --name-only -- $files)
+if [ -n "$changed" ]; then
+    git add $changed
+    echo "pre-commit: reformatted and re-staged: $changed"
+fi

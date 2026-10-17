@@ -40,3 +40,6 @@ path = "chatchat/version.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["chatchat"]
+
+[tool.ruff]
+line-length = 128
