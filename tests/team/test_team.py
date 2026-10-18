@@ -294,14 +294,14 @@ def test_subagent_model_resolution_param_over_def_over_inherit():
         return MockClient(handler=lambda messages, tools=None: "ok")
 
     async def main():
-        team = Team("mr", client_factory=factory)
+        team = Team("mr", client_factory=factory, model="agnes/agnes-2.5-flash")
         team.register_agent_definition(AgentDefinition("reader", system_prompt="read stuff", model="def-model"))
         await team.spawn_subagent("go", subagent_type="reader")
         await team.spawn_subagent("go", subagent_type="reader", model="param-model")
         await team.spawn_subagent("go")
         return seen
 
-    assert asyncio.run(main()) == [None, "def-model", "param-model", None]
+    assert asyncio.run(main()) == [None, "agnes/def-model", "agnes/param-model", None]
 
 
 def test_create_agent_tool_passes_model_and_schema_exposes_it():
@@ -312,14 +312,14 @@ def test_create_agent_tool_passes_model_and_schema_exposes_it():
         return MockClient(handler=lambda messages, tools=None: "ok")
 
     async def main():
-        team = Team("cm", client_factory=factory)
+        team = Team("cm", client_factory=factory, model="agnes/agnes-2.5-flash")
         out = await team.execute_tool("Agent", {"prompt": "x", "model": "m2"}, team.lead, "t1")
         schema = team.tool_schemas(team.tool_context)[0]["input_schema"]["properties"]
         return out, schema
 
     out, schema = asyncio.run(main())
     assert "ok" in out.text
-    assert seen == [None, "m2"]
+    assert seen == [None, "agnes/m2"]
     assert "model" in schema
 
 

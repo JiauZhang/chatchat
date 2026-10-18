@@ -119,23 +119,16 @@ def test_team_remove_agent_definition():
 def test_resolve_agent_model_accepts_the_config_shapes():
     from chatchat.team.agents import resolve_agent_model
 
-    assert resolve_agent_model("", "deepseek") == (None, "")
-    assert resolve_agent_model("inherit", "deepseek") == (None, "")
-    assert resolve_agent_model("deepseek-chat", "deepseek") == ("deepseek-chat", "")
-    assert resolve_agent_model("deepseek/deepseek-chat", "deepseek") == ("deepseek-chat", "")
+    assert resolve_agent_model("", "agnes/agnes-2.5-flash") == (None, "")
+    assert resolve_agent_model("inherit", "agnes/agnes-2.5-flash") == (None, "")
+    assert resolve_agent_model("agnes-2.5-flash", "agnes/agnes-2.5-flash") == ("agnes/agnes-2.5-flash", "")
+    assert resolve_agent_model("deepseek/deepseek-chat", "agnes/agnes-2.5-flash") == ("deepseek/deepseek-chat", "")
 
 
 def test_resolve_agent_model_refuses_the_rest_loudly():
     from chatchat.team.agents import resolve_agent_model
 
-    model, problem = resolve_agent_model("sonnet", "deepseek")
-    assert model is None and "claude-code alias" in problem
-    model, problem = resolve_agent_model("openai/gpt-4o", "deepseek")
-    assert model is None and "not available to provider 'deepseek'" in problem
-
-
-def test_the_cc_alias_is_flagged_at_load_time():
-    from chatchat.team.agents import agent_model_problem
-
-    assert "claude-code alias" in agent_model_problem("sonnet")
-    assert agent_model_problem("deepseek-chat") == ""
+    model, problem = resolve_agent_model("openai/", "agnes/agnes-2.5-flash")
+    assert model is None and "not provider/model or inherit" in problem
+    model, problem = resolve_agent_model("agnes-2.5-flash", "")
+    assert model is None and "does not name a provider" in problem

@@ -13,11 +13,9 @@ TEAMMATES = (("researcher", RESEARCHER), ("writer", WRITER))
 
 
 async def _run(args):
-    provider, model = args.params
     team = Team(
         "demo",
-        provider=provider,
-        model=model,
+        model=args.params[0],
         lead_instruction=LEAD,
         thinking=Thinking(mode=args.thinking, budget=args.thinking_budget, effort=args.effort),
         hooks=not args.no_hooks,
@@ -37,7 +35,7 @@ def parse_config(args):
 
 def cli_team(subparser):
     p = subparser.add_parser("team", help="Multi-agent team")
-    p.add_argument("params", type=str, nargs=2)
+    p.add_argument("params", type=str, nargs=1, help='model as "provider/model"')
     p.add_argument("--proxy", type=str, default=None)
     p.add_argument("--timeout", type=float, default=None)
     p.add_argument("--thinking", choices=MODES, default="on")

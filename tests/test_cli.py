@@ -31,7 +31,7 @@ def _demo(monkeypatch, **overrides):
     _Recorder.built = []
     monkeypatch.setattr("chatchat.cli.team.Team", _Recorder)
     args = Namespace(
-        params=["deepseek", "chat"],
+        params=["deepseek/chat"],
         thinking="off",
         thinking_budget=0,
         effort="",
@@ -48,8 +48,7 @@ def _demo(monkeypatch, **overrides):
 
 def test_the_demo_builds_a_lead_with_two_teammates(monkeypatch):
     team = _demo(monkeypatch)[0]
-    assert team.kw["provider"] == "deepseek"
-    assert team.kw["model"] == "chat"
+    assert team.kw["model"] == "deepseek/chat"
     assert team.kw["lead_instruction"] == LEAD
     assert [name for name, _ in team.kw["members"]] == ["researcher", "writer"]
     assert team.prompt == "go"

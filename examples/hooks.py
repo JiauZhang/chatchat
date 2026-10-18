@@ -25,14 +25,13 @@ def on_hooks(team):
 
 async def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--provider", default="deepseek")
-    parser.add_argument("--model", default="deepseek-chat")
+    parser.add_argument("--model", default="deepseek/deepseek-chat")
     parser.add_argument("--thinking", action="store_true")
     parser.add_argument("--no-hooks", action="store_true")
     parser.add_argument("--prompt", default="帮我写一段 DeepSeek 的介绍和优缺点，200字以内。")
     args = parser.parse_args()
 
-    client = Client(args.provider, model=args.model, instruction=LEAD, thinking=args.thinking)
+    client = Client(args.model, instruction=LEAD, thinking=args.thinking)
     team = Team("hooks-demo", client, hooks=not args.no_hooks)
     on_hooks(team)
     team.add("researcher", "你是 researcher，负责搜集事实、查证、研究，输出清晰的研究结论。")

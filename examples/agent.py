@@ -8,12 +8,11 @@ WRITER = "你是 writer，把用户给的主题用一句话成稿。"
 
 async def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--provider", default="deepseek")
-    parser.add_argument("--model", default="deepseek-chat")
+    parser.add_argument("--model", default="deepseek/deepseek-chat")
     parser.add_argument("--prompt", default="把「猫」写成一句简介。")
     args = parser.parse_args()
 
-    team = Team("agent", provider=args.provider, model=args.model, lead_instruction=WRITER)
+    team = Team("agent", model=args.model, lead_instruction=WRITER)
     print(await team.query(args.prompt))
 
 

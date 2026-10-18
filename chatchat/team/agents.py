@@ -3,37 +3,25 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 GENERAL_PURPOSE = "general-purpose"
-CC_ALIASES = ("sonnet", "opus", "haiku")
 
 
-def agent_model_problem(value) -> str:
-    """The load-time warning for a model value pyclaw can never resolve: a
-    claude-code alias. The file's author should be told why it will not run."""
-    text = str(value or "").strip()
-    if text.lower() in CC_ALIASES:
-        return (
-            f"model '{text}' is a claude-code alias; pyclaw models are the "
-            "provider's model names (the config's \"model\" field) or inherit"
-        )
-    return ""
-
-
-def resolve_agent_model(value, provider) -> tuple[str | None, str]:
-    """(model, problem) at spawn time, with the team's provider known. None
-    means the parent model. A provider/model pair must name this team's
-    provider; a bare name is that provider's model, exactly like the config's
-    model field; claude-code aliases cannot resolve here."""
+def resolve_agent_model(value, parent_model) -> tuple[str | None, str]:
+    """(model, problem) at spawn time, with the parent's canonical model known.
+    None means the parent model. A bare name is the parent provider's model; a
+    provider/model pair names any configured provider and passes through for
+    the client to resolve; inherit means the parent model explicitly."""
     text = str(value or "").strip()
     if not text or text == "inherit":
         return None, ""
     if "/" in text:
-        front, _, model = text.partition("/")
-        if front.strip().lower() == str(provider).strip().lower() and model.strip():
-            return model.strip(), ""
-        return None, (f"model '{text}' is not available to provider '{provider}'; use one of its model names or inherit")
-    if text.lower() in CC_ALIASES:
-        return None, f"model '{text}' is a claude-code alias; use the provider's model name or inherit"
-    return text, ""
+        provider, _, model = text.partition("/")
+        if provider.strip() and model.strip():
+            return text, ""
+        return None, f"model '{text}' is not provider/model or inherit"
+    provider = str(parent_model or "").partition("/")[0]
+    if not provider:
+        return None, f"model '{text}' is a bare name but the session model does not name a provider"
+    return f"{provider}/{text}", ""
 
 
 @dataclass

@@ -134,12 +134,15 @@ def load_profile(provider: str) -> dict:
 
 
 class Client:
-    def __init__(self, provider, model, instruction=None, http_options={}, thinking: Thinking = Thinking()):
-        self.provider = provider
-        self.model = model
+    def __init__(self, model, instruction=None, http_options={}, thinking: Thinking = Thinking()):
+        provider, _, model_name = str(model or "").partition("/")
+        if not provider.strip() or not model_name.strip():
+            raise RuntimeError(f'model "{model}" is not provider/model')
+        self.provider = provider.strip()
+        self.model = model_name.strip()
         self.instruction = instruction
         self.thinking = thinking
-        profile = load_profile(provider)
+        profile = load_profile(self.provider)
         self.base_url = profile["base_url"]
         self.api_key = profile["api_key"]
         self._protocol = get_protocol(profile["type"])
@@ -216,7 +219,12 @@ class MockClient:
         self._handler = handler
         self.thinking = thinking
         self.name = name
-        self.model = model
+        text = str(model) if model is not None else ""
+        head, sep, tail = text.partition("/")
+        if sep:
+            self.provider, self.model = head, tail
+        else:
+            self.provider, self.model = "", model
         self._usage = usage
         self._last_usage = Usage()
 

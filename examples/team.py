@@ -9,12 +9,11 @@ LEAD = "你是 team lead，把用户问题 send_message 发给 researcher，收�
 
 async def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--provider", default="deepseek")
-    parser.add_argument("--model", default="deepseek-chat")
+    parser.add_argument("--model", default="deepseek/deepseek-chat")
     parser.add_argument("--prompt", default="请 researcher 用一句话介绍 DeepSeek。")
     args = parser.parse_args()
 
-    team = Team("demo", provider=args.provider, model=args.model, lead_instruction=LEAD)
+    team = Team("demo", model=args.model, lead_instruction=LEAD)
     team.create_agent("researcher", instruction=ROLE.format(name="researcher"))
 
     print(await team.query(args.prompt))

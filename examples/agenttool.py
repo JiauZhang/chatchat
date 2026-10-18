@@ -11,12 +11,11 @@ LEAD = (
 
 async def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--provider", default="deepseek")
-    parser.add_argument("--model", default="deepseek-chat")
+    parser.add_argument("--model", default="deepseek/deepseek-chat")
     parser.add_argument("--prompt", default="把「猫」写成一句简介。")
     args = parser.parse_args()
 
-    team = Team("agenttool", provider=args.provider, model=args.model, lead_instruction=LEAD)
+    team = Team("agenttool", model=args.model, lead_instruction=LEAD)
     print(await team.query(args.prompt))
 
 

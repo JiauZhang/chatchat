@@ -43,7 +43,7 @@ class SubagentsMixin:
         writer = None
         if self.sidechain_dir is not None:
             writer = SidechainWriter(self.sidechain_dir, name, self.name, subagent_type or "", prompt)
-        model, problem = resolve_agent_model(model or defn.model, self._provider)
+        model, problem = resolve_agent_model(model or defn.model, self._model)
         if problem:
             raise ValueError(problem)
         agent = Agent(

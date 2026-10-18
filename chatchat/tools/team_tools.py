@@ -6,6 +6,7 @@ import inspect
 from chatchat.runtime.structured import STRUCTURED_OUTPUT_TOOL
 from chatchat.tool import Tool, ToolContext, describe_tools, tool
 from chatchat.tasks.cron import human
+from chatchat.team.agents import resolve_agent_model
 from chatchat.team.plan import APPROVE, AUTO_ACCEPT, ENTER_TEXT, plan_file, plan_question, read_plan
 from chatchat.tasks.tasks import TASK_STATUSES
 from chatchat.runtime.structured import mismatch
@@ -359,6 +360,13 @@ async def use_skill(context, team, agent, input: dict, tool_use_id: str = "") ->
     args = str(input.get("args") or "").strip()
     if skill.allowed_tools and team._skills_granted is not None:
         team._skills_granted(skill.allowed_tools)
+    if skill.model and agent is not None:
+        current = f"{agent.client.provider}/{agent.client.model}"
+        model, problem = resolve_agent_model(skill.model, current)
+        if problem:
+            return f"Error: {problem}"
+        if model is not None and model != current:
+            agent.client = team._client_for(agent.instruction, model=model)
     return skill.render(args)
 
 

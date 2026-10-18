@@ -16,10 +16,8 @@ async def _loop(client):
 
 def parse_config(args):
     if args.params:
-        provider, model = args.params
         client = Client(
-            provider,
-            model=model,
+            args.params,
             thinking=Thinking(mode=args.thinking, budget=args.thinking_budget, effort=args.effort),
             http_options={"proxy": args.proxy, "timeout": args.timeout},
         )
@@ -28,7 +26,7 @@ def parse_config(args):
 
 def cli_chat(subparser):
     config_parser = subparser.add_parser("run", help="Chat with LLM")
-    config_parser.add_argument("params", type=str, nargs=2)
+    config_parser.add_argument("params", type=str, nargs=1, help='model as "provider/model"')
     config_parser.add_argument("--proxy", type=str, default=None)
     config_parser.add_argument("--timeout", type=float, default=None)
     config_parser.add_argument("--thinking", choices=MODES, default="on")

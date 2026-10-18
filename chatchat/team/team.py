@@ -90,7 +90,6 @@ class Team(SubagentsMixin, TeamSchemasMixin, ToolRunnerMixin):
         lead_instruction: str = "",
         model_timeout: float = 120.0,
         model_retries: int = 2,
-        provider: str = None,
         model: str = None,
         thinking: Thinking | None = None,
         tools: list = None,
@@ -115,7 +114,6 @@ class Team(SubagentsMixin, TeamSchemasMixin, ToolRunnerMixin):
         self._client = client
         self._model_timeout = model_timeout
         self._model_retries = model_retries
-        self._provider = provider
         self._model = model
         self._thinking = thinking or Thinking.from_env()
         self._client_kw = client_kw
@@ -244,7 +242,6 @@ class Team(SubagentsMixin, TeamSchemasMixin, ToolRunnerMixin):
         if self._client is not None:
             return self._client
         return Client(
-            self._provider,
             model=model or self._model,
             instruction=instruction,
             thinking=self._thinking if thinking is None else thinking,
@@ -378,7 +375,7 @@ class Team(SubagentsMixin, TeamSchemasMixin, ToolRunnerMixin):
 
     @property
     def provider(self):
-        return self._provider
+        return str(self._model or "").partition("/")[0]
 
     @property
     def model(self):
