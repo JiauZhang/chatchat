@@ -336,11 +336,10 @@ class Agent:
 
         await self.poll_inbox()
 
-        if not self._internal:
-            before = len(self.messages)
-            self.messages = await self.team.maybe_compact(self.messages, agent=self)
-            if len(self.messages) < before:
-                self._skill_listing_seen = -1
+        before = len(self.messages)
+        self.messages = await self.team.maybe_compact(self.messages, agent=self)
+        if len(self.messages) < before:
+            self._skill_listing_seen = -1
 
         stream_state = {"reason_emitted": False}
         thinking_parts = []

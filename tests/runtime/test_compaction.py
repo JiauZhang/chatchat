@@ -111,3 +111,30 @@ def test_the_next_turn_tries_again():
 
     asyncio.run(main())
     assert len(calls) == 4
+
+
+def test_a_subagent_compacts_its_own_context(tmp_path):
+    """Subagents used to be exempt from compaction entirely (internal=True), so
+    a long research task grew unbounded until the provider rejected it."""
+    import asyncio
+
+    from helpers import mock_team
+
+    async def main():
+        team = mock_team("subcompact")
+        team.define_agent("reader", system_prompt="read stuff")
+        calls = []
+
+        async def fake_compact(messages, force=False, agent=None):
+            calls.append((agent.name if agent is not None else None, agent._internal if agent is not None else None))
+            return messages
+
+        team.maybe_compact = fake_compact
+        await team.spawn_subagent("go", subagent_type="reader")
+        return calls
+
+    calls = asyncio.run(main())
+    assert len(calls) == 1
+    name, internal = calls[0]
+    assert internal is True
+    assert "reader" not in name
