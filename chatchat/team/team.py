@@ -129,6 +129,7 @@ class Team(SubagentsMixin, TeamSchemasMixin, ToolRunnerMixin):
         self.file_history = FileHistory(Path(file_history_dir), cwd=self.tool_context.cwd) if file_history_dir else None
         self.tool_context.files = self.file_history
         self.skills = skills or SkillRegistry()
+        self.permission_gate = None
         self.agent_memory = agent_memory
         self.cron = cron
         self.rules = rules

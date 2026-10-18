@@ -793,3 +793,62 @@ def test_a_preloaded_skill_arrives_in_the_subagent_context():
 
     contents = asyncio.run(main())
     assert any("Preloaded skill rules" in content and "follow the rules" in content for content in contents)
+
+
+def test_a_hook_allow_reaches_the_permission_gate_as_preauthorization():
+    from chatchat.client import MockClient
+
+    seen = {}
+
+    def factory(instruction, model=None):
+        return MockClient(handler=lambda messages, tools=None: "ok")
+
+    async def main():
+        team = Team("hookallow", client_factory=factory, model="agnes/agnes-2.5-flash")
+
+        async def gate(hook_input):
+            seen["hook_allowed"] = hook_input["hook_allowed"]
+            return True
+
+        team.permission_gate = gate
+        team.hooks.register(
+            "PreToolUse",
+            fn=lambda inp: {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow"}},
+        )
+        outcome = await team.execute_tool("Bash", {"command": "echo hi"}, team.lead, "t1")
+        return outcome, seen.get("hook_allowed")
+
+    outcome, hook_allowed = asyncio.run(main())
+    assert "hi" in outcome.text or outcome.text == "echo hi"
+    assert hook_allowed is True
+
+
+def test_a_hook_updated_input_reaches_the_permission_gate():
+    from chatchat.client import MockClient
+
+    seen = {}
+
+    def factory(instruction, model=None):
+        return MockClient(handler=lambda messages, tools=None: "ok")
+
+    async def main():
+        team = Team("hookinput", client_factory=factory, model="agnes/agnes-2.5-flash")
+
+        async def gate(hook_input):
+            seen["command"] = hook_input["tool_input"]["command"]
+            return True
+
+        team.permission_gate = gate
+        team.hooks.register(
+            "PreToolUse",
+            fn=lambda inp: {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "updatedInput": {"command": "echo safe"},
+                }
+            },
+        )
+        await team.execute_tool("Bash", {"command": "rm -rf /"}, team.lead, "t1")
+        return seen["command"]
+
+    assert asyncio.run(main()) == "echo safe"

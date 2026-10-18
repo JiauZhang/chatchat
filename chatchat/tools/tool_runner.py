@@ -98,6 +98,7 @@ class ToolRunnerMixin:
         pool = self._injected_tools if (agent is None or agent.tools is None) else agent.tools
         team_tool = find_team_tool(self, name)
         extra = ""
+        permission = ""
         if agent is not None and not agent.hookless:
             pre = await self.hooks.execute_pre_tool_hooks(agent, tool_use_id, name, input)
             if pre.blocking_error is not None:
@@ -105,6 +106,31 @@ class ToolRunnerMixin:
             if pre.updated_input is not None:
                 input = {**input, **pre.updated_input}
             extra = pre.additional_context
+            permission = pre.decision
+        # The permission gate runs after the hooks, on the input the hooks left
+        # behind, and a hook's allow decision satisfies its ask - claude-code's
+        # ordering (hook results converge, then the permission flow).
+        gate_fn = getattr(self, "permission_gate", None)
+        if gate_fn is not None and agent is not None and not agent.hookless:
+            outcome = await gate_fn(
+                {
+                    "tool_name": name,
+                    "tool_input": input,
+                    "agent_id": agent.name,
+                    "agent_type": getattr(agent, "agent_type", "") or ("subagent" if agent._internal else None),
+                    "tool_use_id": tool_use_id,
+                    "hook_allowed": permission == "allow",
+                }
+            )
+            specific = outcome.get("hookSpecificOutput") or {} if isinstance(outcome, dict) else {}
+            if specific.get("permissionDecision") == "deny":
+                reason = specific.get("permissionDecisionReason") or f"{name} was denied"
+                return ToolOutcome(f"Error: {reason}", denied=True)
+            if specific.get("updatedInput"):
+                input = {**input, **specific["updatedInput"]}
+            feedback = specific.get("additionalContext") or ""
+            if feedback:
+                extra = f"{extra}\n{feedback}" if extra else feedback
         if team_tool is not None:
             try:
                 context = agent.tool_context if agent is not None else self.tool_context
