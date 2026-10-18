@@ -115,7 +115,10 @@ def test_the_worktree_tools_are_offered_only_where_the_work_can_be_isolated(tmp_
     async def main():
         in_repo = _team(root)
         elsewhere = _team(plain)
-        names = lambda team: [schema["name"] for schema in team.tool_schemas(team.tool_context)]
+
+        def names(team):
+            return [schema["name"] for schema in team.tool_schemas(team.tool_context)]
+
         without = names(elsewhere)
         elsewhere.hooks.register("WorktreeCreate", "*", fn=lambda inp: "x")
         return names(in_repo), without, names(elsewhere)

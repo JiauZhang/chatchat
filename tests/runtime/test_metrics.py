@@ -1,6 +1,10 @@
 """A turn's cost is more than tokens: what it touched, how long it took, what it was refused."""
 
+import asyncio
+
 from chatchat.runtime.metrics import Metrics
+from chatchat.tool import ToolResult, tool
+from helpers import mock_team
 
 
 def test_a_fresh_turn_reports_nothing_happened():
@@ -63,11 +67,6 @@ def test_zero_durations_are_recorded_as_they_are():
     metrics.hook_ran(0)
     assert (metrics.tool_calls, metrics.tool_ms) == (1, 0)
     assert (metrics.hooks, metrics.hook_ms) == (1, 0)
-
-
-from chatchat.tool import ToolResult, tool
-from helpers import mock_team
-import asyncio
 
 
 @tool(
