@@ -751,3 +751,45 @@ def test_a_failed_turn_reports_itself_exactly_once():
 
     asyncio.run(run())
     assert len(_warns(events, "503, message='Service Unavailable'")) == 1
+
+
+def test_max_turns_stops_a_runaway_subagent():
+    from chatchat.client import MockClient, ToolUse
+    from chatchat.team.agents import AgentDefinition
+
+    seen = []
+
+    def factory(instruction, model=None):
+        return MockClient(handler=lambda messages, tools=None: [ToolUse("Wait", {}, f"t{len(seen)}")])
+
+    async def main():
+        team = Team("mt", client_factory=factory, model="agnes/agnes-2.5-flash")
+        original = team.execute_tool
+
+        async def counting(name, input, agent, tool_use_id=""):
+            seen.append(name)
+            return await original(name, input, agent, tool_use_id)
+
+        team.execute_tool = counting
+        team.register_agent_definition(AgentDefinition("loopish", system_prompt="loop", tools=[], max_turns=2))
+        return await team.spawn_subagent("go", subagent_type="loopish")
+
+    result = asyncio.run(main())
+    assert "turn limit (2)" in result
+    assert len(seen) == 2
+
+
+def test_a_preloaded_skill_arrives_in_the_subagent_context():
+    from chatchat.client import MockClient
+    from chatchat.runtime.skills import Skill
+    from chatchat.team.agents import AgentDefinition
+
+    async def main():
+        team = Team("preload", MockClient(handler=lambda messages, tools=None: "ok"))
+        team.skills.register(Skill(name="rules", description="the rules", body_text="follow the rules"))
+        team.register_agent_definition(AgentDefinition("reader", system_prompt="read", skills=("rules",)))
+        agent, _writer, _defn = await team._start_subagent("go", "reader", "", None, 0, None, "")
+        return [m["content"] for m in agent.messages if isinstance(m.get("content"), str)]
+
+    contents = asyncio.run(main())
+    assert any("Preloaded skill rules" in content and "follow the rules" in content for content in contents)

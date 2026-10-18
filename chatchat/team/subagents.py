@@ -1,13 +1,20 @@
 import asyncio
+import dataclasses
+import logging
 import time
+from pathlib import Path
 
 from chatchat.runtime.abort import AbortSignal
 from chatchat.runtime.agent import Agent
 from chatchat.runtime.context import AgentContext
 from chatchat.team.agents import resolve_agent_model
 from chatchat.team.sidechain import SidechainWriter
+from chatchat.team.worktrees import create
 from chatchat.tasks.task import rand_name
+from chatchat.tool import ToolContext
 from chatchat.hooks.events import AGENT_PROGRESS, emit
+
+logger = logging.getLogger(__name__)
 
 
 def _tool_calls(agent: Agent) -> int:
@@ -46,16 +53,33 @@ class SubagentsMixin:
         model, problem = resolve_agent_model(model or defn.model, self._model)
         if problem:
             raise ValueError(problem)
+        thinking = None
+        if defn.effort:
+            thinking = dataclasses.replace(self._thinking, effort=defn.effort)
+        tool_context = None
+        if defn.isolation == "worktree":
+            if self._worktrees is None:
+                raise ValueError("isolation: worktree needs a git repository")
+            record = create(self.tool_context.cwd, f"{self._worktree_name()}-{name}")
+            tool_context = ToolContext(cwd=Path(record["path"]))
+            worktree_note = (
+                f"\n\nWorking in the isolated worktree {record['path']} on branch {record['branch']}. "
+                f"The session directory did not move; your changes stay in that worktree."
+            )
+        else:
+            worktree_note = ""
         agent = Agent(
             agent_id,
             name,
             self,
-            self._client_for(sys_prompt, model=model),
+            self._client_for(sys_prompt, thinking=thinking, model=model),
             ctx,
             instruction=sys_prompt,
             depth=depth,
             internal=True,
             tools=list(defn.tools),
+            max_turns=defn.max_turns,
+            tool_context=tool_context,
             model_timeout=self._model_timeout,
             model_retries=self._model_retries,
             on_message=None if writer is None else writer.append,
@@ -64,6 +88,21 @@ class SubagentsMixin:
         self.agents[agent_id] = agent
         if fork_msgs:
             agent.messages = list(fork_msgs)
+        for skill_name in defn.skills:
+            skill = self.skills.get(skill_name)
+            if skill is None:
+                logger.warning("agent %s: preloaded skill '%s' does not exist", defn.agent_type, skill_name)
+                continue
+            message = {
+                "role": "user",
+                "content": f"<system-reminder>\nPreloaded skill {skill.name}:\n{skill.render('')}\n</system-reminder>",
+            }
+            agent.messages.append(message)
+            agent._record(message)
+        if worktree_note:
+            message = {"role": "user", "content": f"<system-reminder>{worktree_note}\n</system-reminder>"}
+            agent.messages.append(message)
+            agent._record(message)
         emit(
             AGENT_PROGRESS,
             agent=agent.name,

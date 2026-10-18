@@ -35,6 +35,11 @@ class AgentDefinition:
     addenda: str = ""
     description: str = ""
     memory: str | None = None
+    disallowed_tools: tuple = ()
+    skills: tuple = ()
+    max_turns: int | None = None
+    effort: str = ""
+    isolation: str = ""
 
     def full_prompt(self) -> str:
         parts = [p.strip() for p in (self.system_prompt, self.addenda) if p.strip()]

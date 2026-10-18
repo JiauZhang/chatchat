@@ -44,6 +44,8 @@ class Agent:
         tools: list | None = None,
         model_timeout: float = 120.0,
         model_retries: int = 2,
+        max_turns: int | None = None,
+        tool_context=None,
         on_message=None,
         inbox=None,
         agent_type: str = "",
@@ -62,6 +64,8 @@ class Agent:
         self.tools = tools
         self.model_timeout = model_timeout
         self.model_retries = model_retries
+        self.max_turns = max_turns
+        self._tool_context = tool_context
 
         self.total_usage = Usage()
         self.metrics = Metrics()
@@ -95,7 +99,7 @@ class Agent:
 
     @property
     def tool_context(self):
-        return self.team.tool_context
+        return self._tool_context if self._tool_context is not None else self.team.tool_context
 
     def _record(self, message: dict):
         if self.on_message is not None:
@@ -343,6 +347,7 @@ class Agent:
 
         stream_state = {"reason_emitted": False}
         thinking_parts = []
+        rounds = 0
 
         def stream(text, kind):
             if kind == "warn":
@@ -361,6 +366,12 @@ class Agent:
         while True:
             self.ctx.abort.check()
             self._work_abort.check()
+            rounds += 1
+            if self.max_turns is not None and rounds > self.max_turns:
+                note = f"Stopped: the turn limit ({self.max_turns}) was reached."
+                emit(AGENT_WARN, agent=self.name, text=note)
+                emit(AGENT_TURN_FINISHED, agent=self.name)
+                return note
             self._queue_skill_listing()
             attachment = self._drain_attachments()
             if attachment:
