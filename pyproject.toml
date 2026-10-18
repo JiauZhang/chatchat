@@ -30,7 +30,7 @@ Homepage = "https://github.com/jiauzhang/chatchat"
 chatchat = "chatchat.__main__:main"
 
 [project.optional-dependencies]
-dev = ["pytest"]
+dev = ["pytest", "ruff>=0.17.0"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
