@@ -5,6 +5,7 @@ from chatchat.team.agents import AgentRegistry
 from chatchat.hooks.events import AGENT_PROGRESS, register_runtime_handler
 from chatchat.tool import Tool
 from helpers import mock_team
+from chatchat.team.agents import resolve_agent_model
 
 _USAGE = {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120, "prompt_tokens_details": {"cached_tokens": 40}}
 
@@ -117,7 +118,6 @@ def test_team_remove_agent_definition():
 
 
 def test_resolve_agent_model_accepts_the_config_shapes():
-    from chatchat.team.agents import resolve_agent_model
 
     assert resolve_agent_model("", "agnes/agnes-2.5-flash") == (None, "")
     assert resolve_agent_model("inherit", "agnes/agnes-2.5-flash") == (None, "")
@@ -126,7 +126,6 @@ def test_resolve_agent_model_accepts_the_config_shapes():
 
 
 def test_resolve_agent_model_refuses_the_rest_loudly():
-    from chatchat.team.agents import resolve_agent_model
 
     model, problem = resolve_agent_model("openai/", "agnes/agnes-2.5-flash")
     assert model is None and "not provider/model or inherit" in problem

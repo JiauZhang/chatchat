@@ -4,6 +4,10 @@ import json
 from datetime import datetime, timedelta
 
 from chatchat.tasks.cron_schedule import CronStore, Jitter, SchedulerLock, expired, find_missed, next_fire
+import asyncio
+from helpers import mock_team
+import tempfile
+from chatchat.tasks.cron_schedule import missed_notification
 
 
 def _store(tmp_path):
@@ -148,14 +152,10 @@ def _tools(team):
 
 
 def test_the_cron_tools_appear_only_once_a_schedule_exists():
-    import asyncio
-
-    from helpers import mock_team
 
     async def main():
         team = mock_team("cron1")
         before = _tools(team)
-        from chatchat.tasks.cron_schedule import CronStore
 
         team.cron = CronStore("unused")
         return before, _tools(team)
@@ -166,16 +166,10 @@ def test_the_cron_tools_appear_only_once_a_schedule_exists():
 
 
 def test_a_scheduled_prompt_can_be_listed_and_cancelled():
-    import asyncio
-    import tempfile
-
-    from helpers import mock_team
 
     async def main():
         team = mock_team("cron2")
         with tempfile.TemporaryDirectory() as directory:
-            from chatchat.tasks.cron_schedule import CronStore
-
             team.cron = CronStore(directory)
             created = await team.execute_tool("CronCreate", {"cron": "0 9 * * *", "prompt": "check the builds"}, team.lead)
             listed = await team.execute_tool("CronList", {}, team.lead)
@@ -192,16 +186,10 @@ def test_a_scheduled_prompt_can_be_listed_and_cancelled():
 
 
 def test_a_broken_cron_string_is_refused_before_it_is_stored():
-    import asyncio
-    import tempfile
-
-    from helpers import mock_team
 
     async def main():
         team = mock_team("cron3")
         with tempfile.TemporaryDirectory() as directory:
-            from chatchat.tasks.cron_schedule import CronStore
-
             team.cron = CronStore(directory)
             return await team.execute_tool("CronCreate", {"cron": "99 * * * *", "prompt": "never"}, team.lead)
 
@@ -211,13 +199,9 @@ def test_a_broken_cron_string_is_refused_before_it_is_stored():
 
 
 def test_the_create_description_teaches_the_reference_habits():
-    import asyncio
-
-    from helpers import mock_team
 
     async def main():
         team = mock_team("cron4")
-        from chatchat.tasks.cron_schedule import CronStore
 
         team.cron = CronStore("unused")
         schemas = {schema["name"]: schema for schema in team.tool_schemas(team.tool_context)}
@@ -231,16 +215,10 @@ def test_the_create_description_teaches_the_reference_habits():
 
 
 def test_a_recurring_job_announces_expiry_and_a_one_shot_its_single_fire():
-    import asyncio
-    import tempfile
-
-    from helpers import mock_team
 
     async def main():
         team = mock_team("cron5")
         with tempfile.TemporaryDirectory() as directory:
-            from chatchat.tasks.cron_schedule import CronStore
-
             team.cron = CronStore(directory)
             recurring = await team.execute_tool("CronCreate", {"cron": "0 9 * * *", "prompt": "daily"}, team.lead)
             one_shot = await team.execute_tool(
@@ -256,16 +234,10 @@ def test_a_recurring_job_announces_expiry_and_a_one_shot_its_single_fire():
 
 
 def test_the_listing_carries_the_reference_line_shape():
-    import asyncio
-    import tempfile
-
-    from helpers import mock_team
 
     async def main():
         team = mock_team("cron6")
         with tempfile.TemporaryDirectory() as directory:
-            from chatchat.tasks.cron_schedule import CronStore
-
             team.cron = CronStore(directory)
             created = await team.execute_tool(
                 "CronCreate", {"cron": "0 9 * * *", "prompt": "daily work", "durable": True}, team.lead
@@ -284,7 +256,6 @@ def test_the_listing_carries_the_reference_line_shape():
 
 
 def test_missed_notification_asks_before_running_and_fences_the_prompt():
-    from chatchat.tasks.cron_schedule import missed_notification
 
     text = missed_notification(
         [{"id": "aa11", "cron": "0 9 * * *", "prompt": "run ```ls``` and report", "created_at": "2026-05-01T08:00:00"}]
@@ -298,7 +269,6 @@ def test_missed_notification_asks_before_running_and_fences_the_prompt():
 
 
 def test_missed_notification_does_not_delete_recurring_work():
-    from chatchat.tasks.cron_schedule import find_missed
 
     now = datetime(2026, 5, 4, 10, 0)
     recurring = {"id": "bb22", "cron": "0 9 * * *", "prompt": "again", "created_at": "2026-05-01T08:00:00", "recurring": True}

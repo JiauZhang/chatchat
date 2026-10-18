@@ -2,6 +2,9 @@
 the rewind dialog makes is tested here."""
 
 from chatchat.runtime.filehistory import FileHistory
+import asyncio
+from chatchat.tool import ToolContext
+from helpers import mock_team
 
 
 def _history(tmp_path, **kw):
@@ -177,11 +180,6 @@ def test_emptying_a_file_is_a_change_not_a_no_op(tmp_path):
 
 
 def test_a_team_marks_the_history_at_the_start_of_each_turn(tmp_path):
-    import asyncio
-
-    from chatchat.tool import ToolContext
-
-    from helpers import mock_team
 
     async def answer(messages, tools=None, *, stream_cb=None):
         return "ok"
@@ -200,13 +198,11 @@ def test_a_team_marks_the_history_at_the_start_of_each_turn(tmp_path):
 
 
 def test_a_team_without_a_directory_keeps_no_history(tmp_path):
-    import asyncio
 
     async def answer(messages, tools=None, *, stream_cb=None):
         return "ok"
 
     async def main():
-        from helpers import mock_team
 
         return mock_team("plain", handler=answer)
 
@@ -216,11 +212,6 @@ def test_a_team_without_a_directory_keeps_no_history(tmp_path):
 
 
 def _rewind_team(tmp_path, handler, prepare=None):
-    import asyncio
-
-    from chatchat.tool import ToolContext
-
-    from helpers import mock_team
 
     workspace = tmp_path / "ws"
     workspace.mkdir()

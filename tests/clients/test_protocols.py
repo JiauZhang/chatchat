@@ -7,6 +7,9 @@ from chatchat.protocols.anthropic import payload as a_payload
 from chatchat.protocols.anthropic import parse as a_parse
 from chatchat.protocols.openai import parse as o_parse, payload as o_payload
 from chatchat.protocols.openai import endpoint, headers, input_items
+from chatchat.protocols.anthropic import endpoint as a_endpoint
+from chatchat.protocols.anthropic import headers as a_headers
+from chatchat.protocols import get_protocol
 
 USER_TOOL_RESULT = [
     {"type": "tool_result", "tool_use_id": "t1", "content": "sunny"},
@@ -207,8 +210,6 @@ def test_anthropic_internal_blocks_go_through_verbatim():
 
 
 def test_anthropic_parse_streams_text_thinking_and_tool_use():
-    from chatchat.protocols.anthropic import endpoint as a_endpoint
-    from chatchat.protocols.anthropic import headers as a_headers
 
     assert a_endpoint("https://api.anthropic.com") == "https://api.anthropic.com/v1/messages"
     assert a_headers("sk-a")["x-api-key"] == "sk-a"
@@ -238,7 +239,6 @@ def test_anthropic_thinking_request_shares_the_reference_shape():
 
 
 def test_get_protocol_refuses_unknown_types():
-    from chatchat.protocols import get_protocol
 
     with pytest.raises(ValueError):
         get_protocol("grpc")

@@ -1,9 +1,9 @@
 import pytest
+from chatchat.hooks import events
 
 
 @pytest.fixture(autouse=True)
 def _isolated_runtime_sinks():
-    from chatchat.hooks import events
 
     events.clear_runtime_sinks()
     yield

@@ -6,6 +6,7 @@ from chatchat.runtime.thinking import Thinking
 from chatchat.runtime.tokens import rough
 from chatchat.tool import Tool, ToolResult
 from helpers import mock_team
+from chatchat.client import ToolUse
 
 PNG = {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "aGk="}}
 TOOL_USE = [{"type": "tool_use", "id": "t1", "name": "shot", "input": {}}]
@@ -90,7 +91,6 @@ def test_an_image_block_costs_a_fixed_token_budget():
 
 
 def test_a_tool_result_combines_text_and_image_blocks():
-    from chatchat.client import ToolUse
 
     tool = Tool(
         tool=lambda ctx, **kw: ToolResult(text="screenshot saved", blocks=[PNG]), name="Shot", description="takes a screenshot"

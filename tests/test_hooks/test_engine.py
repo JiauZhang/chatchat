@@ -9,6 +9,10 @@ from chatchat.tools.team_tools import send_message
 from chatchat.hooks.events import AGENT_WARN, register_runtime_handler
 from chatchat.team.team import LEAD_NAME, Team
 from chatchat.tool import Tool
+from pathlib import Path
+from chatchat.tool import ToolContext, tool
+from helpers import mock_team
+from chatchat.hooks import events
 
 
 @pytest.fixture
@@ -647,12 +651,6 @@ def test_permission_mode_is_reported_once_the_host_knows_it(team):
 
 
 def test_a_writing_tool_fires_file_changed_with_the_resolved_path(tmp_path):
-    import asyncio
-    from pathlib import Path
-
-    from chatchat.tool import ToolContext, tool
-
-    from helpers import mock_team
 
     written = tmp_path / "workspace" / "note.txt"
     seen = []
@@ -687,7 +685,6 @@ def test_a_writing_tool_fires_file_changed_with_the_resolved_path(tmp_path):
 
 
 def test_a_hook_event_handler_can_be_taken_away_again():
-    from chatchat.hooks import events
 
     saved = events._event_handler
     events._pending_events.clear()
@@ -707,7 +704,6 @@ def test_a_hook_event_handler_can_be_taken_away_again():
 
 
 def test_the_manager_lists_configured_hooks_with_their_source(team):
-    import asyncio
 
     async def main():
         t = team()

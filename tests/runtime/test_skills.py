@@ -2,6 +2,13 @@
 only read when the skill is used, so the listing has to fit a budget."""
 
 from chatchat.runtime.skills import SkillRegistry
+from chatchat.runtime.skills import Skill
+import asyncio
+from helpers import mock_team
+from chatchat.tools import team_tools as _tools
+from chatchat.client import MockClient, ToolUse
+from chatchat.team.team import Team
+from chatchat.tool import Tool
 
 
 def _skill(root, name, frontmatter, body="do the thing\n"):
@@ -139,7 +146,6 @@ def test_a_skill_the_model_may_not_call_is_left_out_of_its_listing(tmp_path):
 
 
 def test_a_registered_skill_is_used_like_a_directory_one(tmp_path):
-    from chatchat.runtime.skills import Skill
 
     registry = _pair(tmp_path, {}, {})
     registry.register(
@@ -150,7 +156,6 @@ def test_a_registered_skill_is_used_like_a_directory_one(tmp_path):
 
 
 def test_a_registered_skill_builds_its_prompt_as_it_is_called(tmp_path):
-    from chatchat.runtime.skills import Skill
 
     seen = []
     registry = _pair(tmp_path, {}, {})
@@ -173,9 +178,6 @@ def _registry(tmp_path, name="notes", body="Read the notes and summarise.\n"):
 
 
 def test_a_team_without_skills_does_not_offer_the_tool(tmp_path):
-    import asyncio
-
-    from helpers import mock_team
 
     async def main():
         team = mock_team("noskill")
@@ -185,9 +187,6 @@ def test_a_team_without_skills_does_not_offer_the_tool(tmp_path):
 
 
 def test_the_skill_tool_description_is_static_the_listing_rides_an_attachment(tmp_path):
-    import asyncio
-
-    from helpers import mock_team
 
     async def main():
         team = mock_team("listed", skills=_registry(tmp_path))
@@ -200,9 +199,6 @@ def test_the_skill_tool_description_is_static_the_listing_rides_an_attachment(tm
 
 
 def test_using_a_skill_gives_the_model_its_full_body(tmp_path):
-    import asyncio
-
-    from helpers import mock_team
 
     async def main():
         team = mock_team("used", skills=_registry(tmp_path))
@@ -214,9 +210,6 @@ def test_using_a_skill_gives_the_model_its_full_body(tmp_path):
 
 
 def test_an_unknown_skill_names_the_ones_that_exist(tmp_path):
-    import asyncio
-
-    from helpers import mock_team
 
     async def main():
         team = mock_team("missing", skills=_registry(tmp_path))
@@ -238,11 +231,6 @@ def test_extra_roots_can_be_loaded_and_the_first_one_wins(tmp_path):
 
 
 def test_using_a_skill_tells_the_host_what_it_declared_it_needs(tmp_path):
-    import asyncio
-
-    from chatchat.runtime.skills import Skill
-    from chatchat.tools import team_tools as _tools
-    from helpers import mock_team
 
     granted = []
 
@@ -284,11 +272,6 @@ def test_a_non_matching_path_leaves_the_conditional_skill_hidden(tmp_path):
 
 
 def test_touching_a_matching_file_lists_the_skill_in_a_system_reminder(tmp_path):
-    import asyncio
-
-    from chatchat.client import MockClient, ToolUse
-    from chatchat.team.team import Team
-    from chatchat.tool import Tool
 
     home = tmp_path / "home" / "skills"
     _skill(home, "tester", "name: tester\ndescription: the testing rules\npaths: test_*.py\n")

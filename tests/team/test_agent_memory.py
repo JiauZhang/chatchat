@@ -4,6 +4,7 @@ import asyncio
 from pathlib import Path
 
 from chatchat.team.agent_memory import AgentMemory
+from helpers import mock_team
 
 
 def _memory(tmp_path, snapshots=None):
@@ -114,7 +115,6 @@ def _spawned(team, agent_type):
 
 
 def test_an_agent_with_a_memory_scope_starts_with_its_notes(tmp_path):
-    from helpers import mock_team
 
     async def main():
         team = mock_team("mem1")
@@ -131,7 +131,6 @@ def test_an_agent_with_a_memory_scope_starts_with_its_notes(tmp_path):
 
 
 def test_an_agent_without_a_scope_starts_with_no_notes(tmp_path):
-    from helpers import mock_team
 
     async def main():
         team = mock_team("mem2")

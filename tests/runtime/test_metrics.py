@@ -67,6 +67,7 @@ def test_zero_durations_are_recorded_as_they_are():
 
 from chatchat.tool import ToolResult, tool
 from helpers import mock_team
+import asyncio
 
 
 @tool(
@@ -83,7 +84,6 @@ def _instrumented_team(name):
 
 
 def test_a_tool_call_is_measured_on_the_agent_that_made_it():
-    import asyncio
 
     async def main():
         team, _ = _instrumented_team("met1")
@@ -97,7 +97,6 @@ def test_a_tool_call_is_measured_on_the_agent_that_made_it():
 
 
 def test_a_refused_call_is_counted_as_a_denial():
-    import asyncio
 
     async def main():
         team, _ = _instrumented_team("met2")
@@ -112,7 +111,6 @@ def test_a_refused_call_is_counted_as_a_denial():
 
 
 def test_hooks_that_run_for_a_call_are_counted():
-    import asyncio
 
     async def main():
         team, _ = _instrumented_team("met3")
@@ -126,7 +124,6 @@ def test_hooks_that_run_for_a_call_are_counted():
 
 
 def test_a_turn_is_measured_on_its_own_and_adds_into_the_agent_total():
-    import asyncio
 
     async def main():
         team, _ = _instrumented_team("met4")
@@ -147,7 +144,6 @@ def test_a_turn_is_measured_on_its_own_and_adds_into_the_agent_total():
 
 
 def test_a_closed_turn_leaves_nothing_in_the_next_one():
-    import asyncio
 
     async def main():
         team, _ = _instrumented_team("met4b")
@@ -164,7 +160,6 @@ def test_a_closed_turn_leaves_nothing_in_the_next_one():
 
 
 def test_the_team_reads_back_the_last_turn_and_the_session_total():
-    import asyncio
 
     async def main():
         team, _ = _instrumented_team("met5")
@@ -187,7 +182,6 @@ def test_the_team_reads_back_the_last_turn_and_the_session_total():
 
 
 def test_clearing_the_session_clears_the_measured_totals_too():
-    import asyncio
 
     async def respond(messages, tools=None, *, stream_cb=None):
         return "done"

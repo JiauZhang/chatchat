@@ -4,6 +4,8 @@ from pathlib import Path
 from chatchat.team.team import Team
 from chatchat.tool import DEFAULT_MAX_RESULT_CHARS, Tool, ToolContext, ToolResult
 from helpers import mock_team
+from chatchat.runtime.skills import Skill
+from chatchat.tools import team_tools as _tools
 
 CTX = ToolContext(cwd=Path("/tmp/work"))
 
@@ -133,8 +135,6 @@ def test_team_schema_carries_the_resolved_description():
 
 
 def test_a_skill_the_user_keeps_for_themselves_is_closed_to_the_model():
-    from chatchat.runtime.skills import Skill
-    from chatchat.tools import team_tools as _tools
 
     async def main():
         team = mock_team("skill-gate")

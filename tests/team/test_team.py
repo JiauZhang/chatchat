@@ -18,6 +18,7 @@ from chatchat.hooks.events import (
 from chatchat.team.team import Team
 from chatchat.tool import Tool, ToolResult, tool as ctool
 from helpers import mock_team
+from chatchat.runtime.skills import Skill
 
 LEAD = "你是 team lead。把任务拆开用 SendMessage 发给 teammate 并等回信，最后汇总最终答案。"
 RESEARCHER = "你是 researcher。收到任务后用 SendMessage 回研究结论，然后结束。"
@@ -754,8 +755,6 @@ def test_a_failed_turn_reports_itself_exactly_once():
 
 
 def test_max_turns_stops_a_runaway_subagent():
-    from chatchat.client import MockClient, ToolUse
-    from chatchat.team.agents import AgentDefinition
 
     seen = []
 
@@ -780,9 +779,6 @@ def test_max_turns_stops_a_runaway_subagent():
 
 
 def test_a_preloaded_skill_arrives_in_the_subagent_context():
-    from chatchat.client import MockClient
-    from chatchat.runtime.skills import Skill
-    from chatchat.team.agents import AgentDefinition
 
     async def main():
         team = Team("preload", MockClient(handler=lambda messages, tools=None: "ok"))
@@ -796,7 +792,6 @@ def test_a_preloaded_skill_arrives_in_the_subagent_context():
 
 
 def test_a_hook_allow_reaches_the_permission_gate_as_preauthorization():
-    from chatchat.client import MockClient
 
     seen = {}
 
@@ -824,7 +819,6 @@ def test_a_hook_allow_reaches_the_permission_gate_as_preauthorization():
 
 
 def test_a_hook_updated_input_reaches_the_permission_gate():
-    from chatchat.client import MockClient
 
     seen = {}
 

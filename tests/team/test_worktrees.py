@@ -11,6 +11,10 @@ from pathlib import Path
 import pytest
 from chatchat.tool import ToolContext
 from helpers import mock_team
+from chatchat.team.worktrees import create, worktree_path
+from chatchat.team.worktrees import sweep_worktrees
+from chatchat.team.worktrees import name_for
+from chatchat.team.worktrees import is_generated
 
 git = pytest.importorskip("shutil").which("git")
 
@@ -311,7 +315,6 @@ def _with_remote(root):
 
 
 def _worktree(root, name, *, days_old=0, dirty=False, commit=False):
-    from chatchat.team.worktrees import create, worktree_path
 
     create(root, name)
     path = worktree_path(root, name)
@@ -328,7 +331,6 @@ def _worktree(root, name, *, days_old=0, dirty=False, commit=False):
 
 
 def test_an_abandoned_generated_worktree_is_swept(tmp_path):
-    from chatchat.team.worktrees import sweep_worktrees
 
     root = _repo(tmp_path)
     _with_remote(root)
@@ -349,7 +351,6 @@ def test_an_abandoned_generated_worktree_is_swept(tmp_path):
 
 
 def test_the_sweep_lets_the_worktree_the_session_is_in_alone(tmp_path):
-    from chatchat.team.worktrees import name_for, sweep_worktrees
 
     root = _repo(tmp_path)
     _with_remote(root)
@@ -361,7 +362,6 @@ def test_the_sweep_lets_the_worktree_the_session_is_in_alone(tmp_path):
 
 
 def test_generated_names_are_told_apart_from_the_ones_people_choose():
-    from chatchat.team.worktrees import is_generated
 
     assert is_generated("calm-building-anchor") is True
     assert is_generated("my-feature") is False

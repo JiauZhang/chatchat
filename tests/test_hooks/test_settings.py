@@ -2,6 +2,7 @@ import json
 
 from chatchat.hooks.schemas import HookCommand
 from chatchat.hooks.settings import dedupe_hooks, get_all_hooks, is_hook_equal, hook_from_dict, settings_file_paths
+from chatchat.hooks.schemas import IndividualHookConfig
 
 
 def _write(cwd, source, data):
@@ -49,7 +50,6 @@ def test_dedupe_first_wins():
     h1 = HookCommand(type="command", command="same")
     h2 = HookCommand(type="command", command="same")
     h3 = HookCommand(type="command", command="same", timeout=99)
-    from chatchat.hooks.schemas import IndividualHookConfig
 
     hooks = [
         IndividualHookConfig(event="Stop", config=h1, source="a", hook_id="1"),

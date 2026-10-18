@@ -7,6 +7,7 @@ import pytest
 from chatchat.team.team_store import TeamStore
 from chatchat.tool import ToolContext
 from helpers import mock_team
+from chatchat.tasks.tasks import TaskList
 
 
 def _store(tmp_path):
@@ -84,7 +85,6 @@ def test_joining_a_team_moves_the_task_list_with_it(tmp_path):
 
 
 def test_a_task_list_touches_nothing_until_a_task_exists(tmp_path):
-    from chatchat.tasks.tasks import TaskList
 
     tasks = TaskList(tmp_path / "tasks" / "pyclaw-9")
     assert tasks.all() == []

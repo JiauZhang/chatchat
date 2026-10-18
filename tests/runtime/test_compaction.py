@@ -116,9 +116,6 @@ def test_the_next_turn_tries_again():
 def test_a_subagent_compacts_its_own_context(tmp_path):
     """Subagents used to be exempt from compaction entirely (internal=True), so
     a long research task grew unbounded until the provider rejected it."""
-    import asyncio
-
-    from helpers import mock_team
 
     async def main():
         team = mock_team("subcompact")

@@ -5,6 +5,7 @@ import asyncio
 from helpers import mock_team
 
 from chatchat.team.team import LEAD_NAME as LEAD
+from chatchat.tools import team_tools as core_tools
 
 
 async def _respond(messages, tools=None, *, stream_cb=None):
@@ -129,7 +130,6 @@ def test_task_output_reads_the_answer_of_a_finished_sub_agent():
 def test_task_output_marks_a_running_sub_agent_as_not_ready():
     async def main():
         team = mock_team("out2", handler=_respond)
-        from chatchat.tools import team_tools as core_tools
 
         sub = team.create_agent("worker", instruction="x")
         sub.busy = True
@@ -143,7 +143,6 @@ def test_task_output_marks_a_running_sub_agent_as_not_ready():
 def test_task_output_hands_a_shell_id_back_to_the_shell_tool():
     async def main():
         team = _team("out3")
-        from chatchat.tools import team_tools as core_tools
 
         return await core_tools.task_output(None, team=team, agent=team.lead, input={"task_id": "b7"})
 

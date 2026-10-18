@@ -3,6 +3,7 @@ import asyncio
 from chatchat.client import MockClient
 from chatchat.tasks.task import is_terminal_task_status
 from chatchat.team.team import Team
+from chatchat.hooks import events as hook_events
 
 
 LEAD = "lead"
@@ -99,7 +100,6 @@ def test_compaction_announces_what_it_folded_in():
         return MockClient(handler=respond)
 
     async def main():
-        from chatchat.hooks import events as hook_events
 
         team = Team("ac2", client_factory=factory, lead_instruction=LEAD, context_window=40_001, compact_reserve=40_000)
         for i in range(14):
