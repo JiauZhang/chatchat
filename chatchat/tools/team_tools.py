@@ -306,6 +306,9 @@ async def task_update(context, team, agent, input: dict, tool_use_id: str = "") 
         for key in ("subject", "description", "active_form", "status", "owner", "metadata")
         if input.get(key) is not None
     }
+    status = fields.get("status")
+    if status is not None and status not in TASK_STATUSES:
+        return f'Error: status must be one of {", ".join(TASK_STATUSES)}, or "deleted" to remove the task'
     parts = [f"{key} -> {value}" if key == "status" else key for key, value in fields.items()]
     for key, forward in (("add_blocks", True), ("add_blocked_by", False)):
         wanted = input.get(key) or []
@@ -326,7 +329,7 @@ async def task_update(context, team, agent, input: dict, tool_use_id: str = "") 
             if done.blocking_error is not None:
                 return f"Error: {describe_blocking(done.blocking_error)}"
     if fields and team.tasks.update(task_id, **fields) is None:
-        return f'Error: status must be one of {", ".join(TASK_STATUSES)}, or "deleted" to remove the task'
+        return f"Error: no task with id '{task_id}'"
     return f"Task #{task_id} updated: " + ", ".join(parts)
 
 

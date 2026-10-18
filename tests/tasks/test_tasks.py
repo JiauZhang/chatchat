@@ -366,3 +366,26 @@ def test_completing_a_task_fires_the_hook_and_a_block_keeps_it_open(tmp_path):
     out, status, seen = asyncio.run(main("held", True))
     assert status == "pending"
     assert "hold the line" in out.text
+
+
+def test_updating_an_unknown_task_id_names_the_id_not_the_status(tmp_path):
+    """The old error blamed `status` for any update failure, so a wrong task_id
+    sent the model chasing a phantom status value (seen live: task_id 't5')."""
+
+    async def main():
+        team = mock_team("unknown-task", tasks_dir=tmp_path)
+        return await team.execute_tool("TaskUpdate", {"task_id": "t5", "status": "in_progress"}, team.lead)
+
+    text = asyncio.run(main()).text
+    assert "no task with id 't5'" in text
+    assert "status must be" not in text
+
+
+def test_an_invalid_status_still_gets_the_status_message(tmp_path):
+    async def main():
+        team = mock_team("bad-status", tasks_dir=tmp_path)
+        await team.execute_tool("TaskCreate", {"subject": "s", "description": "d"}, team.lead)
+        return await team.execute_tool("TaskUpdate", {"task_id": "1", "status": "running"}, team.lead)
+
+    text = asyncio.run(main()).text
+    assert "status must be one of" in text
