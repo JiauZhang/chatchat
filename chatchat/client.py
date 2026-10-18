@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from chatchat.runtime.thinking import Thinking
+from chatchat.runtime import ratelimit
 from chatchat.protocols import Delta, ToolCall, get_protocol  # noqa: F401
 
 import asyncio
@@ -156,6 +157,7 @@ class Client:
         return messages
 
     async def respond(self, messages: list[dict], tools: Optional[list[dict]] = None, *, stream_cb=None):
+        await ratelimit.acquire(self.provider)
         msgs = self._messages(messages)
         payload = self._protocol.payload(msgs, tools, self.model, self.thinking)
         aggregated = Message()
