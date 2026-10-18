@@ -33,7 +33,6 @@ def _demo(monkeypatch, **overrides):
     args = Namespace(
         params=["deepseek/chat"],
         thinking="off",
-        thinking_budget=0,
         effort="",
         no_hooks=False,
         proxy=None,
@@ -55,9 +54,9 @@ def test_the_demo_builds_a_lead_with_two_teammates(monkeypatch):
 
 
 def test_the_demo_flags_reach_the_team(monkeypatch):
-    team = _demo(monkeypatch, thinking="adaptive", thinking_budget=8000, effort="high", no_hooks=True)[0]
+    team = _demo(monkeypatch, thinking="xhigh", no_hooks=True)[0]
     setting = team.kw["thinking"]
-    assert (setting.mode, setting.budget, setting.effort) == ("adaptive", 8000, "high")
+    assert setting.level == "xhigh"
     assert team.kw["hooks"] is False
     assert team.kw["http_options"] == {"proxy": None, "timeout": None}
 

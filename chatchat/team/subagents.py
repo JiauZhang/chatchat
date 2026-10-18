@@ -55,7 +55,7 @@ class SubagentsMixin:
             raise ValueError(problem)
         thinking = None
         if defn.effort:
-            thinking = dataclasses.replace(self._thinking, effort=defn.effort)
+            thinking = dataclasses.replace(self._thinking, level=defn.effort)
         tool_context = None
         if defn.isolation == "worktree":
             if self._worktrees is None:

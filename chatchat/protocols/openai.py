@@ -101,8 +101,11 @@ def payload(messages, tools, model, thinking, chain=None):
     }
     if system:
         body["instructions"] = "\n\n".join(system)
-    if thinking.mode != "off" and thinking.effort:
-        body["reasoning"] = {"effort": thinking.effort}
+    native = (thinking.native or {}).get("openai")
+    if native is not None:
+        body.update(native)
+    elif thinking.enabled:
+        body["reasoning"] = {"effort": thinking.level}
     if tools:
         body["tools"] = [
             {

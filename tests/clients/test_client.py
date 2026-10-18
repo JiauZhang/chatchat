@@ -83,7 +83,7 @@ def _payload_for(monkeypatch, thinking) -> dict:
 
 
 def test_respond_payload_carries_the_reasoning_setting(monkeypatch):
-    effort = _payload_for(monkeypatch, Thinking("on", effort="high"))
+    effort = _payload_for(monkeypatch, Thinking("high"))
     assert effort["reasoning"] == {"effort": "high"}
     assert "reasoning" not in _payload_for(monkeypatch, Thinking("off"))
 

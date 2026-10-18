@@ -115,7 +115,7 @@ class Team(SubagentsMixin, TeamSchemasMixin, ToolRunnerMixin):
         self._model_timeout = model_timeout
         self._model_retries = model_retries
         self._model = model
-        self._thinking = thinking or Thinking.from_env()
+        self._thinking = thinking or Thinking()
         self._client_kw = client_kw
         self._injected_tools = list(tools or [])
         self.tool_context = tool_context or ToolContext(cwd=Path.cwd())

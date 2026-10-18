@@ -130,7 +130,7 @@ def test_openai_tool_result_images_ride_the_output_array():
 
 def test_openai_effort_maps_to_the_reasoning_field():
     messages = [{"role": "user", "content": "hi"}]
-    body = o_payload(messages, None, "m1", Thinking("on", effort="high"))
+    body = o_payload(messages, None, "m1", Thinking("high"))
     assert body["reasoning"] == {"effort": "high"}
     assert "reasoning" not in o_payload(messages, None, "m1", Thinking("off"))
 
@@ -234,8 +234,9 @@ def test_anthropic_parse_streams_text_thinking_and_tool_use():
 
 
 def test_anthropic_thinking_request_shares_the_reference_shape():
-    body = a_payload([{"role": "user", "content": "hi"}], None, "m1", Thinking("on", budget=8000))
-    assert body["thinking"] == {"type": "enabled", "budget_tokens": 8000}
+    body = a_payload([{"role": "user", "content": "hi"}], None, "m1", Thinking("high"))
+    assert body["thinking"] == {"type": "adaptive"}
+    assert body["output_config"] == {"effort": "high"}
 
 
 def test_get_protocol_refuses_unknown_types():

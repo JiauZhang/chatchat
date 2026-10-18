@@ -1,6 +1,6 @@
 import asyncio
 
-from chatchat.runtime.thinking import LEVELS, MODES, Thinking
+from chatchat.runtime.thinking import LEVELS, Thinking
 
 from chatchat.client import Client
 
@@ -18,7 +18,7 @@ def parse_config(args):
     if args.params:
         client = Client(
             args.params,
-            thinking=Thinking(mode=args.thinking, budget=args.thinking_budget, effort=args.effort),
+            thinking=Thinking(args.thinking),
             http_options={"proxy": args.proxy, "timeout": args.timeout},
         )
         asyncio.run(_loop(client))
@@ -29,7 +29,5 @@ def cli_chat(subparser):
     config_parser.add_argument("params", type=str, nargs=1, help='model as "provider/model"')
     config_parser.add_argument("--proxy", type=str, default=None)
     config_parser.add_argument("--timeout", type=float, default=None)
-    config_parser.add_argument("--thinking", choices=MODES, default="on")
-    config_parser.add_argument("--thinking-budget", type=int, default=0)
-    config_parser.add_argument("--effort", choices=LEVELS, default="")
+    config_parser.add_argument("--thinking", choices=LEVELS, default="medium")
     config_parser.set_defaults(parser=parse_config)

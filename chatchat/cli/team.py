@@ -1,6 +1,6 @@
 import asyncio
 
-from chatchat.runtime.thinking import LEVELS, MODES, Thinking
+from chatchat.runtime.thinking import LEVELS, Thinking
 
 from chatchat.team.team import Team
 
@@ -17,7 +17,7 @@ async def _run(args):
         "demo",
         model=args.params[0],
         lead_instruction=LEAD,
-        thinking=Thinking(mode=args.thinking, budget=args.thinking_budget, effort=args.effort),
+        thinking=Thinking(args.thinking),
         hooks=not args.no_hooks,
         http_options={"proxy": args.proxy, "timeout": args.timeout},
     )
@@ -38,9 +38,7 @@ def cli_team(subparser):
     p.add_argument("params", type=str, nargs=1, help='model as "provider/model"')
     p.add_argument("--proxy", type=str, default=None)
     p.add_argument("--timeout", type=float, default=None)
-    p.add_argument("--thinking", choices=MODES, default="on")
-    p.add_argument("--thinking-budget", type=int, default=0)
-    p.add_argument("--effort", choices=LEVELS, default="")
+    p.add_argument("--thinking", choices=LEVELS, default="medium")
     p.add_argument("--no-hooks", action="store_true")
     p.add_argument("--prompt", type=str, default="帮我写一段 DeepSeek 的介绍和优缺点，200字以内。")
     p.set_defaults(parser=parse_config)

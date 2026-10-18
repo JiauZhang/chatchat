@@ -25,7 +25,12 @@ def payload(messages, tools, model, thinking, chain=None, max_tokens=8192):
     }
     if system:
         body["system"] = "\n\n".join(system)
-    body.update(thinking.request())
+    native = (thinking.native or {}).get("anthropic")
+    if native is not None:
+        body.update(native)
+    elif thinking.enabled:
+        body["thinking"] = {"type": "adaptive"}
+        body["output_config"] = {"effort": thinking.level}
     if tools:
         body["tools"] = [
             {"name": s["name"], "description": s.get("description", ""), "input_schema": s.get("input_schema", {})}

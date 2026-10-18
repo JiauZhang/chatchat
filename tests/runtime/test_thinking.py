@@ -1,57 +1,49 @@
-"""How much a model may reason is a setting with three parts, not one flag."""
+"""The unified thinking dial: one vocabulary, each protocol translates."""
 
 import pytest
 
-from chatchat.runtime.thinking import Thinking
+from chatchat.protocols.anthropic import payload as a_payload
+from chatchat.protocols.openai import payload as o_payload
+from chatchat.runtime.thinking import LEVELS, Thinking
 
 
-def test_the_default_asks_for_reasoning_without_a_number():
-    assert Thinking().request() == {"thinking": {"type": "enabled"}}
+def test_the_vocabulary_is_the_two_providers_common_dial():
+    assert LEVELS == ("off", "low", "medium", "high", "xhigh")
+    assert Thinking().level == "medium"
 
 
-def test_switching_it_off_says_so_to_the_provider():
-    assert Thinking("off").request() == {"thinking": {"type": "disabled"}}
-
-
-def test_a_model_that_picks_the_amount_itself_gets_no_budget():
-    assert Thinking("adaptive").request() == {"thinking": {"type": "adaptive"}}
-
-
-def test_a_stated_budget_travels_with_the_request():
-    assert Thinking("on", budget=8000).request() == {"thinking": {"type": "enabled", "budget_tokens": 8000}}
-
-
-def test_an_effort_level_is_sent_on_its_own():
-    assert Thinking(effort="high").request() == {"thinking": {"type": "enabled"}, "reasoning_effort": "high"}
-    assert Thinking("off").request() == {"thinking": {"type": "disabled"}}
-
-
-def test_the_environment_can_set_the_budget_for_a_whole_run(monkeypatch):
-    monkeypatch.setenv("MAX_THINKING_TOKENS", "12000")
-    assert Thinking.from_env().budget == 12000
-    assert Thinking.from_env().mode == "on"
-    monkeypatch.setenv("MAX_THINKING_TOKENS", "0")
-    assert Thinking.from_env().mode == "off"
-    monkeypatch.delenv("MAX_THINKING_TOKENS")
-    assert Thinking.from_env().budget == 0
-
-
-def test_an_explicit_budget_beats_the_environment(monkeypatch):
-    monkeypatch.setenv("MAX_THINKING_TOKENS", "12000")
-    assert Thinking.from_env(budget=4000).budget == 4000
-
-
-def test_a_mode_that_is_not_one_of_the_three_is_refused():
+def test_a_level_outside_the_vocabulary_is_refused():
     with pytest.raises(ValueError):
         Thinking("sometimes")
     with pytest.raises(ValueError):
-        Thinking(effort="extreme")
-    with pytest.raises(ValueError):
-        Thinking(budget=-1)
+        Thinking("adaptive")
 
 
-def test_the_reading_shows_what_is_actually_been_asked_for():
+def test_the_reading_says_what_was_asked_for():
     assert Thinking("off").label() == "thinking off"
-    assert Thinking().label() == "thinking on"
-    assert Thinking("adaptive", effort="medium").label() == ("thinking adaptive \u00b7 effort medium")
-    assert Thinking(budget=8000).label() == "thinking 8000"
+    assert Thinking("xhigh").label() == "thinking xhigh"
+
+
+def test_anthropic_gets_adaptive_plus_effort():
+    body = a_payload([{"role": "user", "content": "hi"}], None, "m1", Thinking("high"))
+    assert body["thinking"] == {"type": "adaptive"}
+    assert body["output_config"] == {"effort": "high"}
+
+
+def test_anthropic_off_sends_nothing():
+    body = a_payload([{"role": "user", "content": "hi"}], None, "m1", Thinking("off"))
+    assert "thinking" not in body
+    assert "output_config" not in body
+
+
+def test_openai_gets_the_effort_verbatim():
+    body = o_payload([{"role": "user", "content": "hi"}], None, "m1", Thinking("low"))
+    assert body["reasoning"] == {"effort": "low"}
+    assert "thinking" not in o_payload([{"role": "user", "content": "hi"}], None, "m1", Thinking("off"))
+
+
+def test_native_config_passes_through_untouched_and_wins():
+    thinking = Thinking("low", native={"anthropic": {"thinking": {"type": "enabled", "budget_tokens": 4096}}})
+    body = a_payload([{"role": "user", "content": "hi"}], None, "m1", thinking)
+    assert body["thinking"] == {"type": "enabled", "budget_tokens": 4096}
+    assert "output_config" not in body
