@@ -31,6 +31,8 @@ def payload(messages, tools, model, thinking, chain=None, max_tokens=8192):
     elif thinking.enabled:
         body["thinking"] = {"type": "adaptive"}
         body["output_config"] = {"effort": thinking.level}
+    else:
+        body["thinking"] = {"type": "disabled"}
     if tools:
         body["tools"] = [
             {"name": s["name"], "description": s.get("description", ""), "input_schema": s.get("input_schema", {})}

@@ -44,7 +44,7 @@ def test_openai_payload_uses_instructions_for_system():
     assert body["input"] == [{"role": "user", "content": "hi"}]
     assert body["stream"] is True and body["store"] is False
     assert body["include"] == ["reasoning.encrypted_content"]
-    assert "reasoning" not in body and "thinking" not in body
+    assert "thinking" not in body
 
 
 def test_openai_payload_converts_the_tool_flow():
@@ -132,7 +132,7 @@ def test_openai_effort_maps_to_the_reasoning_field():
     messages = [{"role": "user", "content": "hi"}]
     body = o_payload(messages, None, "m1", Thinking("high"))
     assert body["reasoning"] == {"effort": "high"}
-    assert "reasoning" not in o_payload(messages, None, "m1", Thinking("off"))
+    assert o_payload(messages, None, "m1", Thinking("off"))["reasoning"] == {"effort": "none"}
 
 
 def test_openai_parse_reads_text_usage_and_response():

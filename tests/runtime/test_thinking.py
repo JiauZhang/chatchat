@@ -30,16 +30,16 @@ def test_anthropic_gets_adaptive_plus_effort():
     assert body["output_config"] == {"effort": "high"}
 
 
-def test_anthropic_off_sends_nothing():
+def test_anthropic_off_says_disabled_out_loud():
     body = a_payload([{"role": "user", "content": "hi"}], None, "m1", Thinking("off"))
-    assert "thinking" not in body
+    assert body["thinking"] == {"type": "disabled"}
     assert "output_config" not in body
 
 
 def test_openai_gets_the_effort_verbatim():
     body = o_payload([{"role": "user", "content": "hi"}], None, "m1", Thinking("low"))
     assert body["reasoning"] == {"effort": "low"}
-    assert "thinking" not in o_payload([{"role": "user", "content": "hi"}], None, "m1", Thinking("off"))
+    assert o_payload([{"role": "user", "content": "hi"}], None, "m1", Thinking("off"))["reasoning"] == {"effort": "none"}
 
 
 def test_native_config_passes_through_untouched_and_wins():
