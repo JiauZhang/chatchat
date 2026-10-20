@@ -54,9 +54,9 @@ def test_the_demo_builds_a_lead_with_two_teammates(monkeypatch):
 
 
 def test_the_demo_flags_reach_the_team(monkeypatch):
-    team = _demo(monkeypatch, thinking="xhigh", no_hooks=True)[0]
+    team = _demo(monkeypatch, thinking="max", no_hooks=True)[0]
     setting = team.kw["thinking"]
-    assert setting.level == "xhigh"
+    assert setting.level == "max"
     assert team.kw["hooks"] is False
     assert team.kw["http_options"] == {"proxy": None, "timeout": None}
 

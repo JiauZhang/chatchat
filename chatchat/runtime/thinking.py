@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 
-LEVELS = ("off", "low", "medium", "high", "xhigh")
+LEVELS = ("off", "low", "medium", "high", "max")
 
 
 @dataclasses.dataclass(frozen=True)

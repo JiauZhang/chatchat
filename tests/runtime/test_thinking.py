@@ -8,7 +8,7 @@ from chatchat.runtime.thinking import LEVELS, Thinking
 
 
 def test_the_vocabulary_is_the_two_providers_common_dial():
-    assert LEVELS == ("off", "low", "medium", "high", "xhigh")
+    assert LEVELS == ("off", "low", "medium", "high", "max")
     assert Thinking().level == "medium"
 
 
@@ -17,11 +17,21 @@ def test_a_level_outside_the_vocabulary_is_refused():
         Thinking("sometimes")
     with pytest.raises(ValueError):
         Thinking("adaptive")
+    with pytest.raises(ValueError):
+        Thinking("xhigh")
+
+
+def test_max_travels_as_each_protocol_largest_dial():
+    body = o_payload([{"role": "user", "content": "hi"}], None, "m1", Thinking("max"))
+    assert body["reasoning"] == {"effort": "xhigh"}
+    body = a_payload([{"role": "user", "content": "hi"}], None, "m1", Thinking("max"))
+    assert body["thinking"] == {"type": "adaptive"}
+    assert body["output_config"] == {"effort": "max"}
 
 
 def test_the_reading_says_what_was_asked_for():
     assert Thinking("off").label() == "thinking off"
-    assert Thinking("xhigh").label() == "thinking xhigh"
+    assert Thinking("max").label() == "thinking max"
 
 
 def test_anthropic_gets_adaptive_plus_effort():

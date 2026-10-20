@@ -90,6 +90,9 @@ def input_items(messages):
     return items
 
 
+_OPENAI_EFFORT = {"off": "none", "low": "low", "medium": "medium", "high": "high", "max": "xhigh"}
+
+
 def payload(messages, tools, model, thinking, chain=None):
     system = [m["content"] for m in messages if m.get("role") == "system" and m.get("content")]
     body = {
@@ -105,7 +108,7 @@ def payload(messages, tools, model, thinking, chain=None):
     if native is not None:
         body.update(native)
     else:
-        body["reasoning"] = {"effort": "none" if not thinking.enabled else thinking.level}
+        body["reasoning"] = {"effort": _OPENAI_EFFORT[thinking.level]}
     if tools:
         body["tools"] = [
             {
