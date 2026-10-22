@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import json
 from pathlib import Path
@@ -6,7 +7,7 @@ import sys
 from argparse import Namespace
 
 from chatchat.cli.team import LEAD, _run
-from chatchat.client import load_profile, secret_file
+from chatchat.client import load_profile, rate_limits, secret_file
 from chatchat.cli import config as config_cli
 
 
@@ -75,55 +76,119 @@ def _home(monkeypatch, tmp_path, setting, value):
     return tmp_path
 
 
-def _config(monkeypatch, tmp_path, cfgs, setting="CHATCHAT_SECRET_FILE", value="state/secrets.json"):
+def _config(monkeypatch, tmp_path, argv, setting="CHATCHAT_SECRET_FILE", value="state/secrets.json"):
     home = _home(monkeypatch, tmp_path, setting, value if value.startswith("~/") else str(tmp_path / value))
-    config_cli.parse_config(Namespace(list=False, cfgs=cfgs))
-    return home / value.removeprefix("~/")
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(dest="command")
+    config_cli.cli_config(subparsers)
+    args = parser.parse_args(["config"] + argv)
+    code = args.parser(args)
+    return home / value.removeprefix("~/"), code
 
 
 def test_config_creates_the_secret_file_and_the_directory_above_it(monkeypatch, tmp_path):
     """On a fresh machine there is no secret file to open, so the writer has
     to create it instead of letting open() fail."""
-    target = _config(monkeypatch, tmp_path, "agnes.api_key=sk-new")
+    target, code = _config(monkeypatch, tmp_path, ["--provider", "agnes", "--api-key", "sk-new"])
+    assert code == 0
     assert json.loads(target.read_text()) == {"agnes": {"api_key": "sk-new"}}
+    assert target.stat().st_mode & 0o777 == 0o600
 
 
 def test_a_tilde_in_the_secret_file_setting_reaches_the_home_directory(monkeypatch, tmp_path):
-    target = _config(monkeypatch, tmp_path, "agnes.api_key=sk-new", value="~/chatchat.json")
+    target, _ = _config(monkeypatch, tmp_path, ["--provider", "agnes", "--api-key", "sk-new"], value="~/chatchat.json")
     assert (tmp_path / "chatchat.json").exists()
     assert target == tmp_path / "chatchat.json"
     assert not (tmp_path / "~").exists()
 
 
 def test_config_keeps_every_entry_already_in_the_secret_file(monkeypatch, tmp_path):
-    target = _config(monkeypatch, tmp_path, "agnes.api_key=sk-old")
+    target, _ = _config(monkeypatch, tmp_path, ["--provider", "agnes", "--api-key", "sk-old"])
     target.write_text(json.dumps({"agnes": {"api_key": "sk-old", "extra": 1}, "deepseek": {"api_key": "keep"}}))
-    _config(monkeypatch, tmp_path, "agnes.api_key=sk-new")
+    _config(monkeypatch, tmp_path, ["--provider", "agnes", "--api-key", "sk-new"])
     assert json.loads(target.read_text()) == {"agnes": {"api_key": "sk-new", "extra": 1}, "deepseek": {"api_key": "keep"}}
 
 
+def test_config_writes_only_the_fields_it_was_given(monkeypatch, tmp_path):
+    target, _ = _config(
+        monkeypatch,
+        tmp_path,
+        ["--provider", "agnes", "--api-key", "sk-1", "--base-url", "https://x.example/v1", "--type", "openai"],
+    )
+    _config(monkeypatch, tmp_path, ["--provider", "agnes", "--rpm", "60"])
+    assert json.loads(target.read_text()) == {
+        "agnes": {"api_key": "sk-1", "base_url": "https://x.example/v1", "type": "openai", "rpm": 60}
+    }
+
+
 def test_config_refuses_to_overwrite_a_secret_file_it_cannot_read(monkeypatch, tmp_path):
-    target = _config(monkeypatch, tmp_path, "agnes.api_key=sk-new")
+    target, _ = _config(monkeypatch, tmp_path, ["--provider", "agnes", "--api-key", "sk-new"])
     target.write_text("{not json")
-    _config(monkeypatch, tmp_path, "agnes.api_key=sk-other")
+    _, code = _config(monkeypatch, tmp_path, ["--provider", "agnes", "--api-key", "sk-other"])
+    assert code == 1
     assert target.read_text() == "{not json"
 
 
-def test_config_accepts_any_profile_name(monkeypatch, tmp_path, capsys):
+def test_config_accepts_any_profile_name(monkeypatch, tmp_path):
     """Profiles are user data now: there is no registry to refuse a name."""
-    target = _config(monkeypatch, tmp_path, "nope.api_key=x")
+    target, _ = _config(monkeypatch, tmp_path, ["--provider", "nope", "--api-key", "x"])
     assert json.loads(target.read_text()) == {"nope": {"api_key": "x"}}
 
 
-def test_config_lists_configured_profiles(monkeypatch, tmp_path, capsys):
-    target = tmp_path / "state" / "config.json"
-    _home(monkeypatch, tmp_path, "CHATCHAT_SECRET_FILE", str(target))
+def test_config_requires_a_provider_when_writing(monkeypatch, tmp_path, capsys):
+    _, code = _config(monkeypatch, tmp_path, ["--api-key", "x"])
+    assert code == 1
+    assert "--provider" in capsys.readouterr().out
+
+
+def test_config_rejects_a_non_positive_rpm(monkeypatch, tmp_path, capsys):
+    _, code = _config(monkeypatch, tmp_path, ["--provider", "agnes", "--rpm", "0"])
+    assert code == 1
+    assert "positive" in capsys.readouterr().out
+
+
+def test_config_shows_profiles_with_masked_keys(monkeypatch, tmp_path, capsys):
+    target = tmp_path / "state" / "secrets.json"
     target.parent.mkdir(parents=True)
-    target.write_text(json.dumps({"agnes": {"type": "openai", "base_url": "https://x.example/v1", "api_key": "k"}}))
-    config_cli.parse_config(Namespace(list=True, cfgs=None))
+    target.write_text(
+        json.dumps({"agnes": {"type": "openai", "base_url": "https://x.example/v1", "api_key": "sk-1234567890abcd", "rpm": 60}})
+    )
+    _, code = _config(monkeypatch, tmp_path, [])
     printed = capsys.readouterr().out
+    assert code == 0
     assert "agnes" in printed and "config file" in printed
-    assert "official" not in printed
+    assert "sk-123****abcd" in printed
+    assert "sk-1234567890abcd" not in printed
+    assert "rpm=60" in printed
+
+
+def test_config_show_with_no_profiles_says_so(monkeypatch, tmp_path, capsys):
+    _config(monkeypatch, tmp_path, [])
+    assert "(no profiles configured)" in capsys.readouterr().out
+
+
+class TestRateLimits:
+    def _write(self, monkeypatch, tmp_path, data):
+        path = tmp_path / "config.json"
+        path.write_text(json.dumps(data))
+        monkeypatch.setenv("CHATCHAT_SECRET_FILE", str(path))
+        return path
+
+    def test_reads_rpm_next_to_each_profile(self, monkeypatch, tmp_path):
+        self._write(monkeypatch, tmp_path, {"agnes": {"rpm": 60}, "deepseek": {"rpm": "120"}, "kimi": {}})
+        assert rate_limits() == {"agnes": 60, "deepseek": 120}
+
+    def test_ignores_non_numeric_and_missing_limits(self, monkeypatch, tmp_path):
+        self._write(monkeypatch, tmp_path, {"agnes": {"rpm": "lots"}, "kimi": {"rpm": None}, "other": "not-a-profile"})
+        assert rate_limits() == {}
+
+    def test_missing_or_broken_files_yield_nothing(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("CHATCHAT_SECRET_FILE", str(tmp_path / "absent.json"))
+        assert rate_limits() == {}
+        broken = tmp_path / "broken.json"
+        broken.write_text("{not json")
+        monkeypatch.setenv("CHATCHAT_SECRET_FILE", str(broken))
+        assert rate_limits() == {}
 
 
 def test_the_secret_file_defaults_to_chatchat_config(monkeypatch):

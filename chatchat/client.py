@@ -134,6 +134,30 @@ def load_profile(provider: str) -> dict:
     return {"type": protocol_type, "base_url": base_url, "api_key": api_key}
 
 
+def rate_limits() -> dict:
+    """Per-provider rpm limits, declared next to the profiles that use them."""
+    path = secret_file()
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text())
+    except ValueError:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    limits = {}
+    for name, entry in data.items():
+        if not isinstance(entry, dict):
+            continue
+        try:
+            rpm = int(entry.get("rpm"))
+        except (TypeError, ValueError):
+            continue
+        if rpm > 0:
+            limits[str(name)] = rpm
+    return limits
+
+
 class Client:
     def __init__(self, model, instruction=None, http_options={}, thinking: Thinking = Thinking()):
         provider, _, model_name = str(model or "").partition("/")
