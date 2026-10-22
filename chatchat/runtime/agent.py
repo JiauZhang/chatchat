@@ -375,7 +375,7 @@ class Agent:
             self._queue_skill_listing()
             attachment = self._drain_attachments()
             if attachment:
-                msg = {"role": "user", "content": attachment}
+                msg = {"role": "user", "content": attachment, "attachment": True}
                 self.messages.append(msg)
                 self._record(msg)
             attempt = 0
@@ -501,6 +501,16 @@ class Agent:
 
     def _emit_state(self):
         emit("agent.state", agent=self.name, busy=self.busy, queue=self._queue.qsize(), unread=len(self.inbox.unread()))
+
+
+def is_attachment_message(message) -> bool:
+    """Attachment injections (the skill listing, background-task notices) ride
+    the context as user messages — claude-code builds the same sequence,
+    [userMessage, ...attachmentMessages] — but they are system injections, not
+    conversation turns. claude-code renders the initial skill listing as null
+    and keeps invisible attachments out of its message count (CC-724); hosts
+    counting turns apply the same rule through this predicate."""
+    return isinstance(message, dict) and message.get("attachment") is True
 
 
 def tu_todict(tu) -> dict:

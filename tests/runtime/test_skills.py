@@ -1,6 +1,7 @@
 """Skills are discovered as markdown with a frontmatter block, and the body is
 only read when the skill is used, so the listing has to fit a budget."""
 
+from chatchat.runtime.agent import is_attachment_message
 from chatchat.runtime.skills import SkillRegistry
 from chatchat.runtime.skills import Skill
 import asyncio
@@ -309,3 +310,28 @@ def test_touching_a_matching_file_lists_the_skill_in_a_system_reminder(tmp_path)
         if m["role"] == "user" and isinstance(m["content"], str) and "Available skills:" in m["content"]
     ]
     assert any("- tester: the testing rules" in reminder for reminder in reminders)
+
+
+def test_the_skill_listing_rides_a_marked_attachment_message(tmp_path):
+
+    async def main():
+        team = mock_team("listed", skills=_registry(tmp_path), handler=lambda messages, tools=None: "ok")
+        await team.query("hi")
+        return team.transcript()
+
+    transcript = asyncio.run(main())
+    listing = [m for m in transcript if m.get("attachment")]
+    assert len(listing) == 1
+    assert listing[0]["role"] == "user"
+    assert "<system-reminder>" in listing[0]["content"]
+    assert "- notes:" in listing[0]["content"]
+
+
+def test_is_attachment_message_judges_only_marked_user_messages():
+    assert is_attachment_message({"role": "user", "content": "hi"}) is False
+    assert is_attachment_message({"role": "assistant", "content": "hi"}) is False
+    assert is_attachment_message({"role": "user", "content": [{"type": "tool_result"}]}) is False
+    assert (
+        is_attachment_message({"role": "user", "content": "<system-reminder>x</system-reminder>", "attachment": True}) is True
+    )
+    assert is_attachment_message(None) is False
