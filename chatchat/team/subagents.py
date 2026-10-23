@@ -9,7 +9,6 @@ from chatchat.runtime.agent import Agent
 from chatchat.runtime.context import AgentContext
 from chatchat.team.agents import resolve_agent_model
 from chatchat.team.sidechain import SidechainWriter
-from chatchat.team.worktrees import create
 from chatchat.tasks.task import rand_name
 from chatchat.tool import ToolContext
 from chatchat.hooks.events import AGENT_PROGRESS, emit
@@ -37,6 +36,7 @@ class SubagentsMixin:
         depth: int,
         fork_msgs: list | None,
         tool_use_id: str,
+        isolation: str = "",
     ):
         defn = self.agent_defs.get(subagent_type)
         sys_prompt = "\n".join(p for p in (defn.full_prompt(), instruction) if p) or defn.system_prompt
@@ -57,13 +57,12 @@ class SubagentsMixin:
         if defn.effort:
             thinking = dataclasses.replace(self._thinking, level=defn.effort)
         tool_context = None
-        if defn.isolation == "worktree":
-            if self._worktrees is None:
-                raise ValueError("isolation: worktree needs a git repository")
-            record = create(self.tool_context.cwd, f"{self._worktree_name()}-{name}")
-            tool_context = ToolContext(cwd=Path(record["path"]))
+        isolated = ""
+        if isolation == "worktree" or defn.isolation == "worktree":
+            isolated = await self.allocate_isolation(f"{self.lead_session_id or self.name}-{name}")
+            tool_context = ToolContext(cwd=Path(isolated))
             worktree_note = (
-                f"\n\nWorking in the isolated worktree {record['path']} on branch {record['branch']}. "
+                f"\n\nWorking in the isolated worktree {isolated}. "
                 f"The session directory did not move; your changes stay in that worktree."
             )
         else:
@@ -86,6 +85,8 @@ class SubagentsMixin:
             agent_type=subagent_type or "",
         )
         self.agents[agent_id] = agent
+        if isolated:
+            self._agent_isolation[agent_id] = isolated
         if fork_msgs:
             agent.messages = list(fork_msgs)
         for skill_name in defn.skills:
@@ -119,6 +120,7 @@ class SubagentsMixin:
         return agent, writer, defn
 
     async def _run_subagent(self, agent: Agent, prompt: str, writer, defn) -> str:
+        note = ""
         try:
             result = await agent.chat(prompt)
             if writer is not None:
@@ -131,7 +133,8 @@ class SubagentsMixin:
             emit(AGENT_PROGRESS, agent=agent.name, done=True)
             await self.hooks.execute_subagent_stop_hooks(agent, defn.agent_type)
             agent._finalize("completed")
-        return result
+            note = await self.release_isolation(agent.agent_id)
+        return f"{result}\n{note}" if note else result
 
     async def spawn_subagent(
         self,
@@ -143,9 +146,10 @@ class SubagentsMixin:
         depth: int = 0,
         fork_msgs: list | None = None,
         tool_use_id: str = "",
+        isolation: str = "",
     ) -> str:
         agent, writer, defn = await self._start_subagent(
-            prompt, subagent_type, instruction, model, depth, fork_msgs, tool_use_id
+            prompt, subagent_type, instruction, model, depth, fork_msgs, tool_use_id, isolation
         )
         return await self._run_subagent(agent, prompt, writer, defn)
 
@@ -160,9 +164,10 @@ class SubagentsMixin:
         depth: int = 0,
         fork_msgs: list | None = None,
         tool_use_id: str = "",
+        isolation: str = "",
     ) -> str:
         agent, writer, defn = await self._start_subagent(
-            prompt, subagent_type, instruction, model, depth, fork_msgs, tool_use_id
+            prompt, subagent_type, instruction, model, depth, fork_msgs, tool_use_id, isolation
         )
         self.parents[agent.agent_id] = parent.agent_id
         self.children.setdefault(parent.agent_id, set()).add(agent.agent_id)

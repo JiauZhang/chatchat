@@ -173,8 +173,8 @@ def test_the_task_tools_are_offered_and_write_the_shared_list(tmp_path):
         [
             ("TaskCreate", {"subject": "Do it", "description": "and verify"}),
             ("TaskList", {}),
-            ("TaskGet", {"task_id": "1"}),
-            ("TaskUpdate", {"task_id": "1", "status": "completed"}),
+            ("TaskGet", {"taskId": "1"}),
+            ("TaskUpdate", {"taskId": "1", "status": "completed"}),
         ],
         tmp_path,
         with_names=True,
@@ -192,14 +192,14 @@ def test_a_task_tool_reports_a_bad_request_instead_of_raising(tmp_path):
     _, (noid, missing, no_subject, nothing) = _run(
         [
             ("TaskUpdate", {"status": "pending"}),
-            ("TaskGet", {"task_id": "77"}),
+            ("TaskGet", {"taskId": "77"}),
             ("TaskCreate", {"subject": "x"}),
-            ("TaskUpdate", {"task_id": "1"}),
+            ("TaskUpdate", {"taskId": "1"}),
         ],
         tmp_path,
     )
 
-    assert "task_id" in noid
+    assert "taskId" in noid
     assert "not found" in missing
     assert "description" in no_subject
     assert "nothing to change" in nothing
@@ -210,13 +210,13 @@ def test_task_list_marks_who_owns_a_task_and_what_holds_it(tmp_path):
         [
             ("TaskCreate", {"subject": "First", "description": "a"}),
             ("TaskCreate", {"subject": "Second", "description": "b"}),
-            ("TaskUpdate", {"task_id": "2", "owner": "worker", "add_blocked_by": ["1"]}),
+            ("TaskUpdate", {"taskId": "2", "owner": "worker", "addBlockedBy": ["1"]}),
             ("TaskList", {}),
         ],
         tmp_path,
     )
 
-    assert "add_blocked_by" in updated
+    assert "addBlockedBy" in updated
     assert listed == ("#1 [pending] First\n#2 [pending] Second (worker) [blocked by #1]")
 
 
@@ -224,7 +224,7 @@ def test_updating_a_task_can_delete_it(tmp_path):
     team, (created, moved, listed) = _run(
         [
             ("TaskCreate", {"subject": "Drop me", "description": "x"}),
-            ("TaskUpdate", {"task_id": "1", "status": "deleted"}),
+            ("TaskUpdate", {"taskId": "1", "status": "deleted"}),
             ("TaskList", {}),
         ],
         tmp_path,
@@ -240,7 +240,7 @@ def test_metadata_merges_and_a_null_key_is_dropped(tmp_path):
     team, (_, moved) = _run(
         [
             ("TaskCreate", {"subject": "Tagged", "description": "x", "metadata": {"kind": "test", "stale": 1}}),
-            ("TaskUpdate", {"task_id": "1", "metadata": {"kind": "other", "stale": None}}),
+            ("TaskUpdate", {"taskId": "1", "metadata": {"kind": "other", "stale": None}}),
         ],
         tmp_path,
     )
@@ -356,7 +356,7 @@ def test_completing_a_task_fires_the_hook_and_a_block_keeps_it_open(tmp_path):
         else:
             team.hooks.register("TaskCompleted", fn=lambda inp: seen.append(inp["task_id"]) or True)
         await team.execute_tool("TaskCreate", {"subject": "Fix login", "description": "the form posts nowhere"}, team.lead)
-        out = await team.execute_tool("TaskUpdate", {"task_id": "1", "status": "completed"}, team.lead)
+        out = await team.execute_tool("TaskUpdate", {"taskId": "1", "status": "completed"}, team.lead)
         return out, team.tasks.get("1").status, seen
 
     out, status, seen = asyncio.run(main("open", False))
@@ -374,7 +374,7 @@ def test_updating_an_unknown_task_id_names_the_id_not_the_status(tmp_path):
 
     async def main():
         team = mock_team("unknown-task", tasks_dir=tmp_path)
-        return await team.execute_tool("TaskUpdate", {"task_id": "t5", "status": "in_progress"}, team.lead)
+        return await team.execute_tool("TaskUpdate", {"taskId": "t5", "status": "in_progress"}, team.lead)
 
     text = asyncio.run(main()).text
     assert "no task with id 't5'" in text
@@ -385,7 +385,7 @@ def test_an_invalid_status_still_gets_the_status_message(tmp_path):
     async def main():
         team = mock_team("bad-status", tasks_dir=tmp_path)
         await team.execute_tool("TaskCreate", {"subject": "s", "description": "d"}, team.lead)
-        return await team.execute_tool("TaskUpdate", {"task_id": "1", "status": "running"}, team.lead)
+        return await team.execute_tool("TaskUpdate", {"taskId": "1", "status": "running"}, team.lead)
 
     text = asyncio.run(main()).text
     assert "status must be one of" in text

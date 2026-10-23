@@ -184,6 +184,9 @@ class HookManager:
             matched.append(h)
         return matched
 
+    def set_cwd(self, path) -> None:
+        self._cwd = str(path)
+
     async def run(
         self, event: str, *, query: str = None, input: dict = None, agent=None, tool_use_id: str = ""
     ) -> AggregatedHookResult:

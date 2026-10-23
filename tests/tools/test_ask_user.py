@@ -10,7 +10,7 @@ def _question(header="shape", **kw):
         {
             "question": "Which shape?",
             "header": header,
-            "options": [{"label": "round", "description": "a circle"}, {"label": "square"}],
+            "options": [{"label": "round", "description": "a circle"}, {"label": "square", "description": "a box"}],
         },
         **kw,
     )
@@ -61,7 +61,11 @@ def test_a_question_is_unreachable_when_no_one_can_answer_it():
 
 def test_malformed_questions_are_refused_before_anyone_is_bothered():
     asked = []
-    bad = ([], [{"options": [{"label": "x"}, {"label": "y"}]}, _question()], [_question(options=[{"label": "only one"}])])
+    bad = (
+        [],
+        [{"options": [{"label": "x"}, {"label": "y"}]}, _question()],
+        [_question(options=[{"label": "only one", "description": "no choice at all"}])],
+    )
     for questions in bad:
         outcome = _ask("ask5", questions, asker=lambda agent, q: asked.append(q) or ["x"])
         assert outcome.text.startswith("Error:"), questions

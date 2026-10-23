@@ -20,22 +20,13 @@ from chatchat.runtime.filehistory import FileHistory
 from chatchat.team.mailbox import idle_notification as _idle_msg
 from chatchat.tasks.tasks import TaskList
 from chatchat.team.team_store import TeamStore
-from chatchat.team.worktrees import (
-    changes,
-    create,
-    create_by_hook,
-    in_repository,
-    name_for,
-    remove,
-    repository_root,
-)
 from chatchat.runtime.skills import SkillRegistry
 from chatchat.runtime.thinking import Thinking
 from chatchat.team.standing import with_standing
 from chatchat.runtime.tokens import context_estimate, measured
 from chatchat.team.subagents import SubagentsMixin
 from chatchat.tools.tool_runner import ToolRunnerMixin
-from chatchat.tools.team_tools import TeamSchemasMixin
+from chatchat.tools.team_tools import AGENT_DESCRIPTION, TeamSchemasMixin
 from chatchat.runtime.structured import (
     STRUCTURED_OUTPUT_TOOL,
     retries,
@@ -103,7 +94,6 @@ class Team(SubagentsMixin, TeamSchemasMixin, ToolRunnerMixin):
         skills=None,
         team_store=None,
         agent_memory=None,
-        cron=None,
         rules=None,
         multi_agent: bool = True,
         **client_kw,
@@ -131,10 +121,10 @@ class Team(SubagentsMixin, TeamSchemasMixin, ToolRunnerMixin):
         self.skills = skills or SkillRegistry()
         self.permission_gate = None
         self.agent_memory = agent_memory
-        self.cron = cron
         self.rules = rules
-        self.worktree: dict | None = None
         self.ask_user = None
+        self.isolation_start = None
+        self.isolation_end = None
         self.output_schema: dict | None = None
         self.structured_output: dict | None = None
         self._output_attempts = 0
@@ -142,8 +132,8 @@ class Team(SubagentsMixin, TeamSchemasMixin, ToolRunnerMixin):
         self._cwd_changed = None
         self._skills_granted = None
         self._plan_mode_changed = None
+        self._agent_isolation: dict[str, str] = {}
         self.plan_path = None
-        self._worktrees = in_repository(self.tool_context.cwd)
         self._factory = client_factory
         self.hooks = HookManager(self, enabled=hooks)
         self.agents: dict[str, Agent] = {}
@@ -467,6 +457,7 @@ class Team(SubagentsMixin, TeamSchemasMixin, ToolRunnerMixin):
     def set_cwd(self, path):
         cwd = Path(path)
         self.tool_context.cwd = cwd
+        self.hooks.set_cwd(cwd)
         if self.file_history is not None:
             self.file_history.cwd = cwd
         if self._cwd_changed is not None:
@@ -478,96 +469,16 @@ class Team(SubagentsMixin, TeamSchemasMixin, ToolRunnerMixin):
         else:
             self.hooks.permission_mode = mode
 
-    @property
-    def can_worktree(self) -> bool:
-        return bool(self._worktrees or self.hooks.has("WorktreeCreate"))
+    async def allocate_isolation(self, name: str) -> str:
+        if self.isolation_start is None:
+            raise ValueError("isolation needs a provider: this team was given no isolation_start")
+        return str(await self.isolation_start(name))
 
-    def _worktree_name(self) -> str:
-        root = repository_root(self.tool_context.cwd) or self.tool_context.cwd
-        return name_for(self.lead_session_id or self.name, root)
-
-    async def _hooked_worktree_path(self, name: str) -> str:
-        result = await self.hooks.execute_worktree_create_hooks(self.lead, name=name)
-        for hook in result.results:
-            if hook.outcome == "success" and hook.stdout.strip():
-                return hook.stdout.strip()
-        failed = "; ".join((hook.message or "no output") for hook in result.results if hook.outcome != "success")
-        raise ValueError("the WorktreeCreate hook gave no directory" + (f": {failed}" if failed else ""))
-
-    async def enter_worktree(self, name: str = "") -> str:
-        if self.worktree is not None:
-            raise ValueError(f"already working in {self.worktree['name']}")
-        name = str(name or "").strip() or self._worktree_name()
-        try:
-            if self.hooks.has("WorktreeCreate"):
-                record = create_by_hook(self.tool_context.cwd, name, await self._hooked_worktree_path(name))
-            elif self._worktrees:
-                record = create(self.tool_context.cwd, name)
-            else:
-                return (
-                    "Error: this directory is not a git repository and no "
-                    "WorktreeCreate hook is configured, so the work cannot "
-                    "be isolated."
-                )
-        except ValueError as exc:
-            return f"Error: {exc}"
-        self.worktree = record
-        self.set_cwd(record["path"])
-        await self.hooks.execute_cwd_changed_hooks(self.lead, str(record["path"]))
-        where = f"{record['path']} ({record['name']})"
-        if record.get("hook_based"):
-            return f"Working in {where}, set up by the WorktreeCreate hook."
-        if record.get("resumed"):
-            return f"Back into the worktree at {where}, on branch {record['branch']}."
-        return f"Working in {where} on branch {record['branch']}. The session directory moved with it."
-
-    async def exit_worktree(self, keep: bool = False, discard: bool = False) -> str:
-        if self.worktree is None:
-            return "Error: this session never entered a worktree, so there is nothing to exit and nothing was changed."
-        record = self.worktree
-        counts = None if keep else changes(record["path"], record.get("origin_head") or "")
-        if not keep and not discard:
-            if counts is None:
-                return (
-                    f"Error: git could not say what is in the worktree at "
-                    f"{record['path']}. Refusing to remove it on that "
-                    f"guess — answer again having confirmed the work is "
-                    f"not needed, or keep it."
-                )
-            if counts["files"] or counts["commits"]:
-                left = []
-                if counts["files"]:
-                    left.append(_plural_work(counts["files"], "file", "uncommitted "))
-                if counts["commits"]:
-                    left.append(_plural_work(counts["commits"], "commit"))
-                return (
-                    "Error: this worktree has " + " and ".join(left) + ". Removing it throws that work away for good. Check "
-                    "with the user, then answer again wanting to discard, "
-                    "or keep the worktree."
-                )
-        self.worktree = None
-        self.set_cwd(record["origin"])
-        await self.hooks.execute_cwd_changed_hooks(self.lead, str(record["origin"]))
-        kept = f"Back at {record['origin']}."
-        if keep:
-            return (
-                kept
-                + f" The work is untouched at {record['path']}"
-                + (f" on branch {record['branch']}." if record["branch"] else ".")
-            )
-        if record.get("hook_based"):
-            await self.hooks.execute_worktree_remove_hooks(self.lead, worktree_path=str(record["path"]))
-            return kept + f" The WorktreeRemove hook was told about {record['path']}."
-        discarded = []
-        if counts and counts["commits"]:
-            discarded.append(_plural_work(counts["commits"], "commit"))
-        if counts and counts["files"]:
-            discarded.append(_plural_work(counts["files"], "file", "uncommitted "))
-        try:
-            remove(record)
-        except ValueError as exc:
-            return kept + f" The worktree could not be removed: {exc}"
-        return kept + " The worktree was removed." + (f" Discarded {' and '.join(discarded)}." if discarded else "")
+    async def release_isolation(self, agent_id: str) -> str:
+        path = self._agent_isolation.pop(agent_id, None)
+        if path is None or self.isolation_end is None:
+            return ""
+        return str(await self.isolation_end(path))
 
     def turns(self) -> list[tuple[int, str]]:
         if self.file_history is None:
@@ -589,18 +500,10 @@ class Team(SubagentsMixin, TeamSchemasMixin, ToolRunnerMixin):
         return {"files": files, "messages": removed}
 
     def _create_agent_description(self) -> str:
-        text = (
-            "Run a one-off isolated sub-agent (AgentDefinition "
-            "by subagent_type, default general-purpose): spawns a "
-            "fresh agent, runs synchronously, returns its final "
-            "answer, then is reclaimed. Not a teammate. With "
-            "run_in_background it returns at once and the answer "
-            "arrives as a message when that work is done."
-        )
         lines = [f"- {agent_type}: {when_to_use}" for agent_type, when_to_use in self.agent_defs.describe()]
-        if lines:
-            text += "\nAvailable subagent types:\n" + "\n".join(lines)
-        return text
+        if not lines:
+            return AGENT_DESCRIPTION
+        return AGENT_DESCRIPTION + "\nAvailable subagent types:\n" + "\n".join(lines)
 
     def set_output_schema(self, schema: dict) -> str:
         problem = schema_problem(schema)

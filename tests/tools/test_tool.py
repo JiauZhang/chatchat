@@ -2,7 +2,7 @@ import asyncio
 from pathlib import Path
 
 from chatchat.team.team import Team
-from chatchat.tool import DEFAULT_MAX_RESULT_CHARS, Tool, ToolContext, ToolResult
+from chatchat.tool import DEFAULT_MAX_RESULT_CHARS, Tool, ToolContext, ToolResult, describe_tools
 from helpers import mock_team
 from chatchat.runtime.skills import Skill
 from chatchat.tools import team_tools as _tools
@@ -153,3 +153,8 @@ def test_a_skill_the_user_keeps_for_themselves_is_closed_to_the_model():
     assert refused.startswith("Error:") and "debug" in refused
     assert allowed == "open"
     assert listed == ["commit"]
+
+
+def test_a_tool_that_takes_no_arguments_still_advertises_an_object():
+    schemas = describe_tools([Tool(tool=lambda context: "pong", name="Ping", description="says pong")], None)
+    assert schemas[0]["input_schema"] == {"type": "object", "properties": {}, "additionalProperties": False}

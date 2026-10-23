@@ -25,8 +25,14 @@ class ToolContext:
             self.files.track_edit(path)
 
 
+def _no_parameters() -> dict:
+    return {"type": "object", "properties": {}, "additionalProperties": False}
+
+
 def describe_tools(tools, context: ToolContext) -> list[dict]:
-    return [{"name": t.name, "description": t.describe(context), "input_schema": t.parameters or {}} for t in tools]
+    return [
+        {"name": t.name, "description": t.describe(context), "input_schema": t.parameters or _no_parameters()} for t in tools
+    ]
 
 
 @dataclass

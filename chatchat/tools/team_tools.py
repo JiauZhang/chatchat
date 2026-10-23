@@ -3,25 +3,46 @@ from __future__ import annotations
 import asyncio
 import inspect
 
-from chatchat.runtime.structured import STRUCTURED_OUTPUT_TOOL
-from chatchat.tool import Tool, ToolContext, describe_tools, tool
-from chatchat.tasks.cron import human
+from chatchat.hooks.output import describe_blocking
+from chatchat.runtime.structured import STRUCTURED_OUTPUT_TOOL, mismatch
+from chatchat.tasks.tasks import TASK_STATUSES
 from chatchat.team.agents import resolve_agent_model
 from chatchat.team.plan import APPROVE, AUTO_ACCEPT, ENTER_TEXT, plan_file, plan_question, read_plan
-from chatchat.tasks.tasks import TASK_STATUSES
-from chatchat.runtime.structured import mismatch
-from chatchat.hooks.output import describe_blocking
+from chatchat.tool import Tool, ToolContext, describe_tools, tool
+
+TASK_DEFAULT_TIMEOUT_MS = 30_000
+TASK_MAX_TIMEOUT_MS = 600_000
+
+MAX_QUESTIONS = 4
+MIN_OPTIONS = 2
+MAX_OPTIONS = 4
+MAX_HEADER_CHARS = 12
+
+SUBAGENT_INSTRUCTION = "You are an autonomous sub-agent. Complete the task and give your final answer."
+
+AGENT_DESCRIPTION = """Run a sub-agent on one task and return its final answer.
+Without a name it is a one-off sub-agent: it runs synchronously, answers, then is reclaimed.
+With a name it becomes a persistent teammate that keeps a mailbox, so assign it work with SendMessage.
+subagent_type picks its AgentDefinition; general-purpose is the default."""
+
+
+def _no_arguments() -> dict:
+    return {"type": "object", "properties": {}, "additionalProperties": False}
 
 
 @tool(
     name="SendMessage",
-    description='Send a message to a teammate by name (or "*" to '
-    "broadcast). Messages are delivered to their mailbox "
-    "and injected on their next idle turn.",
+    description="""Send a message to a teammate by name, or "*" to broadcast to every other teammate.
+The message lands in their mailbox and is injected on their next idle turn, so do not re-send it or poll them:
+their answer arrives as a teammate-message.""",
     parameters={
         "type": "object",
-        "properties": {"to": {"type": "string"}, "message": {"type": "string"}},
+        "properties": {
+            "to": {"type": "string", "description": 'Teammate name, or "*" for every other teammate.'},
+            "message": {"type": "string", "description": "Plain text, delivered to the recipient as written."},
+        },
         "required": ["to", "message"],
+        "additionalProperties": False,
     },
 )
 async def send_message(context, team, agent, input: dict, tool_use_id: str = "") -> str:
@@ -49,45 +70,50 @@ async def send_message(context, team, agent, input: dict, tool_use_id: str = "")
 
 @tool(
     name="Agent",
-    description="",
+    description=AGENT_DESCRIPTION,
     parameters={
         "type": "object",
         "properties": {
-            "prompt": {"type": "string"},
-            "instruction": {"type": "string"},
-            "subagent_type": {"type": "string"},
+            "prompt": {"type": "string", "description": "The task for the agent to perform."},
+            "subagent_type": {
+                "type": "string",
+                "description": 'Type of specialized agent to use, from the available subagent types. Defaults to "general-purpose".',
+            },
             "name": {
                 "type": "string",
-                "description": "Optional "
-                "name for a persistent "
-                "teammate (team mode): "
-                "stays alive with a "
-                "mailbox; message it via "
-                "SendMessage. Omit for "
-                "a one-off sub-agent.",
+                "description": "Name for a persistent teammate that keeps a mailbox; omit it for a one-off sub-agent.",
             },
-            "model": {"type": "string", "description": "Optional model override for the spawned agent."},
+            "model": {
+                "type": "string",
+                "description": 'Optional model override: "provider/model", a bare name in the session provider, or "inherit".',
+            },
             "run_in_background": {
                 "type": "boolean",
-                "description": "Set true for a "
-                "one-off sub-agent whose work "
-                "should not hold this turn "
-                "open. The answer arrives in "
-                "your inbox when it finishes.",
+                "description": "Run this one-off sub-agent in the background; its answer arrives in your inbox when it finishes.",
+            },
+            "isolation": {
+                "type": "string",
+                "enum": ["worktree"],
+                "description": "Run the agent on an isolated copy of the repository in a temporary git worktree, so its edits "
+                "never touch the checked-out directory. The worktree is removed when the agent left nothing behind, and "
+                "kept, with its path reported, when it left work in it.",
             },
         },
         "required": ["prompt"],
+        "additionalProperties": False,
     },
 )
 async def create_agent(context, team, agent, input: dict, tool_use_id: str = "") -> str:
     prompt = input.get("prompt", "")
-    cfg = input.get("instruction") or ("You are an autonomous sub-agent. Complete the task and give your final answer.")
     name = input.get("name")
     subagent_type = input.get("subagent_type")
     if subagent_type and team.agent_defs.find(str(subagent_type)) is None:
         known = ", ".join(name for name, _desc in team.agent_defs.describe())
         return f'Error: unknown subagent_type "{subagent_type}"; available: {known or "none"}.'
+    isolation = str(input.get("isolation") or "")
     background = bool(input.get("run_in_background"))
+    if isolation and name:
+        return "Error: isolation is for a one-off sub-agent; a named teammate works in the session directory."
     if background and name:
         return "Error: a named teammate already works in the background; run_in_background is for a one-off sub-agent."
     if background and agent is not None and agent._internal:
@@ -97,7 +123,9 @@ async def create_agent(context, team, agent, input: dict, tool_use_id: str = "")
     if name and getattr(team, "multi_agent", True):
         if agent is not None and not agent.ctx.leader:
             return "Error: Teammates cannot spawn other teammates — the team roster is flat."
-        teammate = team.create_agent(str(name), instruction=cfg, model=input.get("model"), depth=getattr(agent, "depth", 0) + 1)
+        teammate = team.create_agent(
+            str(name), instruction=SUBAGENT_INSTRUCTION, model=input.get("model"), depth=getattr(agent, "depth", 0) + 1
+        )
         team.parents[teammate.agent_id] = agent.agent_id
         team.children.setdefault(agent.agent_id, set()).add(teammate.agent_id)
         teammate.submit(prompt)
@@ -107,15 +135,19 @@ async def create_agent(context, team, agent, input: dict, tool_use_id: str = "")
             f"(agent_id: {teammate.agent_id})."
         )
     if background:
-        agent_id = await team.spawn_background_subagent(
-            prompt,
-            agent or team.lead,
-            subagent_type=subagent_type,
-            instruction=cfg,
-            model=input.get("model"),
-            depth=getattr(agent, "depth", 0) + 1,
-            tool_use_id=tool_use_id,
-        )
+        try:
+            agent_id = await team.spawn_background_subagent(
+                prompt,
+                agent or team.lead,
+                subagent_type=subagent_type,
+                instruction=SUBAGENT_INSTRUCTION,
+                model=input.get("model"),
+                depth=getattr(agent, "depth", 0) + 1,
+                tool_use_id=tool_use_id,
+                isolation=isolation,
+            )
+        except ValueError as exc:
+            return f"Error: {exc}"
         return (
             f"{agent_id.rsplit('@', 1)[0]} is running in the background. "
             f"Do not wait for it; its answer arrives in your inbox when "
@@ -125,14 +157,18 @@ async def create_agent(context, team, agent, input: dict, tool_use_id: str = "")
         created = await team.hooks.execute_task_created_hooks(agent, f"{agent.name}:sub", prompt)
         if created.blocking_error is not None:
             return f"Error: {describe_blocking(created.blocking_error)}"
-    result = await team.spawn_subagent(
-        prompt,
-        subagent_type=subagent_type,
-        instruction=cfg,
-        model=input.get("model"),
-        depth=getattr(agent, "depth", 0) + 1,
-        tool_use_id=tool_use_id,
-    )
+    try:
+        result = await team.spawn_subagent(
+            prompt,
+            subagent_type=subagent_type,
+            instruction=SUBAGENT_INSTRUCTION,
+            model=input.get("model"),
+            depth=getattr(agent, "depth", 0) + 1,
+            tool_use_id=tool_use_id,
+            isolation=isolation,
+        )
+    except ValueError as exc:
+        return f"Error: {exc}"
     if agent is not None and not agent._internal:
         done = await team.hooks.execute_task_completed_hooks(agent, f"{agent.name}:sub", prompt)
         if done.blocking_error is not None:
@@ -140,17 +176,50 @@ async def create_agent(context, team, agent, input: dict, tool_use_id: str = "")
     return result
 
 
+def _wait_seconds(value) -> float:
+    try:
+        milliseconds = TASK_DEFAULT_TIMEOUT_MS if value is None else int(value)
+    except (TypeError, ValueError):
+        milliseconds = TASK_DEFAULT_TIMEOUT_MS
+    return max(0, min(milliseconds, TASK_MAX_TIMEOUT_MS)) / 1000
+
+
+async def _still_running(team, agent_id: str, sub) -> bool:
+    return agent_id in team.background or not await sub.idle()
+
+
+async def _wait_for_agent(team, agent_id: str, sub, seconds: float) -> None:
+    task = team.background.get(agent_id)
+    if task is not None:
+        await asyncio.wait({task}, timeout=seconds)
+        return
+    if await sub.idle():
+        return
+    try:
+        await sub.wait_idle(seconds)
+    except asyncio.TimeoutError:
+        pass
+
+
 @tool(
     name="TaskOutput",
-    description="Read what a background task has produced: a "
-    "background shell command's output, or a "
-    "sub-agent's answer. Waits for the task by "
-    "default, so a timeout report means it is "
-    "still running.",
+    description="""Read what a background task has produced: a background shell command's output, or a sub-agent's answer.
+Waits for the task by default, so a timeout report means it is still running rather than that it failed.""",
     parameters={
         "type": "object",
-        "properties": {"task_id": {"type": "string"}, "block": {"type": "boolean"}, "timeout": {"type": "integer"}},
+        "properties": {
+            "task_id": {"type": "string", "description": "The ID of the background task or sub-agent to read."},
+            "block": {"type": "boolean", "default": True, "description": "Wait for the task to finish before returning."},
+            "timeout": {
+                "type": "integer",
+                "default": TASK_DEFAULT_TIMEOUT_MS,
+                "minimum": 0,
+                "maximum": TASK_MAX_TIMEOUT_MS,
+                "description": f"Milliseconds to wait when block is true (max {TASK_MAX_TIMEOUT_MS}).",
+            },
+        },
         "required": ["task_id"],
+        "additionalProperties": False,
     },
 )
 async def task_output(context, team, agent, input: dict, tool_use_id: str = "") -> str | None:
@@ -161,15 +230,23 @@ async def task_output(context, team, agent, input: dict, tool_use_id: str = "") 
     sub = team.agents.get(agent_id)
     if sub is None:
         return None
+    block = input.get("block") is not False
+    if block:
+        await _wait_for_agent(team, agent_id, sub, _wait_seconds(input.get("timeout")))
+    running = await _still_running(team, agent_id, sub)
     body = sub.last_assistant(start=0) or ""
-    running = bool(getattr(sub, "busy", False))
-    state = "running" if running else "completed"
+    if not running:
+        retrieval = "success"
+    elif block:
+        retrieval = "timeout"
+    else:
+        retrieval = "not_ready"
     return "\n".join(
         [
-            f"<fetch_result>{'not_ready' if running else 'success'}</fetch_result>",
+            f"<fetch_result>{retrieval}</fetch_result>",
             f"<task_ref>{target}</task_ref>",
             "<task_kind>agent</task_kind>",
-            f"<run_state>{state}</run_state>",
+            f"<run_state>{'running' if running else 'completed'}</run_state>",
             body if body.strip() else "(no answer yet)",
         ]
     )
@@ -178,7 +255,12 @@ async def task_output(context, team, agent, input: dict, tool_use_id: str = "") 
 @tool(
     name="TaskStop",
     description="Permanently stop a background task or one of your own sub-agents, by its task id.",
-    parameters={"type": "object", "properties": {"task_id": {"type": "string"}}, "required": ["task_id"]},
+    parameters={
+        "type": "object",
+        "properties": {"task_id": {"type": "string", "description": "The ID of the task or sub-agent to stop."}},
+        "required": ["task_id"],
+        "additionalProperties": False,
+    },
 )
 async def task_stop(context, team, agent, input: dict, tool_use_id: str = "") -> str | None:
     target = str(input.get("task_id") or "").strip()
@@ -187,7 +269,8 @@ async def task_stop(context, team, agent, input: dict, tool_use_id: str = "") ->
     agent_id = target if "@" in target else team.agent_id(target)
     if agent_id not in team.agents:
         return None
-    if agent_id not in team.children.get(agent.agent_id, set()):
+    children = team.children.get(agent.agent_id, set()) if agent is not None else set()
+    if agent_id not in children:
         return f'Error: "{target}" is not your sub-agent'
     sub = team.agents.get(agent_id)
     if sub is not None:
@@ -202,19 +285,29 @@ def _open_blockers(tasks, task) -> list[str]:
 
 @tool(
     name="TaskCreate",
-    description="Add a task to the team list so the work is "
-    "tracked and claimable. Use it for anything "
-    "with more than one step; give a short "
-    "imperative subject and the full description.",
+    description="""Create a new task in the shared task list, so the work is tracked and claimable.
+Use it for anything with more than one step, and check TaskList first so work is not duplicated.
+New tasks are created with status "pending" and no owner: use TaskUpdate with owner to assign one.""",
     parameters={
         "type": "object",
         "properties": {
-            "subject": {"type": "string"},
-            "description": {"type": "string"},
-            "active_form": {"type": "string", "description": "Present continuous label shown while it is running"},
-            "metadata": {"type": "object"},
+            "subject": {"type": "string", "description": 'A brief, actionable title in imperative form, e.g. "Fix login bug".'},
+            "description": {
+                "type": "string",
+                "description": "What needs to be done, in enough detail for another agent to finish it.",
+            },
+            "activeForm": {
+                "type": "string",
+                "description": 'Present continuous form shown while the task is in_progress, e.g. "Running tests".',
+            },
+            "metadata": {
+                "type": "object",
+                "description": "Arbitrary metadata to attach to the task; any keys are kept.",
+                "additionalProperties": True,
+            },
         },
         "required": ["subject", "description"],
+        "additionalProperties": False,
     },
 )
 async def task_create(context, team, agent, input: dict, tool_use_id: str = "") -> str:
@@ -223,7 +316,10 @@ async def task_create(context, team, agent, input: dict, tool_use_id: str = "") 
     if not subject or not description:
         return "Error: TaskCreate needs both subject and description"
     task = team.tasks.create(
-        subject, description, active_form=str(input.get("active_form") or ""), metadata=input.get("metadata") or {}
+        subject,
+        description,
+        active_form=str(input.get("activeForm") or ""),
+        metadata=input.get("metadata") or {},
     )
     if agent is not None and not agent._internal:
         created = await team.hooks.execute_task_created_hooks(agent, str(task.id), task.subject, task.description)
@@ -235,8 +331,8 @@ async def task_create(context, team, agent, input: dict, tool_use_id: str = "") 
 
 @tool(
     name="TaskList",
-    description="List every task with its status, owner and open blockers. Check it before creating so work is not duplicated.",
-    parameters={"type": "object", "properties": {}},
+    description="List every task in the shared list with its status, owner and open blockers, so work is not duplicated.",
+    parameters=_no_arguments(),
 )
 async def task_list(context, team, agent, input: dict, tool_use_id: str = "") -> str:
     tasks = team.tasks.all()
@@ -255,11 +351,16 @@ async def task_list(context, team, agent, input: dict, tool_use_id: str = "") ->
 
 @tool(
     name="TaskGet",
-    description="Read one task in full.",
-    parameters={"type": "object", "properties": {"task_id": {"type": "string"}}, "required": ["task_id"]},
+    description="Read one task in full, including its description and the dependencies in both directions.",
+    parameters={
+        "type": "object",
+        "properties": {"taskId": {"type": "string", "description": "The ID of the task to retrieve."}},
+        "required": ["taskId"],
+        "additionalProperties": False,
+    },
 )
 async def task_get(context, team, agent, input: dict, tool_use_id: str = "") -> str:
-    task = team.tasks.get(input.get("task_id") or "")
+    task = team.tasks.get(input.get("taskId") or "")
     if task is None:
         return "Error: task not found"
     lines = [f"Task #{task.id}: {task.subject}", f"Status: {task.status}", f"Description: {task.description}"]
@@ -274,43 +375,61 @@ async def task_get(context, team, agent, input: dict, tool_use_id: str = "") -> 
 
 @tool(
     name="TaskUpdate",
-    description="Change a task: move it through pending, "
-    "in_progress and completed, hand it to an "
-    "owner, or link it with add_blocks / "
-    'add_blocked_by. status "deleted" removes it. '
-    "Mark a task in_progress before starting it.",
+    description="""Change a task: move it through pending, in_progress and completed, hand it to an owner,
+or link it with addBlocks / addBlockedBy. status "deleted" removes it.
+Mark a task in_progress before starting it, and completed only when the work is fully done.""",
     parameters={
         "type": "object",
         "properties": {
-            "task_id": {"type": "string"},
-            "subject": {"type": "string"},
-            "description": {"type": "string"},
-            "active_form": {"type": "string"},
-            "status": {"type": "string", "enum": ["pending", "in_progress", "completed", "deleted"]},
-            "owner": {"type": "string"},
-            "metadata": {"type": "object"},
-            "add_blocks": {"type": "array", "items": {"type": "string"}},
-            "add_blocked_by": {"type": "array", "items": {"type": "string"}},
+            "taskId": {"type": "string", "description": "The ID of the task to update."},
+            "subject": {"type": "string", "description": "New subject for the task."},
+            "description": {"type": "string", "description": "New description for the task."},
+            "activeForm": {
+                "type": "string",
+                "description": 'Present continuous form shown while it is in_progress, e.g. "Running tests".',
+            },
+            "status": {
+                "type": "string",
+                "enum": ["pending", "in_progress", "completed", "deleted"],
+                "description": "New status for the task.",
+            },
+            "owner": {"type": "string", "description": "Agent name to assign the task to."},
+            "metadata": {
+                "type": "object",
+                "description": "Metadata keys to merge into the task; set a key to null to delete it.",
+                "additionalProperties": True,
+            },
+            "addBlocks": {
+                "type": "array",
+                "items": {"type": "string", "description": "Task ID."},
+                "description": "Task IDs that cannot start until this one completes.",
+            },
+            "addBlockedBy": {
+                "type": "array",
+                "items": {"type": "string", "description": "Task ID."},
+                "description": "Task IDs that must complete before this one can start.",
+            },
         },
-        "required": ["task_id"],
+        "required": ["taskId"],
+        "additionalProperties": False,
     },
 )
 async def task_update(context, team, agent, input: dict, tool_use_id: str = "") -> str:
-    task_id = input.get("task_id")
+    task_id = input.get("taskId")
     if not task_id:
-        return "Error: TaskUpdate needs a task_id"
+        return "Error: TaskUpdate needs a taskId"
     if input.get("status") == "deleted":
         return f"Task #{task_id} deleted" if team.tasks.delete(task_id) else "Error: task not found"
     fields = {
-        key: input[key]
-        for key in ("subject", "description", "active_form", "status", "owner", "metadata")
-        if input.get(key) is not None
+        key: input[key] for key in ("subject", "description", "status", "owner", "metadata") if input.get(key) is not None
     }
+    if input.get("activeForm") is not None:
+        fields["active_form"] = input["activeForm"]
     status = fields.get("status")
     if status is not None and status not in TASK_STATUSES:
         return f'Error: status must be one of {", ".join(TASK_STATUSES)}, or "deleted" to remove the task'
     parts = [f"{key} -> {value}" if key == "status" else key for key, value in fields.items()]
-    for key, forward in (("add_blocks", True), ("add_blocked_by", False)):
+    for key, forward in (("addBlocks", True), ("addBlockedBy", False)):
         wanted = input.get(key) or []
         linked = 0
         for other in wanted:
@@ -335,14 +454,17 @@ async def task_update(context, team, agent, input: dict, tool_use_id: str = "") 
 
 @tool(
     name="Skill",
-    description="",
+    description="""Load the full instructions of one skill when the task at hand is one it covers; the steps come from this call.
+The available skills are listed in system-reminder messages in the conversation, so a skill the user added mid-session,
+or one that just activated on a touched file, shows up there.""",
     parameters={
         "type": "object",
         "properties": {
-            "skill": {"type": "string", "description": "The name from the listing."},
+            "skill": {"type": "string", "description": "The skill name from the listing."},
             "args": {"type": "string", "description": "What the skill should work on."},
         },
         "required": ["skill"],
+        "additionalProperties": False,
     },
 )
 async def use_skill(context, team, agent, input: dict, tool_use_id: str = "") -> str:
@@ -375,15 +497,17 @@ async def use_skill(context, team, agent, input: dict, tool_use_id: str = "") ->
 
 @tool(
     name="TeamCreate",
-    description="Gather the work under one named team. The "
-    "team and its task list are the same thing: "
-    "every task you create from now on belongs to "
-    "it, and so does every teammate you spawn. "
-    "Call it once, before the work is divided.",
+    description="""Gather the work under one named team. The team and its task list are the same thing:
+every task you create from now on belongs to it, and so does every teammate you spawn.
+Call it once, before the work is divided.""",
     parameters={
         "type": "object",
-        "properties": {"team_name": {"type": "string"}, "description": {"type": "string"}},
+        "properties": {
+            "team_name": {"type": "string", "description": "Name of the team to gather the work under."},
+            "description": {"type": "string", "description": "What the team is working on."},
+        },
         "required": ["team_name"],
+        "additionalProperties": False,
     },
 )
 async def team_create(context, team, agent, input: dict, tool_use_id: str = "") -> str:
@@ -403,11 +527,9 @@ async def team_create(context, team, agent, input: dict, tool_use_id: str = "") 
 
 @tool(
     name="TeamDelete",
-    description="Throw away the current team and its task list "
-    "once the work is done. It refuses while a "
-    "teammate is still running, so stop them "
-    "first with TaskStop.",
-    parameters={"type": "object", "properties": {}},
+    description="""Throw away the current team and its task list once the work is done.
+It refuses while a teammate is still running, so stop them first with TaskStop.""",
+    parameters=_no_arguments(),
 )
 async def team_delete(context, team, agent, input: dict, tool_use_id: str = "") -> str:
     try:
@@ -415,82 +537,6 @@ async def team_delete(context, team, agent, input: dict, tool_use_id: str = "") 
     except ValueError as exc:
         return f"Error: {exc}"
     return "Cleaned up the team record and its task list."
-
-
-@tool(
-    name="EnterWorktree",
-    description="Only when the user asks for a worktree: make "
-    "an isolated git worktree under "
-    ".pyclaw/worktrees and move this session into "
-    "it, so the work cannot touch the checked-out "
-    "directory. Needs a git repository or "
-    "WorktreeCreate/WorktreeRemove hooks, and not "
-    "already be in one. A worktree of that name "
-    "that is still on disk is entered again rather "
-    "than recreated.",
-    parameters={
-        "type": "object",
-        "properties": {
-            "name": {
-                "type": "string",
-                "description": "Optional. "
-                "Letters, digits, "
-                "dots, dashes and "
-                "underscores, "
-                'divided by "/"; '
-                "up to 64 "
-                "characters. A "
-                "readable name is "
-                "picked when it "
-                "is left out, and "
-                "this session "
-                "keeps using "
-                "it.",
-            }
-        },
-    },
-)
-async def enter_worktree(context, team, agent, input: dict, tool_use_id: str = "") -> str:
-    try:
-        return await team.enter_worktree(str(input.get("name") or ""))
-    except ValueError as exc:
-        return f"Error: {exc}"
-
-
-@tool(
-    name="ExitWorktree",
-    description="Leave the worktree this session moved into, "
-    "back to the original directory. Only worktrees "
-    "this session entered; one made by hand or in "
-    "another conversation is left alone. action "
-    '"keep" leaves the directory and its branch on '
-    'disk, "remove" deletes both. remove refuses '
-    "while the worktree holds uncommitted files or "
-    "commits of its own.",
-    parameters={
-        "type": "object",
-        "properties": {
-            "action": {"type": "string", "enum": ["keep", "remove"]},
-            "discard_changes": {
-                "type": "boolean",
-                "description": 'Only with "remove": '
-                "throw away the "
-                "uncommitted files and "
-                "the commits no branch "
-                "else has. Ask the "
-                "user first.",
-            },
-        },
-        "required": ["action"],
-    },
-)
-async def exit_worktree(context, team, agent, input: dict, tool_use_id: str = "") -> str:
-    return await team.exit_worktree(keep=str(input.get("action") or "") == "keep", discard=bool(input.get("discard_changes")))
-
-
-MAX_QUESTIONS = 4
-MAX_OPTIONS = 4
-MAX_HEADER_CHARS = 12
 
 
 def _question_problems(questions) -> str:
@@ -502,23 +548,28 @@ def _question_problems(questions) -> str:
         if not str((question or {}).get("question") or "").strip():
             return f"question {index} needs its text"
         header = str(question.get("header") or "")
+        if not header.strip():
+            return f"question {index} needs a header"
         if len(header) > MAX_HEADER_CHARS:
             return f"question {index} has a header over {MAX_HEADER_CHARS} characters"
         options = question.get("options") or []
-        if not 2 <= len(options) <= MAX_OPTIONS:
-            return f"question {index} needs between two and {MAX_OPTIONS} options"
+        if not MIN_OPTIONS <= len(options) <= MAX_OPTIONS:
+            return f"question {index} needs between {MIN_OPTIONS} and {MAX_OPTIONS} options"
+        for option in options:
+            label = str((option or {}).get("label") or "").strip()
+            if not label:
+                return f"question {index} has an option without a label"
+            if not str(option.get("description") or "").strip():
+                return f'question {index} has an option ("{label}") without a description'
     return ""
 
 
 @tool(
     name="EnterPlanMode",
-    description="Ask to switch this session into plan mode "
-    "before starting anything but a trivial "
-    "change. In plan mode nothing that writes or "
-    "changes state runs, so you can explore and "
-    "design the approach and have it approved "
-    "before touching the project.",
-    parameters={"type": "object", "properties": {}},
+    description="""Ask to switch this session into plan mode before starting anything but a trivial change.
+In plan mode nothing that writes or changes state runs, so you can explore and design the approach
+and have it approved before touching the project.""",
+    parameters=_no_arguments(),
 )
 async def enter_plan_mode(context, team, agent, input: dict, tool_use_id: str = "") -> str:
     if str(getattr(team.hooks, "permission_mode", "")) == "plan":
@@ -530,7 +581,7 @@ async def enter_plan_mode(context, team, agent, input: dict, tool_use_id: str = 
 @tool(
     name="ExitPlanMode",
     description="Present the plan you wrote to the user and leave plan mode once they approve it.",
-    parameters={"type": "object", "properties": {}},
+    parameters=_no_arguments(),
 )
 async def exit_plan_mode(context, team, agent, input: dict, tool_use_id: str = "") -> str:
     plan = read_plan(team)
@@ -553,45 +604,68 @@ async def exit_plan_mode(context, team, agent, input: dict, tool_use_id: str = "
 
 @tool(
     name="AskUserQuestion",
-    description="Ask the human one to four questions and wait "
-    "for the answers, when a choice they can make "
-    "would change what you do. Give each question "
-    "two to four options worth picking; they can "
-    "also answer in their own words. When they "
-    "have to compare concrete results, put the "
-    "artifact on the option as preview.",
+    description=f"""Ask the human 1 to {MAX_QUESTIONS} questions and wait for the answers, when a choice they can make
+would change what you do.
+Give each question {MIN_OPTIONS} to {MAX_OPTIONS} options worth picking; they can also answer in their own words.
+When they have to compare concrete results, put the artifact on the option as preview.""",
     parameters={
         "type": "object",
         "properties": {
             "questions": {
                 "type": "array",
+                "minItems": 1,
+                "maxItems": MAX_QUESTIONS,
+                "description": f"Questions to ask the user (1-{MAX_QUESTIONS}).",
                 "items": {
                     "type": "object",
                     "properties": {
-                        "question": {"type": "string"},
-                        "header": {"type": "string"},
-                        "multiSelect": {"type": "boolean"},
+                        "question": {
+                            "type": "string",
+                            "description": 'The complete question: clear, specific and ending with "?".',
+                        },
+                        "header": {
+                            "type": "string",
+                            "maxLength": MAX_HEADER_CHARS,
+                            "description": f'Very short label shown as a chip/tag (max {MAX_HEADER_CHARS} chars), e.g. "Auth method".',
+                        },
+                        "multiSelect": {
+                            "type": "boolean",
+                            "default": False,
+                            "description": "Allow several options to be picked. Use it when the choices are not mutually exclusive.",
+                        },
                         "options": {
                             "type": "array",
+                            "minItems": MIN_OPTIONS,
+                            "maxItems": MAX_OPTIONS,
+                            "description": f'The {MIN_OPTIONS}-{MAX_OPTIONS} choices. Do not add an "Other" option: one is offered automatically.',
                             "items": {
                                 "type": "object",
                                 "properties": {
-                                    "label": {"type": "string"},
-                                    "description": {"type": "string"},
+                                    "label": {
+                                        "type": "string",
+                                        "description": "Display text the user picks: one to five words naming the choice.",
+                                    },
+                                    "description": {
+                                        "type": "string",
+                                        "description": "What the option means, or what happens if it is chosen, including the trade-off.",
+                                    },
                                     "preview": {
                                         "type": "string",
                                         "description": "The artifact this option would produce, shown beside the options while it is picked. Use it when the user has to compare concrete results, not for a plain preference. Only single-select questions show previews.",
                                     },
                                 },
-                                "required": ["label"],
+                                "required": ["label", "description"],
+                                "additionalProperties": False,
                             },
                         },
                     },
-                    "required": ["question", "options"],
+                    "required": ["question", "header", "options"],
+                    "additionalProperties": False,
                 },
             }
         },
         "required": ["questions"],
+        "additionalProperties": False,
     },
 )
 async def ask_user(context, team, agent, input: dict, tool_use_id: str = "") -> str:
@@ -614,11 +688,9 @@ async def ask_user(context, team, agent, input: dict, tool_use_id: str = "") -> 
 
 @tool(
     name=STRUCTURED_OUTPUT_TOOL,
-    description="Return your final answer as the structured "
-    "payload below. Call it exactly once, at the "
-    "end of the work; nothing you say in prose "
-    "counts as the answer.\n\nThe payload must "
-    "match this schema.",
+    description="""Return your final answer as the structured payload below.
+Call it exactly once, at the end of the work; nothing you say in prose counts as the answer.
+The payload must match this schema.""",
     parameters=None,
 )
 async def structured_output(context, team, agent, input: dict, tool_use_id: str = "") -> str:
@@ -629,102 +701,6 @@ async def structured_output(context, team, agent, input: dict, tool_use_id: str 
     return "Structured output recorded. Finish the run now."
 
 
-def _cron_where(task: dict) -> str:
-    if task.get("durable") is False:
-        return "Session-only (not written to disk, dies when pyclaw exits)"
-    return "Persisted to scheduled_tasks.json"
-
-
-def _cron_line(task: dict) -> str:
-    kind = "recurring" if task.get("recurring") else "one-shot"
-    marker = " [session-only]" if task.get("durable") is False else ""
-    prompt = str(task.get("prompt") or "")
-    if len(prompt) > 80:
-        prompt = prompt[:80] + "…"
-    return f"{task['id']} — {human(task['cron'])} ({kind}){marker}: {prompt}"
-
-
-@tool(
-    name="CronCreate",
-    description="Schedule a prompt to be enqueued at a "
-    "future time — recurring on a cron schedule, "
-    "or once at a specific time. Standard "
-    "5-field cron in local time: minute hour "
-    "day-of-month month day-of-week. One-shot "
-    "reminders (recurring: false) fire once at "
-    "the next match then auto-delete — pin "
-    "minute/hour/day-of-month/month, e.g. "
-    '"30 14 27 5 *" for 2:30pm on May 27. Avoid '
-    "the :00 and :30 minute marks when the user "
-    'is approximate ("every morning around 9" -> '
-    '"57 8 * * *"): everyone who asks for "9am" '
-    "lands on the same wall-clock marks. "
-    "Recurring jobs auto-expire after 7 days — "
-    "tell the user about that limit. durable: "
-    "true persists to scheduled_tasks.json so "
-    "the job survives restarts; the default "
-    "false keeps it session-only. Only use "
-    "durable when the user explicitly asks the "
-    "task to persist.",
-    parameters={
-        "type": "object",
-        "properties": {
-            "cron": {"type": "string"},
-            "prompt": {"type": "string"},
-            "recurring": {"type": "boolean"},
-            "durable": {"type": "boolean"},
-        },
-        "required": ["cron", "prompt"],
-    },
-)
-async def cron_create(context, team, agent, input: dict, tool_use_id: str = "") -> str:
-    task = team.cron.add(
-        str(input.get("cron") or ""),
-        str(input.get("prompt") or ""),
-        recurring=bool(input.get("recurring", True)),
-        durable=bool(input.get("durable")),
-    )
-    if task is None:
-        return f"Error: {team.cron.refused}"
-    if task.get("recurring"):
-        return (
-            f"Scheduled recurring job {task['id']} "
-            f"({human(task['cron'])}). {_cron_where(task)}. "
-            f"Auto-expires after 7 days. Use CronDelete to cancel "
-            f"sooner."
-        )
-    return (
-        f"Scheduled one-shot task {task['id']} "
-        f"({human(task['cron'])}). {_cron_where(task)}. "
-        f"It will fire once then auto-delete."
-    )
-
-
-@tool(
-    name="CronList",
-    description="Show every scheduled prompt with its id, schedule and whether it is durable.",
-    parameters={"type": "object", "properties": {}},
-)
-async def cron_list(context, team, agent, input: dict, tool_use_id: str = "") -> str:
-    tasks = team.cron.all()
-    if not tasks:
-        return "Nothing scheduled."
-    return "\n".join(_cron_line(task) for task in tasks)
-
-
-@tool(
-    name="CronDelete",
-    description="Cancel a scheduled prompt by its id.",
-    parameters={"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
-)
-async def cron_delete(context, team, agent, input: dict, tool_use_id: str = "") -> str:
-    ident = str(input.get("id") or "").strip()
-    removed = team.cron.remove(ident)
-    if removed is None:
-        return f'Error: nothing scheduled under "{ident}"'
-    return f"{removed['id']} cancelled."
-
-
 def team_tools(team) -> list[Tool]:
     """The Tool instances available to this team, one list per capability."""
     tools = [create_agent.with_description(team._create_agent_description())]
@@ -733,21 +709,9 @@ def team_tools(team) -> list[Tool]:
     if team.tasks is not None:
         tools += [task_create, task_list, task_get, task_update]
     if team.skills.all():
-        tools.append(
-            use_skill.with_description(
-                "Load the full instructions of one skill when the task at hand "
-                "is one it covers. The steps come from this call. Available "
-                "skills are listed in system-reminder messages in the "
-                "conversation, so a skill the user added mid-session or one "
-                "that just activated on a touched file shows up there."
-            )
-        )
-    if team.can_worktree:
-        tools += [enter_worktree, exit_worktree]
+        tools.append(use_skill)
     if team.ask_user is not None:
         tools += [ask_user, enter_plan_mode, exit_plan_mode]
-    if team.cron is not None:
-        tools += [cron_create, cron_list, cron_delete]
     if team.output_schema is not None:
         tools.append(structured_output.with_parameters(team.output_schema))
     return tools

@@ -133,7 +133,7 @@ def test_task_output_marks_a_running_sub_agent_as_not_ready():
 
         sub = team.create_agent("worker", instruction="x")
         sub.busy = True
-        return await core_tools.task_output(None, team=team, agent=team.lead, input={"task_id": sub.agent_id})
+        return await core_tools.task_output(None, team=team, agent=team.lead, input={"task_id": sub.agent_id, "block": False})
 
     text = asyncio.run(main())
     assert "<fetch_result>not_ready</fetch_result>" in text
