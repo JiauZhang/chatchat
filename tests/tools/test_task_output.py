@@ -26,6 +26,7 @@ def _read(name, **input):
 def test_the_default_waits_and_returns_the_answer():
     text = _read("out1")
     assert "<fetch_result>success</fetch_result>" in text
+    assert "<task_kind>agent</task_kind>" in text
     assert "<run_state>completed</run_state>" in text
     assert "the answer" in text
 

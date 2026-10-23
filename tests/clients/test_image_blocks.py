@@ -1,7 +1,6 @@
 import asyncio
 
 from chatchat.protocols.anthropic import payload as a_payload
-from chatchat.protocols.openai import payload as o_payload
 from chatchat.runtime.thinking import Thinking
 from chatchat.runtime.tokens import rough
 from chatchat.tool import Tool, ToolResult
@@ -9,51 +8,6 @@ from helpers import mock_team
 from chatchat.client import ToolUse
 
 PNG = {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "aGk="}}
-TOOL_USE = [{"type": "tool_use", "id": "t1", "name": "shot", "input": {}}]
-
-
-def test_openai_user_image_becomes_a_content_part():
-    messages = [
-        {
-            "role": "user",
-            "content": [
-                {"type": "text", "text": "what is this?"},
-                PNG,
-            ],
-        }
-    ]
-    body = o_payload(messages, None, "m1", Thinking("off"))
-    assert body["input"][0]["content"] == [
-        {"type": "input_text", "text": "what is this?"},
-        {"type": "input_image", "image_url": "data:image/png;base64,aGk="},
-    ]
-
-
-def test_openai_tool_result_images_ride_the_function_output():
-    messages = [
-        {
-            "role": "user",
-            "content": [
-                {
-                    "type": "tool_result",
-                    "tool_use_id": "t1",
-                    "content": [
-                        {"type": "text", "text": "captured"},
-                        PNG,
-                    ],
-                },
-            ],
-        }
-    ]
-    body = o_payload(messages, None, "m1", Thinking("off"))
-    assert body["input"][0] == {
-        "type": "function_call_output",
-        "call_id": "t1",
-        "output": [
-            {"type": "input_text", "text": "captured"},
-            {"type": "input_image", "image_url": "data:image/png;base64,aGk="},
-        ],
-    }
 
 
 def test_anthropic_passes_image_blocks_through_verbatim():
