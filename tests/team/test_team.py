@@ -333,7 +333,7 @@ def test_spawned_subagent_carries_definition_agent_type():
         team = mock_team("at", lambda messages, tools=None: "ok")
         team.register_agent_definition(AgentDefinition("reader", system_prompt="read stuff"))
         await team.spawn_subagent("go", subagent_type="reader")
-        return [a.agent_type for a in team.agents.values() if a._internal]
+        return [a.agent_type for a in team.roster.agents.values() if a._internal]
 
     assert asyncio.run(main()) == ["reader"]
 
@@ -445,10 +445,12 @@ def test_create_agent_tool_name_spawns_persistent_teammate():
         lead = team.lead
         out = await team.execute_tool("Agent", {"prompt": "do work", "name": "worker"}, lead)
         teammate_id = team.agent_id("worker")
-        teammate = team.agents.get(teammate_id)
+        teammate = team.roster.agents.get(teammate_id)
         try:
             persistent = (
-                teammate is not None and teammate_id in team.children.get(lead.agent_id, set()) and "SendMessage" in out.text
+                teammate is not None
+                and teammate_id in team.roster.children.get(lead.agent_id, set())
+                and "SendMessage" in out.text
             )
             one_shot = await team.execute_tool("Agent", {"prompt": "quick"}, lead)
             team_single = mock_team("m3", respond, multi_agent=False)
@@ -577,7 +579,7 @@ def test_task_stop_stops_a_teammate_created_through_create_agent():
         assert "spawned and idle" in spawned.text
         watcher = team.get_by_name("watcher")
         assert watcher is not None
-        assert team.children[team.lead.agent_id] == {watcher.agent_id}
+        assert team.roster.children[team.lead.agent_id] == {watcher.agent_id}
 
         out = await team.execute_tool("TaskStop", {"task_id": "watcher"}, team.lead, "tu-2")
         declined = await _subagents.task_stop(None, team=team, agent=team.lead, input={"task_id": "b7"})
@@ -587,8 +589,8 @@ def test_task_stop_stops_a_teammate_created_through_create_agent():
     team, watcher, out = asyncio.run(main())
     assert "is not your sub-agent" not in out.text
     assert out.text == f"agent {watcher.agent_id} stopped"
-    assert team.children[team.lead.agent_id] == set()
-    assert watcher.agent_id not in team.parents
+    assert team.roster.children[team.lead.agent_id] == set()
+    assert watcher.agent_id not in team.roster.parents
 
 
 def test_task_stop_refuses_an_agent_that_is_not_your_child():
@@ -661,7 +663,7 @@ def test_spawned_agent_tool_calls_run_the_pre_tool_gate():
 
     team = asyncio.run(main())
     assert ran == []
-    sub = next(a for a in team.agents.values() if a is not team.lead)
+    sub = next(a for a in team.roster.agents.values() if a is not team.lead)
     assert "not allowed" in str(sub.messages[-2])
 
 
@@ -693,7 +695,7 @@ def test_spawned_agent_is_restricted_to_its_own_tools():
         return team
 
     team = asyncio.run(main())
-    sub = next(a for a in team.agents.values() if a is not team.lead)
+    sub = next(a for a in team.roster.agents.values() if a is not team.lead)
     assert seen == [["mine"]]
     assert ran == []
     assert "not available" in str(sub.messages[-2])

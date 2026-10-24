@@ -84,7 +84,7 @@ class SubagentsMixin:
             on_message=None if writer is None else writer.append,
             agent_type=subagent_type or "",
         )
-        self.agents[agent_id] = agent
+        self.roster.add(agent)
         if fork_msgs:
             agent.messages = list(fork_msgs)
         for skill_name in defn.skills:
@@ -167,11 +167,9 @@ class SubagentsMixin:
         agent, writer, defn = await self._start_subagent(
             prompt, subagent_type, instruction, model, depth, fork_msgs, tool_use_id, isolation
         )
-        self.parents[agent.agent_id] = parent.agent_id
-        self.children.setdefault(parent.agent_id, set()).add(agent.agent_id)
+        self.roster.link(parent.agent_id, agent.agent_id)
         task = asyncio.get_running_loop().create_task(self._report_to(agent, prompt, writer, defn, parent))
-        self.background[agent.agent_id] = task
-        task.add_done_callback(lambda done: self.background.pop(agent.agent_id, None))
+        self.roster.track_background(agent.agent_id, task)
         return agent.agent_id
 
     async def _report_to(self, agent: Agent, prompt: str, writer, defn, parent: Agent):
@@ -212,11 +210,9 @@ class SubagentsMixin:
 
     async def stop_agent(self, agent: Agent):
         agent_id = agent.agent_id
-        parent = self.parents.pop(agent_id, None)
-        if parent and agent_id in self.children.get(parent, set()):
-            self.children[parent].discard(agent_id)
-            if not agent._internal:
-                await self.hooks.execute_subagent_stop_hooks(agent, agent.agent_type)
+        self.roster.unlink(agent_id)
+        if not agent._internal:
+            await self.hooks.execute_subagent_stop_hooks(agent, agent.agent_type)
         await agent.stop()
         if self.courier.team_store is not None and self.courier.team_context is not None:
             self.courier.team_store.drop_member(self.name, agent_id)
@@ -232,7 +228,7 @@ class SubagentsMixin:
                 )
 
     async def wait_for_idle(self, agent_id: str, timeout: float | None = None):
-        agent = self.agents.get(agent_id)
+        agent = self.roster.agents.get(agent_id)
         if agent is None:
             return
         await agent.wait_idle(timeout)

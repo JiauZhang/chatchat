@@ -23,7 +23,7 @@ async def send_message(context, team, agent, input: dict, tool_use_id: str = "")
     message = input.get("message", "") or ""
     note = "Do NOT re-send or poll them; wait for their teammate-message back."
     if to == "*":
-        recipients = [a for a in team.agents.values() if a.name != agent.name]
+        recipients = [a for a in team.roster.agents.values() if a.name != agent.name]
         if not recipients:
             return "No teammates to broadcast to (you are the only agent)"
         for r in recipients:

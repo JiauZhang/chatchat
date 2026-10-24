@@ -82,7 +82,7 @@ def test_spawn_subagent_defaults_general_purpose():
     async def main():
         team = mock_team("gp", handler=lambda m, t=None, **kw: "默认答复")
         result = await team.spawn_subagent("hi")
-        return result, len(team.agents)
+        return result, len(team.roster.agents)
 
     result, n = asyncio.run(main())
     assert result == "默认答复"

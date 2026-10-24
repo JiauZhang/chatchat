@@ -24,7 +24,7 @@ def test_a_background_sub_agent_returns_before_it_has_finished():
     async def main():
         team = _team("bg1")
         out = await team.execute_tool("Agent", {"prompt": "look into it", "run_in_background": True}, team.lead)
-        started = team.background
+        started = team.roster.background
         return out.text, list(started), team.lead.inbox.unread()
 
     text, running, unread = asyncio.run(main())
@@ -38,7 +38,7 @@ def test_the_answer_lands_in_the_parent_inbox_when_it_finishes():
         team = _team("bg2")
         await team.execute_tool("Agent", {"prompt": "look into it", "run_in_background": True}, team.lead)
         await _settle()
-        return [m.text for m in team.lead.inbox.unread()], team.background
+        return [m.text for m in team.lead.inbox.unread()], team.roster.background
 
     notes, running = asyncio.run(main())
     assert len(notes) == 1
@@ -50,10 +50,10 @@ def test_a_background_sub_agent_is_stoppable_by_its_parent():
     async def main():
         team = _team("bg3")
         await team.execute_tool("Agent", {"prompt": "look into it", "run_in_background": True}, team.lead)
-        agent_id = next(iter(team.background))
+        agent_id = next(iter(team.roster.background))
         stopped = await team.execute_tool("TaskStop", {"task_id": agent_id}, team.lead)
         await _settle()
-        return stopped.text, team.background, [m.text for m in team.lead.inbox.unread()]
+        return stopped.text, team.roster.background, [m.text for m in team.lead.inbox.unread()]
 
     text, running, notes = asyncio.run(main())
     assert "stopped" in text
@@ -85,9 +85,9 @@ def test_the_report_carries_the_numbers_of_the_work_done():
     async def main():
         team = _team("bg8")
         await team.execute_tool("Agent", {"prompt": "look into it", "run_in_background": True}, team.lead)
-        agent_id = next(iter(team.background))
+        agent_id = next(iter(team.roster.background))
         await _settle()
-        return team.agents[agent_id], [m.text for m in team.lead.inbox.unread()]
+        return team.roster.agents[agent_id], [m.text for m in team.lead.inbox.unread()]
 
     agent, notes = asyncio.run(main())
     assert len(notes) == 1

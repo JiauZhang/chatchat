@@ -19,6 +19,7 @@ from chatchat.team.mailbox import FileMailbox, idle_notification as _idle_msg
 from chatchat.team.isolation import Isolation
 from chatchat.team.ledger import Ledger
 from chatchat.team.product import TeamProduct
+from chatchat.team.roster import Roster
 from chatchat.team.tool_surface import ToolSurface
 from chatchat.runtime.context import AgentContext
 from chatchat.runtime.filehistory import FileHistory
@@ -103,10 +104,7 @@ class Team(SubagentsMixin, ToolRunnerMixin):
         self.plan_path = None
         self._factory = client_factory
         self.hooks = HookManager(self, enabled=hooks)
-        self.agents: dict[str, Agent] = {}
-        self.background: dict[str, asyncio.Task] = {}
-        self.children: dict[str, set[str]] = {}
-        self.parents: dict[str, str] = {}
+        self.roster = Roster(self.name)
         self._counter = 0
         self._session_started = False
         self._session_setup_done = False
@@ -128,7 +126,7 @@ class Team(SubagentsMixin, ToolRunnerMixin):
             description="General-purpose agent that inherits the team tools for routine tasks",
         )
         self.lead = self.create_agent(LEAD_NAME, instruction=lead_instruction, leader=True)
-        self.ledger = Ledger(lead=self.lead, members=lambda: self.agents.values())
+        self.ledger = Ledger(lead=self.lead, members=lambda: self.roster.agents.values())
 
     def attach(self, product: TeamProduct) -> TeamProduct:
         self.product = product
@@ -172,13 +170,13 @@ class Team(SubagentsMixin, ToolRunnerMixin):
         )
 
     def agent_id(self, name: str) -> str:
-        return f"{name}@{self.name}"
+        return self.roster.id_of(name)
 
     def get(self, agent_id: str) -> Agent | None:
-        return self.agents.get(agent_id)
+        return self.roster.get(agent_id)
 
     def get_by_name(self, name: str) -> Agent | None:
-        return self.agents.get(self.agent_id(name))
+        return self.roster.get_by_name(name)
 
     def create_agent(self, name: str, instruction: str = "", model=None, leader: bool = False, depth: int = 0) -> Agent:
         agent_id = self.agent_id(name)
@@ -199,7 +197,7 @@ class Team(SubagentsMixin, ToolRunnerMixin):
             model_timeout=self._model_timeout,
             model_retries=self._model_retries,
         )
-        self.agents[agent_id] = agent
+        self.roster.add(agent)
         agent.start()
         if self.courier.team_store is not None and self.courier.team_context is not None:
             self.courier.team_store.note_member(
@@ -317,7 +315,7 @@ class Team(SubagentsMixin, ToolRunnerMixin):
         return self.courier.mailbox_path(member)
 
     def teammates(self) -> list:
-        return [agent for agent in self.agents.values() if agent is not self.lead and not agent._internal and agent.is_running]
+        return self.roster.running_teammates(self.lead)
 
     def join_team(self, name: str, description: str = ""):
         context = self.courier.join(
@@ -327,6 +325,7 @@ class Team(SubagentsMixin, ToolRunnerMixin):
             session_id=self.lead_session_id,
         )
         self.name = self.courier.name
+        self.roster.rename(self.name)
         self.tasks = self.courier.tasks
         return context
 
@@ -399,6 +398,6 @@ class Team(SubagentsMixin, ToolRunnerMixin):
             emit(AGENT_WARN, agent=agent.name, text=failure_reason)
 
     def request_shutdown(self, agent_id: str):
-        agent = self.agents.get(agent_id)
+        agent = self.roster.get(agent_id)
         if agent is not None:
             asyncio.get_running_loop().create_task(agent.stop())

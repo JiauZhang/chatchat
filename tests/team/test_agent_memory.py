@@ -111,7 +111,9 @@ def test_writing_into_any_memory_root_needs_no_approval(tmp_path):
 
 
 def _spawned(team, agent_type):
-    return team.agents[next(iter(agent_id for agent_id in team.agents if agent_id != team.lead.agent_id))].instruction
+    return team.roster.agents[
+        next(iter(agent_id for agent_id in team.roster.agents if agent_id != team.lead.agent_id))
+    ].instruction
 
 
 def test_an_agent_with_a_memory_scope_starts_with_its_notes(tmp_path):

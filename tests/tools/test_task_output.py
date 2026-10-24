@@ -16,7 +16,7 @@ def _read(name, **input):
     async def main():
         team = mock_team(name, handler=_slowly)
         await team.execute_tool("Agent", {"prompt": "look into it", "run_in_background": True}, team.lead)
-        agent_id = next(iter(team.background))
+        agent_id = next(iter(team.roster.background))
         read = await team.execute_tool("TaskOutput", {"task_id": agent_id, **input}, team.lead)
         return read.text
 

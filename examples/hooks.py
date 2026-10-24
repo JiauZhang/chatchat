@@ -36,7 +36,7 @@ async def main():
     on_hooks(team)
     team.add("researcher", "你是 researcher，负责搜集事实、查证、研究，输出清晰的研究结论。")
     team.add("writer", "你是 writer，负责把成果整理成流畅、成稿的正文。")
-    for a in team.agents.values():
+    for a in team.roster.agents.values():
         a.start()
 
     answer = await team.query(args.prompt)

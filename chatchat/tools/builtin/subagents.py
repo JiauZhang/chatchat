@@ -81,8 +81,8 @@ async def create_agent(context, team, agent, input: dict, tool_use_id: str = "")
         teammate = team.create_agent(
             str(name), instruction=SUBAGENT_INSTRUCTION, model=input.get("model"), depth=getattr(agent, "depth", 0) + 1
         )
-        team.parents[teammate.agent_id] = agent.agent_id
-        team.children.setdefault(agent.agent_id, set()).add(teammate.agent_id)
+        team.roster.parents[teammate.agent_id] = agent.agent_id
+        team.roster.children.setdefault(agent.agent_id, set()).add(teammate.agent_id)
         teammate.submit(prompt)
         return (
             f'Teammate "{name}" spawned and idle. Assign work with '
@@ -147,11 +147,11 @@ def _wait_seconds(value) -> float:
 
 
 async def _still_running(team, agent_id: str, sub) -> bool:
-    return agent_id in team.background or not await sub.idle()
+    return agent_id in team.roster.background or not await sub.idle()
 
 
 async def _wait_for_agent(team, agent_id: str, sub, seconds: float) -> None:
-    task = team.background.get(agent_id)
+    task = team.roster.background.get(agent_id)
     if task is not None:
         await asyncio.wait({task}, timeout=seconds)
         return
@@ -189,7 +189,7 @@ async def task_output(context, team, agent, input: dict, tool_use_id: str = "") 
     if not target:
         return None
     agent_id = target if "@" in target else team.agent_id(target)
-    sub = team.agents.get(agent_id)
+    sub = team.roster.agents.get(agent_id)
     if sub is None:
         host = team.host_tasks
         if host is None or not host.has(target):
@@ -232,15 +232,15 @@ async def task_stop(context, team, agent, input: dict, tool_use_id: str = "") ->
     if not target:
         return "Error: TaskStop needs a task_id"
     agent_id = target if "@" in target else team.agent_id(target)
-    if agent_id not in team.agents:
+    if agent_id not in team.roster.agents:
         host = team.host_tasks
         if host is not None and host.has(target):
             return host.stop(target)
         return None
-    children = team.children.get(agent.agent_id, set()) if agent is not None else set()
+    children = team.roster.children.get(agent.agent_id, set()) if agent is not None else set()
     if agent_id not in children:
         return f'Error: "{target}" is not your sub-agent'
-    sub = team.agents.get(agent_id)
+    sub = team.roster.agents.get(agent_id)
     if sub is not None:
         await team.stop_agent(sub)
     return f"agent {agent_id} stopped"
