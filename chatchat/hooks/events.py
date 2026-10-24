@@ -1,38 +1,7 @@
 from dataclasses import dataclass, field
 
+from chatchat.hooks.catalog import ALWAYS_EMITTED_HOOK_EVENTS, HOOK_EVENTS
 from chatchat.runtime.context import current_agent
-
-HOOK_EVENTS = (
-    "PreToolUse",
-    "PostToolUse",
-    "PostToolUseFailure",
-    "Notification",
-    "UserPromptSubmit",
-    "SessionStart",
-    "SessionEnd",
-    "Stop",
-    "StopFailure",
-    "SubagentStart",
-    "SubagentStop",
-    "PreCompact",
-    "PostCompact",
-    "PermissionRequest",
-    "PermissionDenied",
-    "Setup",
-    "TeammateIdle",
-    "TaskCreated",
-    "TaskCompleted",
-    "Elicitation",
-    "ElicitationResult",
-    "ConfigChange",
-    "WorktreeCreate",
-    "WorktreeRemove",
-    "InstructionsLoaded",
-    "CwdChanged",
-    "FileChanged",
-)
-
-ALWAYS_EMITTED_HOOK_EVENTS = ("SessionStart", "Setup")
 
 MAX_PENDING_EVENTS = 100
 

@@ -121,9 +121,14 @@ async def exec_prompt_hook(client, hook, hook_input: dict) -> HookResult:
     return _condition_result(hook, text, _duration_ms(start))
 
 
-async def exec_agent_hook(team, parent_name: str, hook, hook_input: dict) -> HookResult:
+async def exec_agent_hook(spawn_agent, parent_name: str, hook, hook_input: dict) -> HookResult:
+    """Ask a sub-agent to judge the condition.
+
+    The agent is spawned by whoever owns the session, so the hook layer does
+    not need to know how a team works.
+    """
     start = time.monotonic()
-    sub = await team.spawn_child(parent_name, EVALUATOR_INSTRUCTION, internal=True)
+    sub = await spawn_agent(parent_name, EVALUATOR_INSTRUCTION)
     try:
         text = await sub.chat(substitute_args(hook.config.prompt, hook_input))
     finally:

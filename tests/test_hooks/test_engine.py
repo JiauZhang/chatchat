@@ -715,3 +715,48 @@ def test_the_manager_lists_configured_hooks_with_their_source(team):
     assert session[0]["event"] == "PreToolUse"
     assert session[0]["matcher"] == "Bash"
     assert session[0]["type"] == "function"
+
+
+def test_a_matcher_is_compared_against_the_field_its_event_matches_on():
+    """A matcher names what the event matches on - the tool, the file, the
+    source - and not something the event happens to carry."""
+
+    async def main():
+        seen = []
+        t = Team("demo", MockClient())
+        t.hooks.register("PostToolUse", "Bash", fn=lambda inp: seen.append(inp["tool_name"]) or True)
+        await t.hooks.execute_post_tool_hooks(t.lead, "t1", "Bash", {}, "ok")
+        await t.hooks.execute_post_tool_hooks(t.lead, "t2", "Read", {}, "ok")
+        return seen
+
+    assert asyncio.run(main()) == ["Bash"]
+
+
+def test_a_failure_matches_on_the_error_it_carries():
+    """StopFailure matches on the error, so a matcher can tell one failure
+    from another."""
+
+    async def main():
+        seen = []
+        t = Team("demo", MockClient())
+        t.hooks.register("StopFailure", "boom", fn=lambda inp: seen.append(inp["error"]) or True)
+        await t.hooks.execute_stop_failure_hooks(t.lead, RuntimeError("boom"))
+        await t.hooks.execute_stop_failure_hooks(t.lead, RuntimeError("other"))
+        return seen
+
+    assert asyncio.run(main()) == ["boom"]
+
+
+def test_a_file_matcher_names_the_file_and_not_its_directory():
+    """FileChanged matches on the file's name, so a matcher names a file
+    rather than the directory it happens to live in."""
+
+    async def main():
+        seen = []
+        t = Team("demo", MockClient())
+        t.hooks.register("FileChanged", "notes.md", fn=lambda inp: seen.append(inp["file_path"]) or True)
+        await t.hooks.execute_file_changed_hooks(t.lead, "/project/docs/notes.md")
+        await t.hooks.execute_file_changed_hooks(t.lead, "/project/docs/other.md")
+        return seen
+
+    assert asyncio.run(main()) == ["/project/docs/notes.md"]

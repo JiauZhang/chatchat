@@ -31,6 +31,7 @@ from chatchat.team.subagents import SubagentsMixin
 from chatchat.tools.registry import ToolRegistry
 from chatchat.tools.tool_runner import ToolRunnerMixin
 from chatchat.hooks.events import AGENT_WARN, emit
+from chatchat.hooks.executors import EVALUATOR_INSTRUCTION
 from chatchat.hooks.manager import HookManager
 
 LEAD_NAME = "team-lead"
@@ -107,7 +108,12 @@ class Team(SubagentsMixin, ToolRunnerMixin):
         self.host_tasks: HostTasks | None = None
         self.plan_path = None
         self._factory = client_factory
-        self.hooks = HookManager(self, enabled=hooks)
+        self.hooks = HookManager(
+            self,
+            enabled=hooks,
+            make_client=self._hook_client,
+            spawn_agent=self._hook_agent,
+        )
         self.roster = Roster(self.name)
         self._counter = 0
         self.context_window = int(context_window or 0)
@@ -165,6 +171,14 @@ class Team(SubagentsMixin, ToolRunnerMixin):
 
     def _client_for(self, instruction: str, thinking: Thinking | None = None, model: str | None = None, standing: bool = True):
         return self.model_choice.client_for(instruction, thinking=thinking, model=model, standing=standing)
+
+    def _hook_client(self, model: str | None):
+        """The client a prompt hook judges its condition with."""
+        return self._client_for(EVALUATOR_INSTRUCTION, thinking=Thinking("off"), model=model)
+
+    async def _hook_agent(self, parent_name: str, instruction: str):
+        """The agent an agent hook judges its condition in."""
+        return await self.spawn_child(parent_name, instruction, internal=True)
 
     def agent_id(self, name: str) -> str:
         return self.roster.id_of(name)
