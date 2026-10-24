@@ -12,6 +12,7 @@ from chatchat.team.agents import (
     AgentRegistry,
 )
 from chatchat.team.compaction import Compactor
+from chatchat.team.conversation import Conversation
 from chatchat.team.courier import Courier
 from chatchat.team.host_tasks import HostTasks
 from chatchat.team.mailbox import FileMailbox, idle_notification as _idle_msg
@@ -93,8 +94,9 @@ class Team(SubagentsMixin, ToolRunnerMixin):
         )
         self.name = self.courier.name
         self.tasks = self.courier.tasks
-        self.file_history = FileHistory(Path(file_history_dir), cwd=self.tool_context.cwd) if file_history_dir else None
-        self.tool_context.files = self.file_history
+        self._file_history = FileHistory(Path(file_history_dir), cwd=self.tool_context.cwd) if file_history_dir else None
+        self.tool_context.files = self._file_history
+
         self.skills = skills or SkillRegistry()
         self.permission_gate = None
         self.agent_memory = agent_memory
@@ -108,9 +110,6 @@ class Team(SubagentsMixin, ToolRunnerMixin):
         self.hooks = HookManager(self, enabled=hooks)
         self.roster = Roster(self.name)
         self._counter = 0
-        self._session_started = False
-        self._session_setup_done = False
-        self._session_source = "startup"
         self.context_window = int(context_window or 0)
         self.compactor = Compactor(
             summarize=self._summarize,
@@ -129,6 +128,12 @@ class Team(SubagentsMixin, ToolRunnerMixin):
         )
         self.lead = self.create_agent(LEAD_NAME, instruction=lead_instruction, leader=True)
         self.ledger = Ledger(lead=self.lead, members=lambda: self.roster.agents.values())
+        self.conversation = Conversation(
+            lead=self.lead,
+            hooks=self.hooks,
+            tool_context=self.tool_context,
+            history=self._file_history,
+        )
 
     def attach(self, product: TeamProduct) -> TeamProduct:
         self.product = product
@@ -206,31 +211,6 @@ class Team(SubagentsMixin, ToolRunnerMixin):
     def add(self, name: str, instruction: str = "") -> Agent:
         return self.create_agent(name, instruction=instruction)
 
-    def transcript(self) -> list[dict]:
-        return list(self.lead.messages)
-
-    def restore(self, messages: list[dict]):
-        self.lead.messages = [m for m in messages if isinstance(m, dict)]
-        if self.lead.messages:
-            self._session_source = "resume"
-
-    async def end_session(self, reason: str):
-        await self.hooks.execute_session_end_hooks(reason)
-
-    def begin_new_session(self, source: str = "clear"):
-        self._session_source = source
-        self._session_started = False
-
-    async def _open_session(self):
-        aggs = []
-        if not self._session_setup_done:
-            self._session_setup_done = True
-            aggs.append(await self.hooks.execute_setup_hooks())
-        aggs.append(await self.hooks.execute_session_start_hooks(self._session_source))
-        for agg in aggs:
-            if agg.additional_context:
-                self.lead.messages.append({"role": "user", "content": agg.additional_context})
-
     def set_instruction_files(self, files: list[dict]):
         self.instruction_files = list(files or [])
 
@@ -266,6 +246,10 @@ class Team(SubagentsMixin, ToolRunnerMixin):
         return self.model_choice.thinking
 
     @property
+    def file_history(self):
+        return self.conversation.history
+
+    @property
     def tool_registry(self) -> ToolRegistry:
         return self.tools.registry()
 
@@ -275,29 +259,6 @@ class Team(SubagentsMixin, ToolRunnerMixin):
     @property
     def provided_tools(self):
         return self.tools.provided()
-
-    async def query(self, prompt: str, timeout: float | None = None) -> str:
-        if not self._session_started:
-            self._session_started = True
-            await self._open_session()
-        if self.file_history is not None:
-            self.file_history.snapshot(len(self.lead.messages))
-        self.lead.submit(prompt)
-        start = len(self.lead.messages)
-        if timeout is None:
-            await self.lead.wait_idle()
-        else:
-            try:
-                await asyncio.wait_for(self.lead.wait_idle(), timeout)
-            except asyncio.TimeoutError:
-                pass
-        return self.lead.last_assistant(start=start)
-
-    def use_file_history(self, directory) -> None:
-        """Point the snapshot store at a directory, dropping what was read
-        from the previous one."""
-        self.file_history = FileHistory(Path(directory), cwd=self.tool_context.cwd)
-        self.tool_context.files = self.file_history
 
     @property
     def team_context(self):
@@ -338,25 +299,6 @@ class Team(SubagentsMixin, ToolRunnerMixin):
             self.product.plan_mode_changed(mode)
         else:
             self.hooks.permission_mode = mode
-
-    def turns(self) -> list[tuple[int, str]]:
-        if self.file_history is None:
-            return []
-        marks = {snap.mark for snap in self.file_history.snapshots}
-        return [
-            (index, str(message.get("content") or ""))
-            for index, message in enumerate(self.lead.messages)
-            if index in marks and message.get("role") == "user"
-        ]
-
-    def rewind(self, mark: int, *, code: bool = True, conversation: bool = True) -> dict:
-        files = self.file_history.rewind(mark) if code and self.file_history is not None else []
-        removed = 0
-        if conversation:
-            kept = self.lead.messages[: int(mark)]
-            removed = len(self.lead.messages) - len(kept)
-            self.lead.messages = list(kept)
-        return {"files": files, "messages": removed}
 
     def send_control(self, recipient_name: str, payload: str):
         recipient = self.get_by_name(recipient_name)

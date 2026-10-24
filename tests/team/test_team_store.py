@@ -71,7 +71,7 @@ def test_joining_a_team_moves_the_task_list_with_it(tmp_path):
             team_store=tmp_path / "teams",
             tool_context=ToolContext(cwd=tmp_path),
         )
-        await team.query("first")
+        await team.conversation.query("first")
         team.join_team("parser", "rework the parser")
         task = team.tasks.create("read", "the file")
         return team, task

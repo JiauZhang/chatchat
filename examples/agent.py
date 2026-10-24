@@ -13,7 +13,7 @@ async def main():
     args = parser.parse_args()
 
     team = Team("agent", model=args.model, lead_instruction=WRITER)
-    print(await team.query(args.prompt))
+    print(await team.conversation.query(args.prompt))
 
 
 if __name__ == "__main__":

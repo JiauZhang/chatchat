@@ -17,8 +17,8 @@ def test_thinking_stored_on_assistant_message():
 
     async def main():
         team = mock_team("t", handler=respond)
-        await team.query("现在天气如何")
-        return team.transcript()
+        await team.conversation.query("现在天气如何")
+        return team.conversation.transcript()
 
     msgs = asyncio.run(main())
     assistant = next(m for m in msgs if m.get("role") == "assistant")
@@ -30,8 +30,8 @@ def test_the_model_that_answered_is_recorded_on_the_message():
     async def main():
         team = mock_team("t", handler=lambda messages, tools=None, *, stream_cb=None: "好的")
         team.lead.client.model = "mock-model"
-        await team.query("hi")
-        return team.transcript()
+        await team.conversation.query("hi")
+        return team.conversation.transcript()
 
     msgs = asyncio.run(main())
     assistant = next(m for m in msgs if m.get("role") == "assistant")

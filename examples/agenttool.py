@@ -16,7 +16,7 @@ async def main():
     args = parser.parse_args()
 
     team = Team("agenttool", model=args.model, lead_instruction=LEAD)
-    print(await team.query(args.prompt))
+    print(await team.conversation.query(args.prompt))
 
 
 if __name__ == "__main__":

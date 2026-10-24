@@ -72,7 +72,7 @@ def test_team_send_message_flow_and_tool_event():
     async def main():
         team = make_team()
         team.create_agent("researcher", instruction=RESEARCHER)
-        return await team.query("调研一下 DeepSeek", timeout=15)
+        return await team.conversation.query("调研一下 DeepSeek", timeout=15)
 
     answer = asyncio.run(main())
     assert "汇总" in answer
@@ -137,7 +137,7 @@ def test_report_surfaces_when_lead_never_writes_text():
 
     async def main():
         team = Team("rep", client_factory=factory, lead_instruction=LEAD_INST)
-        return await team.query("给我一份 deepseek 报告", timeout=15)
+        return await team.conversation.query("给我一份 deepseek 报告", timeout=15)
 
     ans = asyncio.run(main())
     assert "DeepSeek 综合" in ans
@@ -214,7 +214,7 @@ def test_attachment_injected_before_next_model_call():
         lead = team.lead
         lead.enqueue_attachment("<task-notification>b1</task-notification>")
         await lead.wait_idle(3.0)
-        await team.query("go")
+        await team.conversation.query("go")
         await lead.wait_idle(3.0)
         return len(_notification_texts(lead.messages))
 
@@ -238,7 +238,7 @@ def test_attachment_enqueued_mid_turn_reaches_next_model_call():
     async def main():
         team = mock_team("att2", respond)
         holder["lead"] = team.lead
-        return await team.query("go")
+        return await team.conversation.query("go")
 
     asyncio.run(main())
     assert len(payloads) >= 2
@@ -284,7 +284,7 @@ def test_general_purpose_subagent_inherits_team_tools():
         team = mock_team("gp", respond, tools=[mytool])
         schema = next(t for t in team.tool_schemas(team.tool_context) if t["name"] == "Agent")
         assert "general-purpose" in schema["description"]
-        return await team.query("spawn and run")
+        return await team.conversation.query("spawn and run")
 
     out = asyncio.run(main())
     assert calls
@@ -383,7 +383,7 @@ def test_model_timeout_retries_the_request_and_completes_the_turn():
 
     async def main():
         team = mock_team("rt", respond, model_timeout=0.2)
-        return await team.query("hi")
+        return await team.conversation.query("hi")
 
     out = asyncio.run(main())
     assert out == "recovered"
@@ -403,7 +403,7 @@ def test_model_timeout_gives_up_without_stale_text_in_the_transcript():
 
     async def main():
         team = mock_team("rg", respond, model_timeout=0.1, model_retries=1)
-        return await team.query("hi"), team.lead.messages
+        return await team.conversation.query("hi"), team.lead.messages
 
     out, messages = asyncio.run(main())
     assert out == ""
@@ -427,7 +427,7 @@ def test_model_timeout_does_not_retry_after_text_was_streamed():
 
     async def main():
         team = mock_team("rp", respond, model_timeout=0.1)
-        return await team.query("hi")
+        return await team.conversation.query("hi")
 
     out = asyncio.run(main())
     assert out == ""
@@ -739,7 +739,7 @@ def test_a_turn_that_dies_on_the_api_says_so():
 
     async def run():
         team = mock_team("dying", boom)
-        await team.query("hi")
+        await team.conversation.query("hi")
         return team
 
     asyncio.run(run())
@@ -754,7 +754,7 @@ def test_a_failed_turn_reports_itself_exactly_once():
     events = _events()
 
     async def run():
-        await mock_team("once-only", boom).query("hi")
+        await mock_team("once-only", boom).conversation.query("hi")
 
     asyncio.run(run())
     assert len(_warns(events, "503, message='Service Unavailable'")) == 1

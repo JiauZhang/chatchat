@@ -188,8 +188,8 @@ def test_a_team_marks_the_history_at_the_start_of_each_turn(tmp_path):
         workspace = tmp_path / "ws"
         workspace.mkdir()
         team = mock_team("fh", handler=answer, file_history_dir=tmp_path / "history", tool_context=ToolContext(cwd=workspace))
-        await team.query("first")
-        await team.query("second")
+        await team.conversation.query("first")
+        await team.conversation.query("second")
         return team
 
     team = asyncio.run(main())
@@ -220,8 +220,8 @@ def _rewind_team(tmp_path, handler, prepare=None):
         team = mock_team("rw", handler=handler, file_history_dir=tmp_path / "history", tool_context=ToolContext(cwd=workspace))
         if prepare is not None:
             prepare(team)
-        await team.query("first")
-        await team.query("second")
+        await team.conversation.query("first")
+        await team.conversation.query("second")
         return team, workspace
 
     return asyncio.run(main())
@@ -243,7 +243,7 @@ def test_rewinding_a_turn_can_put_the_files_back(tmp_path):
     team, ws = _rewind_team(tmp_path, answer, prepare=hand_over)
     assert (ws / "a.py").exists()
 
-    result = team.rewind(0, conversation=False)
+    result = team.conversation.rewind(0, conversation=False)
     assert result["files"] == ["a.py"]
     assert not (ws / "a.py").exists()
     assert len(team.lead.messages) == 4
@@ -256,7 +256,7 @@ def test_rewinding_the_conversation_drops_the_later_turns(tmp_path):
     team, _ws = _rewind_team(tmp_path, answer)
     assert len(team.lead.messages) == 4
 
-    result = team.rewind(2, code=False)
+    result = team.conversation.rewind(2, code=False)
     assert [msg.get("content") for msg in team.lead.messages] == ["first", "ok"]
     assert result["messages"] == 2
 

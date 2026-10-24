@@ -298,7 +298,7 @@ def test_touching_a_matching_file_lists_the_skill_in_a_system_reminder(tmp_path)
                 Tool(tool=read, name="Read", description="read a file", read_only=True, get_path=lambda a: a.get("file_path"))
             ],
         )
-        await team.query("look at the test file")
+        await team.conversation.query("look at the test file")
         return team
 
     team = asyncio.run(main())
@@ -316,8 +316,8 @@ def test_the_skill_listing_rides_a_marked_attachment_message(tmp_path):
 
     async def main():
         team = mock_team("listed", skills=_registry(tmp_path), handler=lambda messages, tools=None: "ok")
-        await team.query("hi")
-        return team.transcript()
+        await team.conversation.query("hi")
+        return team.conversation.transcript()
 
     transcript = asyncio.run(main())
     listing = [m for m in transcript if m.get("attachment")]

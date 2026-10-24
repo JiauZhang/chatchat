@@ -222,7 +222,7 @@ def test_user_prompt_submit_block_drops_the_prompt(team):
     async def main():
         t = team()
         t.hooks.on("UserPromptSubmit", fn=lambda inp: False)
-        answer = await t.query("go")
+        answer = await t.conversation.query("go")
         return t, answer
 
     t, answer = asyncio.run(main())
@@ -237,7 +237,7 @@ def test_user_prompt_submit_additional_context_reaches_the_model(team):
     async def main():
         t = team(handler=_record_prompts(seen))
         t.hooks.on("UserPromptSubmit", fn=lambda inp: _output("UserPromptSubmit", additionalContext="extra context"))
-        return await t.query("go")
+        return await t.conversation.query("go")
 
     asyncio.run(main())
     assert any("extra context" in str(entry) for entry in seen[0])
@@ -250,7 +250,7 @@ def test_setup_and_session_start_context_opens_the_lead_transcript(team):
         t = team(handler=_record_prompts(seen))
         t.hooks.on("Setup", fn=lambda inp: _output("Setup", additionalContext="index rebuilt"))
         t.hooks.on("SessionStart", fn=lambda inp: _output("SessionStart", additionalContext="branch: main"))
-        await t.query("go")
+        await t.conversation.query("go")
         return t.lead.messages
 
     messages = asyncio.run(main())
@@ -265,8 +265,8 @@ def test_setup_and_session_start_hooks_fire_once_per_team(team):
         t = team()
         t.hooks.on("Setup", fn=lambda inp: calls.append("setup") or True)
         t.hooks.on("SessionStart", fn=lambda inp: calls.append("start") or True)
-        await t.query("first")
-        await t.query("second")
+        await t.conversation.query("first")
+        await t.conversation.query("second")
         return calls
 
     assert asyncio.run(main()) == ["setup", "start"]
@@ -350,7 +350,7 @@ def test_a_teammate_keeps_working_when_the_idle_hook_blocks(team):
     async def main():
         t = team(handler=respond)
         t.hooks.on("TeammateIdle", fn=idle_hook)
-        await t.query("go")
+        await t.conversation.query("go")
         worker = t.get_by_name("worker")
         await worker.wait_idle(3.0)
         return worker.messages
@@ -369,7 +369,7 @@ def test_a_blocked_task_created_hook_cancels_the_sub_agent(team):
     async def main():
         t = team(handler=respond)
         t.hooks.register("TaskCreated", fn=lambda inp: False, error_message="no sub-agents while the suite is red")
-        await t.query("go")
+        await t.conversation.query("go")
         return [
             b
             for m in t.lead.messages
@@ -411,8 +411,8 @@ def test_a_restored_transcript_starts_the_session_as_a_resume(team):
     async def main():
         t = team()
         t.hooks.on("SessionStart", fn=_watch(seen, lambda inp: inp["source"]))
-        t.restore([{"role": "user", "content": "earlier"}])
-        await t.query("go")
+        t.conversation.restore([{"role": "user", "content": "earlier"}])
+        await t.conversation.query("go")
         return seen
 
     assert asyncio.run(main()) == ["resume"]
@@ -427,7 +427,7 @@ def test_instructions_loaded_hook_reports_the_file_and_its_scope(team):
             [{"path": "/tmp/AGENTS.md", "content": "project rules", "memory_type": "Project", "load_reason": "session_start"}]
         )
         t.hooks.on("InstructionsLoaded", fn=_watch(seen))
-        await t.query("go")
+        await t.conversation.query("go")
         return seen
 
     seen = asyncio.run(main())
@@ -443,8 +443,8 @@ def test_instructions_loaded_hook_fires_once_per_session(team):
         t = team()
         t.set_instruction_files([{"path": "p", "content": "c"}])
         t.hooks.on("InstructionsLoaded", fn=lambda inp: calls.append(1) or True)
-        await t.query("first")
-        await t.query("second")
+        await t.conversation.query("first")
+        await t.conversation.query("second")
         return calls
 
     assert len(asyncio.run(main())) == 1
@@ -465,7 +465,7 @@ def test_stop_hook_blocking_feedback_continues_turn(team):
         t.hooks.on(
             "Stop", fn=lambda inp: {"decision": "block", "reason": "keep going"} if not inp.get("stop_hook_active") else True
         )
-        return await t.query("go"), len(calls)
+        return await t.conversation.query("go"), len(calls)
 
     ans, initial_calls = asyncio.run(main())
     assert ans == "after feedback"
@@ -476,7 +476,7 @@ def test_pre_tool_block_reaches_agent_as_tool_result(team):
     async def main():
         t = team(handler=_stops_after_one_tool_call)
         t.hooks.on("PreToolUse", fn=lambda inp: False)
-        await t.query("go")
+        await t.conversation.query("go")
         contents = [m.get("content") for m in t.lead.messages if isinstance(m.get("content"), list)]
         assert any("hook blocked tool" in (r.get("content") or "") for rs in contents for r in rs)
 
@@ -490,7 +490,7 @@ def test_pre_tool_additional_context_sits_beside_the_tool_result(team):
             "PreToolUse",
             fn=lambda inp: _output("PreToolUse", permissionDecision="allow", additionalContext="run the tests first"),
         )
-        await t.query("go")
+        await t.conversation.query("go")
         return _tool_result_blocks(t.lead.messages)
 
     results = asyncio.run(main())
@@ -502,7 +502,7 @@ def test_pre_tool_additional_context_sits_beside_the_tool_result(team):
 def test_a_tool_result_without_extra_context_stands_alone(team):
     async def main():
         t = team(handler=_stops_after_one_tool_call)
-        await t.query("go")
+        await t.conversation.query("go")
         return _tool_result_blocks(t.lead.messages)
 
     assert len(asyncio.run(main())[0]) == 1
@@ -525,7 +525,7 @@ def test_hookless_agent_skips_emits(team):
         seen = []
         t.hooks.on("UserPromptSubmit", fn=_watch(seen, lambda _: 1))
         t.lead.hookless = True
-        await t.query("go")
+        await t.conversation.query("go")
         assert seen == []
 
     asyncio.run(main())
@@ -550,7 +550,7 @@ def test_no_hooks_short_circuit(team):
         t = team(hooks=False)
         seen = []
         t.hooks.on("UserPromptSubmit", fn=_watch(seen, lambda _: 1))
-        ans = await t.query("go")
+        ans = await t.conversation.query("go")
         assert ans == "ok"
         assert seen == []
 
@@ -563,7 +563,7 @@ def test_a_stop_hook_can_end_the_session(team):
         events = []
         off = register_runtime_handler(lambda ev: events.append(ev) if ev.kind == AGENT_WARN else None)
         t.hooks.on("Stop", fn=lambda inp: {"continue": False, "stopReason": "the hook called it"})
-        await t.query("go")
+        await t.conversation.query("go")
         off()
         return t, events
 
@@ -579,7 +579,7 @@ def test_a_hook_warning_reaches_the_user(team):
         t = team()
         off = register_runtime_handler(lambda ev: seen.append(ev.data.get("text")) if ev.kind == AGENT_WARN else None)
         t.hooks.on("UserPromptSubmit", fn=lambda inp: {"systemMessage": "memory is nearly full"})
-        out = await t.query("go")
+        out = await t.conversation.query("go")
         off()
         return out
 
@@ -626,10 +626,10 @@ def test_clearing_the_session_reopens_it_without_running_setup_again(team):
         t.hooks.on("Setup", fn=_watch(seen, lambda inp: ("setup", inp["trigger"])))
         t.hooks.on("SessionStart", fn=_watch(seen, lambda inp: ("start", inp["source"])))
         t.hooks.on("SessionEnd", fn=_watch(seen, lambda inp: ("end", inp["reason"])))
-        await t.query("one")
-        await t.end_session("clear")
-        t.begin_new_session("clear")
-        await t.query("two")
+        await t.conversation.query("one")
+        await t.conversation.end_session("clear")
+        t.conversation.begin_new_session("clear")
+        await t.conversation.query("two")
 
     asyncio.run(main())
     assert seen == [("setup", "init"), ("start", "startup"), ("end", "clear"), ("start", "clear")]

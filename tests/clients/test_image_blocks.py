@@ -57,8 +57,8 @@ def test_a_tool_result_combines_text_and_image_blocks():
 
     async def main():
         team = mock_team("shot", tools=[tool], handler=respond)
-        await team.query("look")
-        return team.transcript()
+        await team.conversation.query("look")
+        return team.conversation.transcript()
 
     msgs = asyncio.run(main())
     tool_result = next(

@@ -16,7 +16,7 @@ async def main():
     team = Team("demo", model=args.model, lead_instruction=LEAD)
     team.create_agent("researcher", instruction=ROLE.format(name="researcher"))
 
-    print(await team.query(args.prompt))
+    print(await team.conversation.query(args.prompt))
 
 
 if __name__ == "__main__":

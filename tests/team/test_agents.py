@@ -57,7 +57,7 @@ def test_team_members_run_injected_tools():
     async def main():
         team = mock_team("t", handler=_call_tool_once("ping", "done", x=1), tools=[_counting_tool("ping", calls)])
         names = [t["name"] for t in team.tool_schemas(team.tool_context)]
-        return names, await team.query("hi", timeout=10)
+        return names, await team.conversation.query("hi", timeout=10)
 
     names, ans = asyncio.run(main())
     assert "ping" in names

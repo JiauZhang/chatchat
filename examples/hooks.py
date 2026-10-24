@@ -39,7 +39,7 @@ async def main():
     for a in team.roster.agents.values():
         a.start()
 
-    answer = await team.query(args.prompt)
+    answer = await team.conversation.query(args.prompt)
     print("\n=== lead 最终答复 ===")
     print(answer)
 

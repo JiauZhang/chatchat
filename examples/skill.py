@@ -43,7 +43,7 @@ async def main():
         lead_instruction="Use the notes skill when the material looks like meeting notes.",
         skills=registry,
     )
-    print(await team.query(args.prompt))
+    print(await team.conversation.query(args.prompt))
 
 
 if __name__ == "__main__":
