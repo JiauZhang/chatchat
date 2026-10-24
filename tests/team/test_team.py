@@ -470,12 +470,12 @@ def test_the_context_budget_is_a_threshold_over_the_measured_occupancy():
     assert threshold == 1234
 
     assert team.compactor.automatic is True
-    assert team.context_tokens == 0
+    assert team.ledger.context_tokens() == 0
     team.lead.messages.append({"role": "user", "content": "x" * 400})
-    assert team.context_tokens == 0
+    assert team.ledger.context_tokens() == 0
     team.lead.messages.append({"role": "assistant", "content": "a", "usage": {"prompt_tokens": 90, "completion_tokens": 10}})
     team.lead.messages.append({"role": "user", "content": "y" * 40})
-    assert team.context_tokens == 100
+    assert team.ledger.context_tokens() == 100
 
 
 def test_execute_tool_forwards_a_toolresult_meta_into_the_result_event():

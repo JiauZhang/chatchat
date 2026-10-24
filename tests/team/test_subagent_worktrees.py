@@ -32,8 +32,8 @@ def _team(name, root, note="", seen=None):
         released.append(path)
         return note
 
-    team.isolation_start = start
-    team.isolation_end = end
+    team.isolation.start = start
+    team.isolation.end = end
     return team, allocated, released
 
 

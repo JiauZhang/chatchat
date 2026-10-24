@@ -33,7 +33,7 @@ def test_team_query_accumulates_usage():
         team = mock_team("u", usage=_USAGE)
         await team.query("hi")
         await team.query("again")
-        return team.usage()
+        return team.ledger.usage()
 
     usage = asyncio.run(main())
     assert usage.prompt_tokens == 200
@@ -47,7 +47,7 @@ def test_team_last_usage_is_one_response_not_the_session_total():
         team = mock_team("one", usage=_USAGE)
         await team.query("hi")
         await team.query("again")
-        return team.last_usage(), team.usage()
+        return team.ledger.last_usage(), team.ledger.usage()
 
     last, total = asyncio.run(main())
     assert (last.prompt_tokens, last.completion_tokens, last.total_tokens) == (100, 20, 120)
@@ -74,7 +74,7 @@ def test_team_last_usage_survives_a_request_that_has_not_answered():
         await team.query("hi")
         turn = asyncio.create_task(team.query("again"))
         await started.wait()
-        usage = team.last_usage()
+        usage = team.ledger.last_usage()
         finish.set()
         await turn
         return usage
@@ -86,7 +86,7 @@ def test_team_last_usage_survives_a_request_that_has_not_answered():
 
 def test_team_last_usage_is_none_before_any_response():
     async def main():
-        return mock_team("fresh").last_usage()
+        return mock_team("fresh").ledger.last_usage()
 
     assert asyncio.run(main()) is None
 
@@ -100,7 +100,7 @@ def test_team_usage_adds_up_what_the_subagents_spent():
         team = mock_team("sub", usage=_USAGE)
         await team.query("hi")
         await team.spawn_subagent("go")
-        return team.usage(), team.last_usage()
+        return team.ledger.usage(), team.ledger.last_usage()
 
     total, last = asyncio.run(main())
     assert (total.prompt_tokens, total.completion_tokens) == (200, 40)
@@ -114,8 +114,8 @@ def test_resetting_usage_clears_the_whole_team():
         team = mock_team("sub", usage=_USAGE)
         await team.query("hi")
         await team.spawn_subagent("go")
-        team.reset_usage()
-        return team.usage()
+        team.ledger.reset()
+        return team.ledger.usage()
 
     assert asyncio.run(main()).total_tokens == 0
 
@@ -124,7 +124,7 @@ def test_team_last_usage_is_zero_for_a_client_that_never_reports():
     async def main():
         team = mock_team("z")
         await team.query("hi")
-        return team.last_usage()
+        return team.ledger.last_usage()
 
     assert asyncio.run(main()).total_tokens == 0
 
@@ -133,7 +133,7 @@ def test_provider_without_usage_keeps_zeros():
     async def main():
         team = mock_team("silent")
         await team.query("hi")
-        return team.usage()
+        return team.ledger.usage()
 
     usage = asyncio.run(main())
     assert usage.total_tokens == 0

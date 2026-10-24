@@ -2,7 +2,7 @@ import asyncio
 
 from chatchat.runtime.abort import AbortSignal
 from chatchat.runtime.context import AgentContext, current_agent, spawn_task
-from chatchat.team.team import token_count
+from chatchat.team.ledger import token_count
 from chatchat.runtime.tokens import context_estimate
 from helpers import mock_team
 
@@ -117,5 +117,5 @@ def test_the_trigger_estimates_but_the_readout_keeps_the_measured_figure():
         return team, await team.compactor.maybe_compact(team.lead.messages)
 
     team, compacted = asyncio.run(main())
-    assert team.context_tokens == 5_950
+    assert team.ledger.context_tokens() == 5_950
     assert compacted is not team.lead.messages

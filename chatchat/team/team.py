@@ -15,6 +15,8 @@ from chatchat.team.agents import (
 )
 from chatchat.team.mailbox import FileMailbox
 from chatchat.team.compaction import Compactor
+from chatchat.team.isolation import Isolation
+from chatchat.team.ledger import Ledger
 from chatchat.team.product import TeamProduct
 from chatchat.runtime.metrics import Metrics
 from chatchat.runtime.context import AgentContext
@@ -25,7 +27,6 @@ from chatchat.team.team_store import TeamStore
 from chatchat.runtime.skills import SkillRegistry
 from chatchat.runtime.thinking import Thinking
 from chatchat.team.standing import with_standing
-from chatchat.runtime.tokens import measured
 from chatchat.team.subagents import SubagentsMixin
 from chatchat.tools.tool_runner import ToolRunnerMixin
 from chatchat.tools.builtin import builtin_tools
@@ -43,14 +44,6 @@ MAX_COMPACT_FAILURES = 3
 
 def _plural_work(count: int, noun: str, qualifier: str = "") -> str:
     return f"{count} {qualifier}{noun}" + ("" if count == 1 else "s")
-
-
-def token_count(messages: list[dict]) -> int:
-    for message in reversed(messages):
-        usage = message.get("usage")
-        if isinstance(usage, dict):
-            return measured(usage)
-    return 0
 
 
 class Team(SubagentsMixin, ToolRunnerMixin):
@@ -105,14 +98,12 @@ class Team(SubagentsMixin, ToolRunnerMixin):
         self.agent_memory = agent_memory
         self.rules = rules
         self.ask_user = None
-        self.isolation_start = None
-        self.isolation_end = None
+        self.isolation = Isolation()
         self.output_schema: dict | None = None
         self.structured_output: dict | None = None
         self._output_attempts = 0
         self._output_hook = None
         self.product: TeamProduct | None = None
-        self._agent_isolation: dict[str, str] = {}
         self.plan_path = None
         self._factory = client_factory
         self.hooks = HookManager(self, enabled=hooks)
@@ -141,6 +132,7 @@ class Team(SubagentsMixin, ToolRunnerMixin):
             description="General-purpose agent that inherits the team tools for routine tasks",
         )
         self.lead = self.create_agent(LEAD_NAME, instruction=lead_instruction, leader=True)
+        self.ledger = Ledger(lead=self.lead, members=lambda: self.agents.values())
 
     def attach(self, product: TeamProduct) -> TeamProduct:
         self.product = product
@@ -253,39 +245,6 @@ class Team(SubagentsMixin, ToolRunnerMixin):
             if agg.additional_context:
                 self.lead.messages.append({"role": "user", "content": agg.additional_context})
 
-    def usage(self):
-        total = type(self.lead.total_usage)()
-        for agent in self.agents.values():
-            total.add(agent.total_usage)
-        return total
-
-    def last_usage(self):
-        for message in reversed(self.transcript()):
-            usage = message.get("usage")
-            if isinstance(usage, dict):
-                return type(self.lead.total_usage).from_dict(usage)
-        return None
-
-    def restore_totals(self, usage: dict, metrics: dict):
-        """Carry the numbers of a conversation that is being continued into the
-        agent that will keep it, so the counts a person reads go on growing
-        instead of starting over. Both per-turn fields are set: the first turn
-        after a resume must report its own work, not the whole history."""
-        lead = self.lead
-        lead.total_usage = type(lead.total_usage).from_dict(usage)
-        known = Metrics().as_dict()
-        seeded = Metrics(**{name: int(metrics.get(name) or 0) for name in known})
-        lead.metrics = seeded
-        lead.last_metrics = seeded
-        lead.total_metrics = seeded
-
-    def reset_usage(self):
-        for agent in self.agents.values():
-            agent.total_usage = type(self.lead.total_usage)()
-            agent.metrics = Metrics()
-            agent.last_metrics = Metrics()
-            agent.total_metrics = Metrics()
-
     def set_instruction_files(self, files: list[dict]):
         self.instruction_files = list(files or [])
 
@@ -330,10 +289,6 @@ class Team(SubagentsMixin, ToolRunnerMixin):
     @property
     def provided_tools(self):
         return list(self._injected_tools)
-
-    @property
-    def context_tokens(self) -> int:
-        return token_count(self.transcript())
 
     async def query(self, prompt: str, timeout: float | None = None) -> str:
         if not self._session_started:
@@ -411,17 +366,6 @@ class Team(SubagentsMixin, ToolRunnerMixin):
             self.product.plan_mode_changed(mode)
         else:
             self.hooks.permission_mode = mode
-
-    async def allocate_isolation(self, name: str) -> str:
-        if self.isolation_start is None:
-            raise ValueError("isolation needs a provider: this team was given no isolation_start")
-        return str(await self.isolation_start(name))
-
-    async def release_isolation(self, agent_id: str) -> str:
-        path = self._agent_isolation.pop(agent_id, None)
-        if path is None or self.isolation_end is None:
-            return ""
-        return str(await self.isolation_end(path))
 
     def turns(self) -> list[tuple[int, str]]:
         if self.file_history is None:

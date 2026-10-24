@@ -169,8 +169,8 @@ def test_the_team_reads_back_the_last_turn_and_the_session_total():
         worker._begin_turn()
         await team.execute_tool("Tee", {"path": "b.txt"}, worker)
         worker._end_turn()
-        turn = team.turn_metrics()
-        total = team.total_metrics()
+        turn = team.ledger.turn_metrics()
+        total = team.ledger.total_metrics()
         await team.stop_agent(worker)
         return turn, total
 
@@ -189,8 +189,8 @@ def test_clearing_the_session_clears_the_measured_totals_too():
         team = mock_team("met6", handler=respond, tools=[tee])
         await team.execute_tool("Tee", {"path": "a.txt"}, team.lead)
         team.lead.last_metrics = team.lead.metrics
-        team.reset_usage()
-        return team.total_metrics(), team.turn_metrics()
+        team.ledger.reset()
+        return team.ledger.total_metrics(), team.ledger.turn_metrics()
 
     total, turn = asyncio.run(main())
     assert total.tool_calls == 0

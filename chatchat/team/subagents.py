@@ -59,7 +59,7 @@ class SubagentsMixin:
         tool_context = None
         isolated = ""
         if isolation == "worktree" or defn.isolation == "worktree":
-            isolated = await self.allocate_isolation(f"{self.lead_session_id or self.name}-{name}")
+            isolated = await self.isolation.reserve(f"{self.lead_session_id or self.name}-{name}", agent_id)
             tool_context = ToolContext(cwd=Path(isolated))
             worktree_note = (
                 f"\n\nWorking in the isolated worktree {isolated}. "
@@ -85,8 +85,6 @@ class SubagentsMixin:
             agent_type=subagent_type or "",
         )
         self.agents[agent_id] = agent
-        if isolated:
-            self._agent_isolation[agent_id] = isolated
         if fork_msgs:
             agent.messages = list(fork_msgs)
         for skill_name in defn.skills:
@@ -133,7 +131,7 @@ class SubagentsMixin:
             emit(AGENT_PROGRESS, agent=agent.name, done=True)
             await self.hooks.execute_subagent_stop_hooks(agent, defn.agent_type)
             agent._finalize("completed")
-            note = await self.release_isolation(agent.agent_id)
+            note = await self.isolation.release(agent.agent_id)
         return f"{result}\n{note}" if note else result
 
     async def spawn_subagent(
