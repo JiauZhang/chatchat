@@ -11,6 +11,7 @@ from chatchat.team.mailbox import Mailbox, parse_protocol, shutdown_approved
 from chatchat.runtime.metrics import Metrics
 from chatchat.runtime.model_caller import ModelCaller
 from chatchat.runtime.pending import PendingWork
+from chatchat.runtime.turn import Turn, _Blocked, blocked_text
 from chatchat.runtime.skills import listing_budget
 from chatchat.tasks.task import Task, generate_task_id
 from chatchat.tasks.tasks import work_prompt
@@ -19,9 +20,6 @@ from chatchat.runtime.tool_runner import ToolRunner
 from chatchat.tool import describe_tools
 from chatchat.hooks.events import (
     AGENT_PROGRESS,
-    AGENT_REASON_START,
-    AGENT_TEXT,
-    AGENT_TURN_FINISHED,
     AGENT_WARN,
     emit,
 )
@@ -91,7 +89,7 @@ class Agent:
         self._attachments: list[str] = []
         self._skill_listing_seen = -1
         self._stop_hook_active = False
-        self._work_abort = AbortSignal()
+        self.work_abort = AbortSignal()
         self._in_tool: str | None = None
         self.on_message = on_message
         self.task: Task | None = None
@@ -121,11 +119,11 @@ class Agent:
         self._loop_task = spawn_task(self.ctx, self._run(), name=self.agent_id)
 
     def abort_work(self):
-        self._work_abort.abort()
+        self.work_abort.abort()
 
     def interrupt_and_submit(self, text: str, *, cancelable_tools: tuple = ()):
         if self._in_tool and self._in_tool in cancelable_tools:
-            self._work_abort.abort()
+            self.work_abort.abort()
         self.submit(text)
 
     def _finalize(self, status: str):
@@ -135,7 +133,7 @@ class Agent:
     async def stop(self, *, status: str = "killed"):
         self._stop.set()
         self.ctx.abort.abort()
-        self._work_abort.abort()
+        self.work_abort.abort()
         self._queue.put_nowait("")
         await self.poller.stop()
         if self._loop_task is not None and not self._loop_task.done():
@@ -306,127 +304,21 @@ class Agent:
         self.total_metrics += self.metrics
 
     async def _full_turn(self, user_block: str) -> str:
-        self._begin_turn()
-        self._work_abort = AbortSignal()
-        if user_block:
-            self.messages.append({"role": "user", "content": user_block})
-        if not self.hookless and not self._instructions_loaded:
-            self._instructions_loaded = True
-            for item in self.team.instruction_files:
-                await self.team.hooks.execute_instructions_loaded_hooks(
-                    self,
-                    item.get("path", ""),
-                    item.get("memory_type", ""),
-                    load_reason=item.get("load_reason", "session_start"),
-                )
-        if not self.hookless and user_block:
-            pre = await self.team.hooks.execute_user_prompt_submit_hooks(self, user_block)
-            if pre.blocking_error is not None:
-                if self.messages and self.messages[-1].get("role") == "user" and self.messages[-1].get("content") == user_block:
-                    self.messages.pop()
-                text = describe_blocking(pre.blocking_error)
-                emit(AGENT_WARN, agent=self.name, text=text)
-                emit(AGENT_TURN_FINISHED, agent=self.name)
-                return text
-            if pre.additional_context:
-                self.messages[-1] = {"role": "user", "content": f"{user_block}\n\n{pre.additional_context}"}
-
-        if user_block:
-            self._record(self.messages[-1])
-
-        await self.poll_inbox()
-
-        before = len(self.messages)
-        self.messages = await self.team.compactor.maybe_compact(self.messages, agent=self)
-        if len(self.messages) < before:
-            self._skill_listing_seen = -1
-
-        stream_state = {"reason_emitted": False}
-        thinking_parts = []
-        rounds = 0
-
-        def stream(text, kind):
-            if kind == "warn":
-                emit(AGENT_WARN, agent=self.name, text=text)
-            elif kind == "reason":
-                if not stream_state["reason_emitted"]:
-                    emit(AGENT_REASON_START, agent=self.name)
-                    stream_state["reason_emitted"] = True
-                thinking_parts.append(text)
-            elif kind == "text":
-                stream_state["text_emitted"] = True
-                emit(AGENT_TEXT, agent=self.name, delta=text)
-
-        self.ctx.abort.check()
-        self._work_abort.check()
-        while True:
-            self.ctx.abort.check()
-            self._work_abort.check()
-            rounds += 1
-            if self.max_turns is not None and rounds > self.max_turns:
-                note = f"Stopped: the turn limit ({self.max_turns}) was reached."
-                emit(AGENT_WARN, agent=self.name, text=note)
-                emit(AGENT_TURN_FINISHED, agent=self.name)
-                return note
-            self._queue_skill_listing()
-            attachment = self._drain_attachments()
-            if attachment:
-                msg = {"role": "user", "content": attachment, "attachment": True}
-                self.messages.append(msg)
-                self._record(msg)
-            thinking_parts.clear()
-            stream_state["text_emitted"] = False
-            resp, round_ms = await self.caller.ask(
-                self.messages,
-                self.tool_schemas(self.tool_context),
-                abort=self._work_abort,
-                stream=stream,
-                spoke=lambda: stream_state["text_emitted"],
-            )
-            self.metrics.api_round(round_ms)
-            if resp is None:
-                msg = f"Error: model call timed out after {self.model_timeout}s"
-                logger.warning("agent %s: %s", self.name, msg)
-                emit(AGENT_WARN, agent=self.name, text=msg)
-                emit(AGENT_TURN_FINISHED, agent=self.name)
-                return ""
-            self.total_usage.add(getattr(self.client, "_last_usage", None))
-            if isinstance(resp, str):
-                msg = {
-                    "role": "assistant",
-                    "content": resp,
-                    "model": getattr(self.client, "model", "") or "",
-                    "usage": self.client._last_usage.to_dict(),
-                }
-                if thinking_parts:
-                    msg["thinking"] = "".join(thinking_parts)
-                items = getattr(self.client, "_last_response_items", None)
-                if items:
-                    msg["response_items"] = items
-                self._emit_progress(msg, usage=self.client._last_usage.to_dict())
-                self.messages.append(msg)
-                self._record(msg)
-                emit(AGENT_TURN_FINISHED, agent=self.name)
-                return resp
-            assistant_msg = {
-                "role": "assistant",
-                "content": [tu_todict(t) for t in resp],
-                "model": getattr(self.client, "model", "") or "",
-                "usage": self.client._last_usage.to_dict(),
-            }
-            if thinking_parts:
-                assistant_msg["thinking"] = "".join(thinking_parts)
-            items = getattr(self.client, "_last_response_items", None)
-            if items:
-                assistant_msg["response_items"] = items
-            self._emit_progress(assistant_msg, usage=self.client._last_usage.to_dict())
-            self.messages.append(assistant_msg)
-            self._record(assistant_msg)
-            outcomes = await self.tools_runner.run(resp)
-            self._emit_progress({"role": "user", "content": [o.as_result() for o in outcomes]})
-            results_msg = ToolRunner.as_message(outcomes)
-            self.messages.append(results_msg)
-            self._record(results_msg)
+        self.work_abort = AbortSignal()
+        turn = Turn(
+            agent=self,
+            client=self.client,
+            messages=self.messages,
+            tools=self.tools,
+            max_turns=self.max_turns,
+            hookless=self.hookless,
+        )
+        try:
+            return await turn.run(user_block)
+        except _Blocked as blocked:
+            return blocked_text(blocked)
+        finally:
+            self.messages = turn.messages
 
     async def poll_inbox(self):
         text = await self.poller.poll_once()

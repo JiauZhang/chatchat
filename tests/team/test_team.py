@@ -112,7 +112,7 @@ def test_interrupt_and_submit_aborts_only_a_cancelable_running_tool():
             lead.submit("start")
             lead._in_tool = tool
             lead.interrupt_and_submit("new msg", cancelable_tools=("sleep_long",))
-            interrupted = lead._work_abort.aborted
+            interrupted = lead.work_abort.aborted
             try:
                 await asyncio.wait_for(lead.wait_idle(), 1.5)
             except asyncio.TimeoutError:
