@@ -3,7 +3,7 @@
 import asyncio
 
 from chatchat.team.plan import APPROVE, AUTO_ACCEPT, KEEP_PLANNING
-from helpers import mock_team
+from helpers import RecordingProduct, mock_team
 
 
 def _team(name, tmp_path):
@@ -29,17 +29,9 @@ def test_entering_twice_is_a_no_op(tmp_path):
         team = _team("plan2", tmp_path)
         await team.execute_tool("EnterPlanMode", {}, team.lead)
 
-        class _Gate:
-            def __init__(self):
-                self.modes = []
-
-            def __call__(self, mode):
-                self.modes.append(mode)
-
-        gate = _Gate()
-        team._plan_mode_changed = gate
+        product = team.attach(RecordingProduct())
         outcome = await team.execute_tool("EnterPlanMode", {}, team.lead)
-        return outcome.text, gate.modes
+        return outcome.text, product.modes
 
     text, modes = asyncio.run(main())
     assert "Already in plan mode" in text
@@ -62,11 +54,10 @@ def test_approving_the_plan_leaves_plan_mode_with_the_plan(tmp_path):
         team = _team("plan4", tmp_path)
         (tmp_path / "plan.md").write_text("1. rename the parser\n")
         team.hooks.permission_mode = "plan"
-        modes = []
-        team._plan_mode_changed = modes.append
+        product = team.attach(RecordingProduct())
         team.ask_user = lambda agent, questions: [APPROVE]
         outcome = await team.execute_tool("ExitPlanMode", {}, team.lead)
-        return outcome.text, modes, team.ask_user
+        return outcome.text, product.modes, team.ask_user
 
     text, modes, _asker = asyncio.run(main())
     assert modes == ["default"]
@@ -79,11 +70,10 @@ def test_asking_for_auto_accept_answers_with_that_mode(tmp_path):
         team = _team("plan5", tmp_path)
         (tmp_path / "plan.md").write_text("the plan\n")
         team.hooks.permission_mode = "plan"
-        modes = []
-        team._plan_mode_changed = modes.append
+        product = team.attach(RecordingProduct())
         team.ask_user = lambda agent, questions: [AUTO_ACCEPT]
         outcome = await team.execute_tool("ExitPlanMode", {}, team.lead)
-        return outcome.text, modes
+        return outcome.text, product.modes
 
     text, modes = asyncio.run(main())
     assert modes == ["acceptEdits"]
@@ -95,11 +85,10 @@ def test_keeping_planning_leaves_the_session_in_plan_mode(tmp_path):
         team = _team("plan6", tmp_path)
         (tmp_path / "plan.md").write_text("the plan\n")
         team.hooks.permission_mode = "plan"
-        modes = []
-        team._plan_mode_changed = modes.append
+        product = team.attach(RecordingProduct())
         team.ask_user = lambda agent, questions: [KEEP_PLANNING]
         outcome = await team.execute_tool("ExitPlanMode", {}, team.lead)
-        return outcome.text, modes
+        return outcome.text, product.modes
 
     text, modes = asyncio.run(main())
     assert modes == []

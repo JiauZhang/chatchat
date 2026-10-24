@@ -14,6 +14,7 @@ from chatchat.team.agents import (
     AgentRegistry,
 )
 from chatchat.team.mailbox import FileMailbox
+from chatchat.team.product import TeamProduct
 from chatchat.runtime.metrics import Metrics
 from chatchat.runtime.context import AgentContext
 from chatchat.runtime.filehistory import FileHistory
@@ -130,9 +131,7 @@ class Team(SubagentsMixin, ToolRunnerMixin):
         self.structured_output: dict | None = None
         self._output_attempts = 0
         self._output_hook = None
-        self._cwd_changed = None
-        self._skills_granted = None
-        self._plan_mode_changed = None
+        self.product: TeamProduct | None = None
         self._agent_isolation: dict[str, str] = {}
         self.plan_path = None
         self._factory = client_factory
@@ -157,6 +156,10 @@ class Team(SubagentsMixin, ToolRunnerMixin):
             description="General-purpose agent that inherits the team tools for routine tasks",
         )
         self.lead = self.create_agent(LEAD_NAME, instruction=lead_instruction, leader=True)
+
+    def attach(self, product: TeamProduct) -> TeamProduct:
+        self.product = product
+        return product
 
     def register_agent_definition(self, defn) -> AgentDefinition:
         return self.agent_defs.register(defn)
@@ -468,12 +471,12 @@ class Team(SubagentsMixin, ToolRunnerMixin):
         self.hooks.set_cwd(cwd)
         if self.file_history is not None:
             self.file_history.cwd = cwd
-        if self._cwd_changed is not None:
-            self._cwd_changed(cwd)
+        if self.product is not None:
+            self.product.cwd_changed(cwd)
 
     def set_plan_mode(self, mode: str) -> None:
-        if self._plan_mode_changed is not None:
-            self._plan_mode_changed(mode)
+        if self.product is not None:
+            self.product.plan_mode_changed(mode)
         else:
             self.hooks.permission_mode = mode
 

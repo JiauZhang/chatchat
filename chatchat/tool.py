@@ -19,6 +19,7 @@ class ToolContext:
     cwd: Path
     files: FileHistory | None = None
     extra_dirs: tuple = ()
+    team: object | None = None
 
     def track_edit(self, path) -> None:
         if self.files is not None:

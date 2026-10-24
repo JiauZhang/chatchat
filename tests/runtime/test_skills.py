@@ -5,7 +5,7 @@ from chatchat.runtime.agent import is_attachment_message
 from chatchat.runtime.skills import SkillRegistry
 from chatchat.runtime.skills import Skill
 import asyncio
-from helpers import mock_team
+from helpers import RecordingProduct, mock_team
 from chatchat.tools.builtin import skills as _skills
 from chatchat.client import MockClient, ToolUse
 from chatchat.team.team import Team
@@ -233,11 +233,11 @@ def test_extra_roots_can_be_loaded_and_the_first_one_wins(tmp_path):
 
 def test_using_a_skill_tells_the_host_what_it_declared_it_needs(tmp_path):
 
-    granted = []
+    recorded = []
 
     async def main():
         team = mock_team("granting")
-        team._skills_granted = lambda rules: granted.append(tuple(rules))
+        recorded.append(team.attach(RecordingProduct()))
         registry = team.skills
         registry.register(Skill(name="notes", description="d", body_text="write them", allowed_tools=("Read", "Grep")))
         registry.register(Skill(name="plain", description="d", body_text="read them"))
@@ -245,7 +245,7 @@ def test_using_a_skill_tells_the_host_what_it_declared_it_needs(tmp_path):
         await _skills.use_skill(None, team=team, agent=team.lead, input={"skill": "plain"})
 
     asyncio.run(main())
-    assert granted == [("Read", "Grep")]
+    assert recorded[0].granted == [("Read", "Grep")]
 
 
 def test_a_conditional_skill_hides_from_the_model_until_a_path_activates_it(tmp_path):

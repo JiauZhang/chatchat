@@ -35,8 +35,8 @@ async def use_skill(context, team, agent, input: dict, tool_use_id: str = "") ->
             f"{available or 'none'}"
         )
     args = str(input.get("args") or "").strip()
-    if skill.allowed_tools and team._skills_granted is not None:
-        team._skills_granted(skill.allowed_tools)
+    if skill.allowed_tools and team.product is not None:
+        team.product.skills_granted(skill.allowed_tools)
     if skill.model and agent is not None:
         current = f"{agent.client.provider}/{agent.client.model}"
         model, problem = resolve_agent_model(skill.model, current)
