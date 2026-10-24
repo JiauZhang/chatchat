@@ -218,8 +218,8 @@ class SubagentsMixin:
             if not agent._internal:
                 await self.hooks.execute_subagent_stop_hooks(agent, agent.agent_type)
         await agent.stop()
-        if self.team_store is not None and self.team_context is not None:
-            self.team_store.drop_member(self.name, agent_id)
+        if self.courier.team_store is not None and self.courier.team_context is not None:
+            self.courier.team_store.drop_member(self.name, agent_id)
         if self.tasks is not None and not agent._internal:
             released = self.tasks.unassign(agent_id, agent.name)
             if released and agent is not self.lead:

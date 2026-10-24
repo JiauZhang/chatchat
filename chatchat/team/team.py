@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import shutil
 from pathlib import Path
 
 from chatchat.client import Client
@@ -13,16 +12,15 @@ from chatchat.team.agents import (
     AgentDefinition,
     AgentRegistry,
 )
-from chatchat.team.mailbox import FileMailbox
 from chatchat.team.compaction import Compactor
+from chatchat.team.courier import Courier
+from chatchat.team.mailbox import FileMailbox, idle_notification as _idle_msg
 from chatchat.team.isolation import Isolation
 from chatchat.team.ledger import Ledger
 from chatchat.team.product import TeamProduct
 from chatchat.team.tool_surface import ToolSurface
 from chatchat.runtime.context import AgentContext
 from chatchat.runtime.filehistory import FileHistory
-from chatchat.team.mailbox import idle_notification as _idle_msg
-from chatchat.tasks.tasks import TaskList
 from chatchat.team.team_store import TeamStore
 from chatchat.runtime.skills import SkillRegistry
 from chatchat.runtime.thinking import Thinking
@@ -83,12 +81,14 @@ class Team(SubagentsMixin, ToolRunnerMixin):
         self.tools = ToolSurface(owner=self, injected=tools)
         self.tool_context = tool_context or ToolContext(cwd=Path.cwd())
         self.instruction_files: list[dict] = []
-        self._mailbox_root = Path(mailbox_dir) if mailbox_dir else None
-        self._tasks_root = Path(tasks_dir) if tasks_dir else None
-        self.team_store = TeamStore(Path(team_store)) if team_store else None
-        self.team_context: dict | None = None
-        self._mailbox_dir = self._team_mailbox_dir()
-        self.tasks = TaskList(self._tasks_root / self.name) if self._tasks_root else None
+        self.courier = Courier(
+            self.name,
+            mailbox_root=mailbox_dir,
+            tasks_root=tasks_dir,
+            team_store=TeamStore(Path(team_store)) if team_store else None,
+        )
+        self.name = self.courier.name
+        self.tasks = self.courier.tasks
         self.file_history = FileHistory(Path(file_history_dir), cwd=self.tool_context.cwd) if file_history_dir else None
         self.tool_context.files = self.file_history
         self.skills = skills or SkillRegistry()
@@ -183,8 +183,8 @@ class Team(SubagentsMixin, ToolRunnerMixin):
         abort = AbortSignal()
         ctx = AgentContext(agent_id=agent_id, agent_name=name, team_name=self.name, abort=abort, leader=leader)
         inbox = None
-        if self._mailbox_dir is not None:
-            inbox = FileMailbox(self.mailbox_path(name))
+        if self.courier.mailbox_dir is not None:
+            inbox = FileMailbox(self.courier.mailbox_path(name))
         agent = Agent(
             agent_id,
             name,
@@ -199,8 +199,8 @@ class Team(SubagentsMixin, ToolRunnerMixin):
         )
         self.agents[agent_id] = agent
         agent.start()
-        if self.team_store is not None and self.team_context is not None:
-            self.team_store.note_member(
+        if self.courier.team_store is not None and self.courier.team_context is not None:
+            self.courier.team_store.note_member(
                 self.name,
                 {
                     "agent_id": agent_id,
@@ -307,44 +307,29 @@ class Team(SubagentsMixin, ToolRunnerMixin):
         self.file_history = FileHistory(Path(directory), cwd=self.tool_context.cwd)
         self.tool_context.files = self.file_history
 
-    def _team_mailbox_dir(self) -> Path | None:
-        if self._mailbox_root is None:
-            return None
-        return self._mailbox_root / self.name / "inboxes"
+    @property
+    def team_context(self):
+        return self.courier.team_context
 
     def mailbox_path(self, member: str) -> Path:
-        return self._mailbox_dir / f"{member}.json"
+        return self.courier.mailbox_path(member)
 
     def teammates(self) -> list:
         return [agent for agent in self.agents.values() if agent is not self.lead and not agent._internal and agent.is_running]
 
     def join_team(self, name: str, description: str = ""):
-        if self.team_context is not None:
-            raise ValueError(f"already in the team {self.name}")
-        name = str(name or "").strip()
-        if not name:
-            raise ValueError("a team needs a name")
-        if self.team_store is not None:
-            name = self.team_store.unique_name(name)
-            self.team_store.create(name, description, leader=self.lead.agent_id, session_id=self.lead_session_id)
-        self.name = name
-        self._mailbox_dir = self._team_mailbox_dir()
-        self.tasks = TaskList(self._tasks_root / name) if self._tasks_root is not None else None
-        self.team_context = {"name": name, "description": description}
-        return self.team_context
+        context = self.courier.join(
+            name,
+            description,
+            leader_id=self.lead.agent_id,
+            session_id=self.lead_session_id,
+        )
+        self.name = self.courier.name
+        self.tasks = self.courier.tasks
+        return context
 
     def leave_team(self):
-        if self.team_context is None:
-            return
-        live = [agent.name for agent in self.teammates()]
-        if live:
-            raise ValueError("the team still has teammates: " + ", ".join(live))
-        name = self.name
-        if self.team_store is not None:
-            self.team_store.delete(name)
-        if self.tasks is not None:
-            shutil.rmtree(self.tasks.directory, ignore_errors=True)
-        self.team_context = None
+        self.courier.leave([agent.name for agent in self.teammates()])
 
     def set_cwd(self, path):
         cwd = Path(path)
