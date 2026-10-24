@@ -12,14 +12,14 @@ The payload must match this schema.""",
     parameters=None,
 )
 async def structured_output(context, team, agent, input: dict, tool_use_id: str = "") -> str:
-    problem = mismatch(team.output_schema or {}, input)
+    problem = mismatch(team.tools.output_schema or {}, input)
     if problem:
         return f"Error: output does not match the required schema: {problem}"
-    team.structured_output = dict(input)
+    team.tools.structured_output = dict(input)
     return "Structured output recorded. Finish the run now."
 
 
 def tools(team) -> list[Tool]:
-    if team.output_schema is None:
+    if team.tools.output_schema is None:
         return []
-    return [structured_output.with_parameters(team.output_schema)]
+    return [structured_output.with_parameters(team.tools.output_schema)]

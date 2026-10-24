@@ -18,7 +18,7 @@ from chatchat.team.compaction import Compactor
 from chatchat.team.isolation import Isolation
 from chatchat.team.ledger import Ledger
 from chatchat.team.product import TeamProduct
-from chatchat.runtime.metrics import Metrics
+from chatchat.team.tool_surface import ToolSurface
 from chatchat.runtime.context import AgentContext
 from chatchat.runtime.filehistory import FileHistory
 from chatchat.team.mailbox import idle_notification as _idle_msg
@@ -28,10 +28,8 @@ from chatchat.runtime.skills import SkillRegistry
 from chatchat.runtime.thinking import Thinking
 from chatchat.team.standing import with_standing
 from chatchat.team.subagents import SubagentsMixin
-from chatchat.tools.tool_runner import ToolRunnerMixin
-from chatchat.tools.builtin import builtin_tools
 from chatchat.tools.registry import ToolRegistry
-from chatchat.runtime.structured import STRUCTURED_OUTPUT_TOOL, retries, schema_problem
+from chatchat.tools.tool_runner import ToolRunnerMixin
 from chatchat.hooks.events import AGENT_WARN, emit
 from chatchat.hooks.manager import HookManager
 
@@ -82,7 +80,7 @@ class Team(SubagentsMixin, ToolRunnerMixin):
         self._model = model
         self._thinking = thinking or Thinking()
         self._client_kw = client_kw
-        self._injected_tools = list(tools or [])
+        self.tools = ToolSurface(owner=self, injected=tools)
         self.tool_context = tool_context or ToolContext(cwd=Path.cwd())
         self.instruction_files: list[dict] = []
         self._mailbox_root = Path(mailbox_dir) if mailbox_dir else None
@@ -99,10 +97,6 @@ class Team(SubagentsMixin, ToolRunnerMixin):
         self.rules = rules
         self.ask_user = None
         self.isolation = Isolation()
-        self.output_schema: dict | None = None
-        self.structured_output: dict | None = None
-        self._output_attempts = 0
-        self._output_hook = None
         self.product: TeamProduct | None = None
         self.plan_path = None
         self._factory = client_factory
@@ -127,7 +121,7 @@ class Team(SubagentsMixin, ToolRunnerMixin):
         self.agent_defs = AgentRegistry()
         self.agent_defs.define(
             GENERAL_PURPOSE,
-            tools=list(self._injected_tools),
+            tools=self.tools.injected,
             default=True,
             description="General-purpose agent that inherits the team tools for routine tasks",
         )
@@ -281,14 +275,14 @@ class Team(SubagentsMixin, ToolRunnerMixin):
 
     @property
     def tool_registry(self) -> ToolRegistry:
-        return ToolRegistry(builtin_tools(self), self._injected_tools)
+        return self.tools.registry()
 
     def tool_schemas(self, context) -> list[dict]:
-        return self.tool_registry.schemas(context)
+        return self.tools.schemas(context)
 
     @property
     def provided_tools(self):
-        return list(self._injected_tools)
+        return self.tools.provided()
 
     async def query(self, prompt: str, timeout: float | None = None) -> str:
         if not self._session_started:
@@ -386,30 +380,6 @@ class Team(SubagentsMixin, ToolRunnerMixin):
             self.lead.messages = list(kept)
         return {"files": files, "messages": removed}
 
-    def set_output_schema(self, schema: dict) -> str:
-        problem = schema_problem(schema)
-        if problem:
-            return problem
-        self.output_schema = schema
-        self.structured_output = None
-        self._output_attempts = 0
-        if self._output_hook is None:
-            self._output_hook = self.hooks.register(
-                "Stop",
-                "*",
-                fn=self._output_is_missing,
-                error_message=f"Call {STRUCTURED_OUTPUT_TOOL} now with your final answer in the required shape.",
-            )
-        return ""
-
-    def _output_is_missing(self, request: dict) -> bool:
-        if self.structured_output is not None:
-            return True
-        if self._output_attempts >= retries():
-            return True
-        self._output_attempts += 1
-        return False
-
     def send_control(self, recipient_name: str, payload: str):
         recipient = self.get_by_name(recipient_name)
         if recipient is not None:
@@ -440,15 +410,6 @@ class Team(SubagentsMixin, ToolRunnerMixin):
             )
         if reason == "failed" and failure_reason:
             emit(AGENT_WARN, agent=agent.name, text=failure_reason)
-
-    def turn_metrics(self) -> Metrics:
-        return self.lead.last_metrics
-
-    def total_metrics(self) -> Metrics:
-        total = Metrics()
-        for agent in self.agents.values():
-            total = total + agent.total_metrics
-        return total
 
     def request_shutdown(self, agent_id: str):
         agent = self.agents.get(agent_id)

@@ -66,7 +66,7 @@ def _read(root, read, *, name="team", multi_agent=True):
             multi_agent=multi_agent,
         )
         team.ask_user = lambda agent, questions: []
-        team.set_output_schema(OUTPUT_SCHEMA)
+        team.tools.set_output_schema(OUTPUT_SCHEMA)
         return read(team)
 
     return asyncio.run(main())

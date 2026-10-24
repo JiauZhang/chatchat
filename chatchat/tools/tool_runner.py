@@ -94,8 +94,8 @@ class ToolRunnerMixin:
         return outcome
 
     async def _run_tool(self, name: str, input: dict, agent: Agent, tool_use_id: str, noted) -> ToolOutcome:
-        pool = self._injected_tools if (agent is None or agent.tools is None) else agent.tools
-        team_tool = self.tool_registry.find_own(name)
+        pool = self.tools.injected if (agent is None or agent.tools is None) else agent.tools
+        team_tool = self.tools.find_own(name)
         extra = ""
         permission = ""
         if agent is not None and not agent.hookless:

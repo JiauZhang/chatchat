@@ -56,7 +56,7 @@ def test_a_capability_that_is_off_takes_its_tools_with_it(tmp_path):
 def test_the_order_holds_when_capabilities_come_and_go(tmp_path):
     team = _team(tmp_path)
     team.ask_user = lambda agent, questions: []
-    team.set_output_schema({"type": "object", "properties": {}, "additionalProperties": False})
+    team.tools.set_output_schema({"type": "object", "properties": {}, "additionalProperties": False})
     names = [tool.name for tool in builtin_tools(team)]
     assert names[:5] == ["Agent", "SendMessage", "TaskOutput", "TaskStop", "TeamCreate"]
     assert names[-4:] == ["AskUserQuestion", "EnterPlanMode", "ExitPlanMode", "StructuredOutput"]

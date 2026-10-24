@@ -27,7 +27,7 @@ def _schemas(root, *, multi_agent=True, rich=True):
         team = mock_team("team", tasks_dir=root, mailbox_dir=root, multi_agent=multi_agent)
         if rich:
             team.ask_user = lambda agent, questions: []
-            team.set_output_schema(OUTPUT_SCHEMA)
+            team.tools.set_output_schema(OUTPUT_SCHEMA)
         return team.tool_schemas(team.tool_context)
 
     return asyncio.run(main())
