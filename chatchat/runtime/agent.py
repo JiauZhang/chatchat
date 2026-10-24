@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 
 from chatchat.client import Usage
 from chatchat.runtime.abort import Abort, AbortSignal
@@ -10,16 +9,17 @@ from chatchat.runtime.context import spawn_task
 from chatchat.team.inbox_poller import InboxPoller
 from chatchat.team.mailbox import Mailbox, parse_protocol, shutdown_approved
 from chatchat.runtime.metrics import Metrics
+from chatchat.runtime.model_caller import ModelCaller
 from chatchat.runtime.skills import listing_budget
 from chatchat.tasks.task import Task, generate_task_id
 from chatchat.tasks.tasks import work_prompt
 from chatchat.hooks.output import describe_blocking
+from chatchat.runtime.tool_runner import ToolRunner
 from chatchat.tool import describe_tools
 from chatchat.hooks.events import (
     AGENT_PROGRESS,
     AGENT_REASON_START,
     AGENT_TEXT,
-    AGENT_TOOL_CALL,
     AGENT_TURN_FINISHED,
     AGENT_WARN,
     emit,
@@ -96,6 +96,8 @@ class Agent:
         self._in_tool: str | None = None
         self.on_message = on_message
         self.task: Task | None = None
+        self.caller = ModelCaller(client, timeout=model_timeout, retries=model_retries, agent_name=name)
+        self.tools_runner = ToolRunner(execute=self._run_tool, agent_name=name)
 
     @property
     def tool_context(self):
@@ -284,6 +286,13 @@ class Agent:
             self._done += 1
             self._set_idle()
 
+    async def _run_tool(self, call):
+        self._in_tool = call.name
+        try:
+            return await self.team.execute_tool(call.name, call.input, self, call.id)
+        finally:
+            self._in_tool = None
+
     def tool_schemas(self, context) -> list[dict]:
         if self.tools is None:
             return self.team.tool_schemas(context)
@@ -378,52 +387,22 @@ class Agent:
                 msg = {"role": "user", "content": attachment, "attachment": True}
                 self.messages.append(msg)
                 self._record(msg)
-            attempt = 0
-            while True:
-                self.ctx.abort.check()
-                self._work_abort.check()
-                thinking_parts.clear()
-                stream_state["text_emitted"] = False
-                round_started = time.monotonic()
-                respond_task = asyncio.create_task(
-                    self.client.respond(self.messages, self.tool_schemas(self.tool_context), stream_cb=stream)
-                )
-                abort_waiter = asyncio.create_task(self._work_abort.wait())
-                resp = None
-                try:
-                    await asyncio.wait_for(
-                        asyncio.wait({respond_task, abort_waiter}, return_when=asyncio.FIRST_COMPLETED),
-                        timeout=self.model_timeout,
-                    )
-                    if self._work_abort.aborted:
-                        self._work_abort.check()
-                    resp = await respond_task
-                except asyncio.TimeoutError:
-                    pass
-                finally:
-                    if not abort_waiter.done():
-                        abort_waiter.cancel()
-                    if not respond_task.done():
-                        respond_task.cancel()
-                        try:
-                            await respond_task
-                        except (asyncio.CancelledError, Exception):
-                            pass
-                if resp is not None:
-                    break
-                attempt += 1
-                if stream_state["text_emitted"] or attempt > self.model_retries:
-                    msg = f"Error: model call timed out after {self.model_timeout}s"
-                    logger.warning("agent %s: %s", self.name, msg)
-                    emit(AGENT_WARN, agent=self.name, text=msg)
-                    emit(AGENT_TURN_FINISHED, agent=self.name)
-                    return ""
-                emit(
-                    AGENT_WARN,
-                    agent=self.name,
-                    text=(f"model call timed out after {self.model_timeout}s, retrying ({attempt}/{self.model_retries})"),
-                )
-            self.metrics.api_round(int((time.monotonic() - round_started) * 1000))
+            thinking_parts.clear()
+            stream_state["text_emitted"] = False
+            resp, round_ms = await self.caller.ask(
+                self.messages,
+                self.tool_schemas(self.tool_context),
+                abort=self._work_abort,
+                stream=stream,
+                spoke=lambda: stream_state["text_emitted"],
+            )
+            self.metrics.api_round(round_ms)
+            if resp is None:
+                msg = f"Error: model call timed out after {self.model_timeout}s"
+                logger.warning("agent %s: %s", self.name, msg)
+                emit(AGENT_WARN, agent=self.name, text=msg)
+                emit(AGENT_TURN_FINISHED, agent=self.name)
+                return ""
             self.total_usage.add(getattr(self.client, "_last_usage", None))
             if isinstance(resp, str):
                 msg = {
@@ -456,22 +435,9 @@ class Agent:
             self._emit_progress(assistant_msg, usage=self.client._last_usage.to_dict())
             self.messages.append(assistant_msg)
             self._record(assistant_msg)
-            results = []
-            for tu in resp:
-                emit(AGENT_TOOL_CALL, agent=self.name, tool=tu.name, input=tu.input, tool_use_id=tu.id)
-                self._in_tool = tu.name
-                try:
-                    outcome = await self.team.execute_tool(tu.name, tu.input, self, tu.id)
-                finally:
-                    self._in_tool = None
-                content = outcome.text
-                if outcome.blocks:
-                    content = ([{"type": "text", "text": outcome.text}] if outcome.text else []) + list(outcome.blocks)
-                results.append({"type": "tool_result", "tool_use_id": tu.id, "content": content})
-                if outcome.additional_context:
-                    results.append({"type": "text", "text": outcome.additional_context})
-            self._emit_progress({"role": "user", "content": results})
-            results_msg = {"role": "user", "content": results}
+            outcomes = await self.tools_runner.run(resp)
+            self._emit_progress({"role": "user", "content": [o.as_result() for o in outcomes]})
+            results_msg = ToolRunner.as_message(outcomes)
             self.messages.append(results_msg)
             self._record(results_msg)
 
