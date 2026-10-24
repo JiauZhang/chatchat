@@ -147,7 +147,7 @@ def test_compaction_rearms_the_rules_so_they_arrive_again(tmp_path):
         )
         chat = [{"role": "user", "content": f"question {n}"} for n in range(14)]
         assert rules.relevant("src/a.py") != []
-        await team.maybe_compact(chat, force=True)
+        await team.compactor.maybe_compact(chat, force=True)
         return rules.relevant("src/a.py")
 
     assert asyncio.run(main()) != []

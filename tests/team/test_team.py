@@ -463,13 +463,13 @@ def test_create_agent_tool_name_spawns_persistent_teammate():
 
 def test_the_context_budget_is_a_threshold_over_the_measured_occupancy():
     async def main():
-        threshold = mock_team("ct", context_window=1_634, compact_reserve=400).compact_threshold
+        threshold = mock_team("ct", context_window=1_634, compact_reserve=400).compactor.threshold
         return threshold, mock_team("co", context_window=1_000)
 
     threshold, team = asyncio.run(main())
     assert threshold == 1234
 
-    assert team.auto_compact is True
+    assert team.compactor.automatic is True
     assert team.context_tokens == 0
     team.lead.messages.append({"role": "user", "content": "x" * 400})
     assert team.context_tokens == 0

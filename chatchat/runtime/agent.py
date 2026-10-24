@@ -341,7 +341,7 @@ class Agent:
         await self.poll_inbox()
 
         before = len(self.messages)
-        self.messages = await self.team.maybe_compact(self.messages, agent=self)
+        self.messages = await self.team.compactor.maybe_compact(self.messages, agent=self)
         if len(self.messages) < before:
             self._skill_listing_seen = -1
 

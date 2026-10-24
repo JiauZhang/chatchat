@@ -80,7 +80,7 @@ def test_default_auto_compaction_summarizes_middle():
         for i in range(14):
             team.lead.messages.append({"role": "user", "content": f"m{i}"})
         team.lead.messages[1]["usage"] = {"prompt_tokens": 5_000, "completion_tokens": 10}
-        return await team.maybe_compact(list(team.lead.messages))
+        return await team.compactor.maybe_compact(list(team.lead.messages))
 
     result = asyncio.run(main())
     assert any("conversation summary" in str(m.get("content")) for m in result)
@@ -107,7 +107,7 @@ def test_compaction_announces_what_it_folded_in():
         team.lead.messages[1]["usage"] = {"prompt_tokens": 5_000, "completion_tokens": 10}
         hook_events.register_runtime_handler(lambda ev: events.append(ev) if ev.kind == hook_events.AGENT_COMPACT else None)
         before = len(team.lead.messages)
-        result = await team.maybe_compact(list(team.lead.messages))
+        result = await team.compactor.maybe_compact(list(team.lead.messages))
         return before, result
 
     before, result = asyncio.run(main())

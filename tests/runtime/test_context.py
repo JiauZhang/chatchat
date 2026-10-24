@@ -67,15 +67,15 @@ def test_compaction_triggers_on_measured_context_near_the_window():
             {"role": "user", "content": "hi"},
             {"role": "assistant", "content": "a", "usage": {"prompt_tokens": 7_000, "completion_tokens": 50}},
         ]
-        untouched = await team.maybe_compact(team.lead.messages)
+        untouched = await team.compactor.maybe_compact(team.lead.messages)
         assert untouched is team.lead.messages or len(untouched) == 2
         team.lead.messages.append(
             {"role": "assistant", "content": "b", "usage": {"prompt_tokens": 6_500, "completion_tokens": 50}}
         )
-        return team, await team.maybe_compact(team.lead.messages)
+        return team, await team.compactor.maybe_compact(team.lead.messages)
 
     team, compacted = asyncio.run(main())
-    assert team.compact_threshold == 6_000
+    assert team.compactor.threshold == 6_000
     assert compacted is not team.lead.messages
 
 
@@ -114,7 +114,7 @@ def test_the_trigger_estimates_but_the_readout_keeps_the_measured_figure():
             {"role": "assistant", "content": "a", "usage": {"prompt_tokens": 5_900, "completion_tokens": 50}},
             {"role": "user", "content": "x" * 400},
         ]
-        return team, await team.maybe_compact(team.lead.messages)
+        return team, await team.compactor.maybe_compact(team.lead.messages)
 
     team, compacted = asyncio.run(main())
     assert team.context_tokens == 5_950

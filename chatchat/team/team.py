@@ -14,6 +14,7 @@ from chatchat.team.agents import (
     AgentRegistry,
 )
 from chatchat.team.mailbox import FileMailbox
+from chatchat.team.compaction import Compactor
 from chatchat.team.product import TeamProduct
 from chatchat.runtime.metrics import Metrics
 from chatchat.runtime.context import AgentContext
@@ -24,17 +25,13 @@ from chatchat.team.team_store import TeamStore
 from chatchat.runtime.skills import SkillRegistry
 from chatchat.runtime.thinking import Thinking
 from chatchat.team.standing import with_standing
-from chatchat.runtime.tokens import context_estimate, measured
+from chatchat.runtime.tokens import measured
 from chatchat.team.subagents import SubagentsMixin
 from chatchat.tools.tool_runner import ToolRunnerMixin
 from chatchat.tools.builtin import builtin_tools
 from chatchat.tools.registry import ToolRegistry
-from chatchat.runtime.structured import (
-    STRUCTURED_OUTPUT_TOOL,
-    retries,
-    schema_problem,
-)
-from chatchat.hooks.events import AGENT_COMPACT, AGENT_WARN, emit
+from chatchat.runtime.structured import STRUCTURED_OUTPUT_TOOL, retries, schema_problem
+from chatchat.hooks.events import AGENT_WARN, emit
 from chatchat.hooks.manager import HookManager
 
 LEAD_NAME = "team-lead"
@@ -44,25 +41,8 @@ DEFAULT_COMPACT_RESERVE = 40_000
 MAX_COMPACT_FAILURES = 3
 
 
-def _note_compaction(agent, *, failed: bool) -> None:
-    if agent is None:
-        return
-    agent.compact_failures = agent.compact_failures + 1 if failed else 0
-
-
 def _plural_work(count: int, noun: str, qualifier: str = "") -> str:
     return f"{count} {qualifier}{noun}" + ("" if count == 1 else "s")
-
-
-SUMMARY_MARK = "[conversation summary]"
-
-
-def summary_of(messages: list[dict]) -> str:
-    for message in messages:
-        content = message.get("content")
-        if isinstance(content, str) and content.startswith(SUMMARY_MARK):
-            return content[len(SUMMARY_MARK) :].strip()
-    return ""
 
 
 def token_count(messages: list[dict]) -> int:
@@ -145,9 +125,14 @@ class Team(SubagentsMixin, ToolRunnerMixin):
         self._session_setup_done = False
         self._session_source = "startup"
         self.context_window = int(context_window or 0)
-        self._compact_threshold = max(0, self.context_window - int(compact_reserve))
+        self.compactor = Compactor(
+            summarize=self._summarize,
+            hooks=self.hooks,
+            window=self.context_window,
+            reserve=compact_reserve,
+            on_compacted=self.reset_rules,
+        )
         self.sidechain_dir = sidechain_dir
-        self._compact_fn = self._builtin_compact
         self.agent_defs = AgentRegistry()
         self.agent_defs.define(
             GENERAL_PURPOSE,
@@ -181,54 +166,9 @@ class Team(SubagentsMixin, ToolRunnerMixin):
             agent_type, system_prompt=system_prompt, tools=tools, model=model, addenda=addenda, default=default
         )
 
-    async def compact(self, messages: list[dict], force: bool = False) -> list[dict]:
-        return await self.maybe_compact(messages, force=force)
-
-    async def _builtin_compact(self, messages: list[dict]) -> list[dict]:
-        keep_recent = 8
-        if len(messages) <= keep_recent + 2:
-            return messages
-        head, tail = messages[:2], messages[-keep_recent:]
-        middle = messages[2:-keep_recent]
+    async def _summarize(self, messages: list[dict]) -> str:
         client = self._client_for("Summarize the conversation so far.", standing=False)
-        text = await client.respond(middle)
-        if not isinstance(text, str) or not text.strip():
-            return None
-        marker = {"role": "user", "content": f"{SUMMARY_MARK}\n{text}"}
-        return head + [marker] + tail
-
-    async def maybe_compact(self, messages: list[dict], force: bool = False, agent: Agent = None) -> list[dict]:
-        failures = getattr(agent, "compact_failures", 0)
-        if not force and (agent is not None and failures >= MAX_COMPACT_FAILURES):
-            return messages
-        if not force and (not self.auto_compact or context_estimate(messages) < self._compact_threshold):
-            return messages
-        trigger = "manual" if force else "auto"
-        await self.hooks.execute_pre_compact_hooks(trigger=trigger)
-        try:
-            result = self._compact_fn(messages)
-            if asyncio.iscoroutine(result):
-                result = await result
-        except Exception:
-            _note_compaction(agent, failed=True)
-            return messages
-        if result is None:
-            _note_compaction(agent, failed=True)
-            return messages
-        if len(result) >= len(messages):
-            return list(result) if result else messages
-        _note_compaction(agent, failed=False)
-        self.reset_rules()
-        emit(
-            AGENT_COMPACT,
-            agent="",
-            before=len(messages),
-            after=len(result),
-            summarized=len(messages) - len(result) + 1,
-            summary=summary_of(result),
-        )
-        await self.hooks.execute_post_compact_hooks(trigger=trigger)
-        return list(result)
+        return await client.respond(messages)
 
     def _client_for(self, instruction: str, thinking: Thinking | None = None, model: str | None = None, standing: bool = True):
         instruction = with_standing(instruction) if standing else instruction
@@ -390,14 +330,6 @@ class Team(SubagentsMixin, ToolRunnerMixin):
     @property
     def provided_tools(self):
         return list(self._injected_tools)
-
-    @property
-    def compact_threshold(self) -> int:
-        return int(self._compact_threshold or 0)
-
-    @property
-    def auto_compact(self) -> bool:
-        return self._compact_fn is not None and self.context_window > 0
 
     @property
     def context_tokens(self) -> int:
