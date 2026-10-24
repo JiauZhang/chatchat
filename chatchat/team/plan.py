@@ -17,7 +17,7 @@ KEEP_PLANNING = "No, keep planning"
 
 
 def plans_dir() -> Path:
-    home = os.environ.get("CHATCHAT_HOME") or os.environ.get("PYCLAW_HOME") or "~/.pyclaw"
+    home = os.environ.get("CHATCHAT_HOME") or "~/.chatchat"
     return Path(home).expanduser() / "plans"
 
 
