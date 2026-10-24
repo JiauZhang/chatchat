@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from chatchat.client import Client
 from chatchat.tool import ToolContext
 from chatchat.runtime.abort import AbortSignal
 from chatchat.runtime.agent import Agent
@@ -18,6 +17,7 @@ from chatchat.team.host_tasks import HostTasks
 from chatchat.team.mailbox import FileMailbox, idle_notification as _idle_msg
 from chatchat.team.isolation import Isolation
 from chatchat.team.ledger import Ledger
+from chatchat.team.model import ModelChoice
 from chatchat.team.product import TeamProduct
 from chatchat.team.roster import Roster
 from chatchat.team.tool_surface import ToolSurface
@@ -26,7 +26,6 @@ from chatchat.runtime.filehistory import FileHistory
 from chatchat.team.team_store import TeamStore
 from chatchat.runtime.skills import SkillRegistry
 from chatchat.runtime.thinking import Thinking
-from chatchat.team.standing import with_standing
 from chatchat.team.subagents import SubagentsMixin
 from chatchat.tools.registry import ToolRegistry
 from chatchat.tools.tool_runner import ToolRunnerMixin
@@ -74,12 +73,15 @@ class Team(SubagentsMixin, ToolRunnerMixin):
         self.name = name
         self.lead_session_id = ""
         self.multi_agent = multi_agent
-        self._client = client
         self._model_timeout = model_timeout
         self._model_retries = model_retries
-        self._model = model
-        self._thinking = thinking or Thinking()
-        self._client_kw = client_kw
+        self.model_choice = ModelChoice(
+            factory=client_factory,
+            client=client,
+            model=model,
+            thinking=thinking,
+            client_kw=client_kw,
+        )
         self.tools = ToolSurface(owner=self, injected=tools)
         self.tool_context = tool_context or ToolContext(cwd=Path.cwd())
         self.instruction_files: list[dict] = []
@@ -157,17 +159,7 @@ class Team(SubagentsMixin, ToolRunnerMixin):
         return await client.respond(messages)
 
     def _client_for(self, instruction: str, thinking: Thinking | None = None, model: str | None = None, standing: bool = True):
-        instruction = with_standing(instruction) if standing else instruction
-        if self._factory is not None:
-            return self._factory(instruction, model)
-        if self._client is not None:
-            return self._client
-        return Client(
-            model=model or self._model,
-            instruction=instruction,
-            thinking=self._thinking if thinking is None else thinking,
-            **self._client_kw,
-        )
+        return self.model_choice.client_for(instruction, thinking=thinking, model=model, standing=standing)
 
     def agent_id(self, name: str) -> str:
         return self.roster.id_of(name)
@@ -250,28 +242,28 @@ class Team(SubagentsMixin, ToolRunnerMixin):
         lead.client = self._client_for(instruction)
 
     def set_thinking(self, thinking: Thinking):
-        self._thinking = thinking
+        self.model_choice.set_thinking(thinking)
         lead = self.get_by_name(LEAD_NAME)
         if lead is not None:
             lead.client = self._client_for(lead.instruction)
 
     def set_model(self, model: str):
-        self._model = model
+        self.model_choice.set_model(model)
         lead = self.get_by_name(LEAD_NAME)
         if lead is not None:
             lead.client = self._client_for(lead.instruction)
 
     @property
     def provider(self):
-        return str(self._model or "").partition("/")[0]
+        return self.model_choice.provider
 
     @property
     def model(self):
-        return self._model
+        return self.model_choice.model
 
     @property
     def thinking(self):
-        return self._thinking
+        return self.model_choice.thinking
 
     @property
     def tool_registry(self) -> ToolRegistry:

@@ -50,12 +50,12 @@ class SubagentsMixin:
         writer = None
         if self.sidechain_dir is not None:
             writer = SidechainWriter(self.sidechain_dir, name, self.name, subagent_type or "", prompt)
-        model, problem = resolve_agent_model(model or defn.model, self._model)
+        model, problem = resolve_agent_model(model or defn.model, self.model)
         if problem:
             raise ValueError(problem)
         thinking = None
         if defn.effort:
-            thinking = dataclasses.replace(self._thinking, level=defn.effort)
+            thinking = dataclasses.replace(self.thinking, level=defn.effort)
         tool_context = None
         isolated = ""
         if isolation == "worktree" or defn.isolation == "worktree":
