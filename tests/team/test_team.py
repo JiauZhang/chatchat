@@ -87,7 +87,7 @@ def test_wait_idle_not_satisfied_by_stale_idle_set():
     async def main():
         lead = mock_team("race", respond).lead
         lead.submit("new")
-        lead._set_idle()
+        lead.work.idle()
         try:
             await asyncio.wait_for(lead.wait_idle(), 0.05)
             return "early"
@@ -155,8 +155,8 @@ def test_inbox_frame_is_counted_as_pending():
         lead = mock_team("inbox", respond).lead
         lead.inbox.write("peer@inbox", "hello from peer")
         await lead.poll_inbox()
-        assert lead._pending == 1
-        assert lead._done == 0
+        assert lead.work.given_count() == 1
+        assert lead.work.finished_count() == 0
         try:
             await asyncio.wait_for(lead.wait_idle(), 0.05)
             early = True

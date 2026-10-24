@@ -10,6 +10,7 @@ from chatchat.team.inbox_poller import InboxPoller
 from chatchat.team.mailbox import Mailbox, parse_protocol, shutdown_approved
 from chatchat.runtime.metrics import Metrics
 from chatchat.runtime.model_caller import ModelCaller
+from chatchat.runtime.pending import PendingWork
 from chatchat.runtime.skills import listing_budget
 from chatchat.tasks.task import Task, generate_task_id
 from chatchat.tasks.tasks import work_prompt
@@ -86,9 +87,7 @@ class Agent:
         )
         self._loop_task: asyncio.Task | None = None
         self._stop = asyncio.Event()
-        self._idle_event = asyncio.Event()
-        self._pending = 0
-        self._done = 0
+        self.work = PendingWork()
         self._attachments: list[str] = []
         self._skill_listing_seen = -1
         self._stop_hook_active = False
@@ -146,7 +145,6 @@ class Agent:
             except (asyncio.CancelledError, Exception):
                 pass
         self._loop_task = None
-        self._set_idle()
         self._finalize(status)
 
     @property
@@ -159,15 +157,15 @@ class Agent:
         )
 
     def submit(self, text: str):
-        self._pending += 1
-        self._clear_idle()
+        self.work.given()
+        self.work.take()
         self._queue.put_nowait(text)
 
     def enqueue_attachment(self, text: str):
         self._attachments.append(text)
-        if not self.busy and self._queue.empty() and self._pending == self._done:
-            self._pending += 1
-            self._clear_idle()
+        if not self.busy and self._queue.empty() and self.work.settled():
+            self.work.given()
+            self.work.take()
             self._queue.put_nowait("")
 
     def _drain_attachments(self):
@@ -195,29 +193,20 @@ class Agent:
             self._attachments.append(f"<system-reminder>\nAvailable skills:\n{listing}\n</system-reminder>")
 
     async def chat(self, text: str) -> str:
-        self._clear_idle()
         self.busy = True
         try:
             return await self._full_turn(text)
         finally:
             self._end_turn()
             self.busy = False
-            self._set_idle()
+            self.work.finished()
+            self.work.idle()
 
     async def idle(self) -> bool:
         return not self.busy and self._queue.empty() and not self.inbox.unread()
 
-    def _clear_idle(self):
-        self._idle_event.clear()
-
-    def _set_idle(self):
-        self._idle_event.set()
-
     async def wait_idle(self, timeout: float | None = None):
-        target = self._pending
-        while self._done < target:
-            self._idle_event.clear()
-            await asyncio.wait_for(self._idle_event.wait(), timeout)
+        await self.work.wait(timeout)
 
     def last_assistant(self, *, start: int = 0) -> str:
         for message in reversed(self.messages[start:]):
@@ -242,7 +231,6 @@ class Agent:
             block = await self._queue.get()
             if self._stop.is_set():
                 break
-            self._clear_idle()
             self.busy = True
             self._emit_state()
             reason = "available"
@@ -262,15 +250,13 @@ class Agent:
             finally:
                 self._end_turn()
                 self.busy = False
-                if self._internal:
-                    self._done += 1
-                self._set_idle()
             self._emit_state()
             if not self._internal:
                 stop_res = await self.team.hooks.execute_stop_hooks(self, stop_hook_active=self._stop_hook_active)
                 if stop_res.blocking_error is not None:
                     self._stop_hook_active = True
                     self._queue.put_nowait(describe_blocking(stop_res.blocking_error))
+                    self.work.idle()
                     continue
                 self._stop_hook_active = False
                 if not stop_res.continue_loop:
@@ -281,10 +267,11 @@ class Agent:
                     idle_res = await self.team.hooks.execute_teammate_idle_hooks(self)
                     if idle_res.blocking_error is not None:
                         self._queue.put_nowait(describe_blocking(idle_res.blocking_error))
+                        self.work.idle()
                         continue
                 await self.team.notify_idle(self, reason=reason, failure_reason=error or None)
-            self._done += 1
-            self._set_idle()
+            self.work.finished()
+            self.work.idle()
 
     async def _run_tool(self, call):
         self._in_tool = call.name
@@ -458,7 +445,7 @@ class Agent:
         return work_prompt(task)
 
     def _bump_pending(self):
-        self._pending += 1
+        self.work.given()
 
     def _on_shutdown_request(self, m):
         req = parse_protocol(m.text) or {}
