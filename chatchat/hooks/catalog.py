@@ -8,36 +8,6 @@ event that matches on something has to say so here, once.
 
 from dataclasses import dataclass
 
-HOOK_EVENTS = (
-    "PreToolUse",
-    "PostToolUse",
-    "PostToolUseFailure",
-    "Notification",
-    "UserPromptSubmit",
-    "SessionStart",
-    "SessionEnd",
-    "Stop",
-    "StopFailure",
-    "SubagentStart",
-    "SubagentStop",
-    "PreCompact",
-    "PostCompact",
-    "PermissionRequest",
-    "PermissionDenied",
-    "Setup",
-    "TeammateIdle",
-    "TaskCreated",
-    "TaskCompleted",
-    "Elicitation",
-    "ElicitationResult",
-    "ConfigChange",
-    "WorktreeCreate",
-    "WorktreeRemove",
-    "InstructionsLoaded",
-    "CwdChanged",
-    "FileChanged",
-)
-
 ALWAYS_EMITTED_HOOK_EVENTS = ("SessionStart", "Setup")
 
 
@@ -92,6 +62,8 @@ EVENTS: tuple[HookEvent, ...] = (
 )
 
 EVENTS_BY_NAME: dict[str, HookEvent] = {event.name: event for event in EVENTS}
+
+HOOK_EVENTS: tuple[str, ...] = tuple(event.name for event in EVENTS)
 
 
 def match_query(event: str, hook_input: dict) -> str:
