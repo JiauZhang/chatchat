@@ -39,3 +39,12 @@ def test_the_tool_contract_is_what_the_model_was_promised(tmp_path):
     plain.mkdir()
     assert _schemas(tmp_path) == expected["team"]
     assert _schemas(plain, multi_agent=False, rich=False) == expected["single_agent"]
+
+
+def test_a_single_agent_session_can_still_read_what_it_started(tmp_path):
+    """The task tools are not team tools: a session that moved a command to the
+    background has to be able to read it, with or without teammates."""
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    names = {schema["name"] for schema in _schemas(plain, multi_agent=False, rich=False)}
+    assert {"TaskOutput", "TaskStop"} <= names

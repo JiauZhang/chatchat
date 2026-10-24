@@ -14,6 +14,7 @@ from chatchat.team.agents import (
 )
 from chatchat.team.compaction import Compactor
 from chatchat.team.courier import Courier
+from chatchat.team.host_tasks import HostTasks
 from chatchat.team.mailbox import FileMailbox, idle_notification as _idle_msg
 from chatchat.team.isolation import Isolation
 from chatchat.team.ledger import Ledger
@@ -98,6 +99,7 @@ class Team(SubagentsMixin, ToolRunnerMixin):
         self.ask_user = None
         self.isolation = Isolation()
         self.product: TeamProduct | None = None
+        self.host_tasks: HostTasks | None = None
         self.plan_path = None
         self._factory = client_factory
         self.hooks = HookManager(self, enabled=hooks)

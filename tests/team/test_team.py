@@ -258,8 +258,11 @@ def test_tool_schemas_differ_by_multi_agent():
     single = asyncio.run(names(multi_agent=False))
     multi = asyncio.run(names())
     assert "Agent" in single and "Agent" in multi
-    assert "SendMessage" not in single and "TaskStop" not in single
+    assert "SendMessage" not in single
     assert {"SendMessage", "TaskStop"} <= multi
+    # The task tools are not team tools: a session that moved a command to the
+    # background reads it with the same tool whether or not it has teammates.
+    assert "TaskOutput" in single and "TaskStop" in single
 
 
 def test_general_purpose_subagent_inherits_team_tools():

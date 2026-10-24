@@ -131,6 +131,13 @@ async def create_agent(context, team, agent, input: dict, tool_use_id: str = "")
     return result
 
 
+def _wait_ms(value) -> int:
+    try:
+        return TASK_DEFAULT_TIMEOUT_MS if value is None else int(value)
+    except (TypeError, ValueError):
+        return TASK_DEFAULT_TIMEOUT_MS
+
+
 def _wait_seconds(value) -> float:
     try:
         milliseconds = TASK_DEFAULT_TIMEOUT_MS if value is None else int(value)
@@ -184,7 +191,10 @@ async def task_output(context, team, agent, input: dict, tool_use_id: str = "") 
     agent_id = target if "@" in target else team.agent_id(target)
     sub = team.agents.get(agent_id)
     if sub is None:
-        return None
+        host = team.host_tasks
+        if host is None or not host.has(target):
+            return None
+        return host.read(target, block=input.get("block") is not False, timeout_ms=_wait_ms(input.get("timeout")))
     block = input.get("block") is not False
     if block:
         await _wait_for_agent(team, agent_id, sub, _wait_seconds(input.get("timeout")))
@@ -223,6 +233,9 @@ async def task_stop(context, team, agent, input: dict, tool_use_id: str = "") ->
         return "Error: TaskStop needs a task_id"
     agent_id = target if "@" in target else team.agent_id(target)
     if agent_id not in team.agents:
+        host = team.host_tasks
+        if host is not None and host.has(target):
+            return host.stop(target)
         return None
     children = team.children.get(agent.agent_id, set()) if agent is not None else set()
     if agent_id not in children:
@@ -234,7 +247,12 @@ async def task_stop(context, team, agent, input: dict, tool_use_id: str = "") ->
 
 
 def tools(team) -> list[Tool]:
-    found = [create_agent.with_description(_described(team))]
-    if team.multi_agent:
-        found += [task_output, task_stop]
-    return found
+    """The sub-agent tool, and the two task tools.
+
+    TaskOutput and TaskStop are not team tools: they read and stop whatever is
+    running in the background, which in a single-agent session is a shell
+    command and in a team is also a teammate. claude-code offers them
+    unconditionally, and a session that started a command in the background
+    must be able to read it.
+    """
+    return [create_agent.with_description(_described(team)), task_output, task_stop]

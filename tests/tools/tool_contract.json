@@ -409,6 +409,52 @@
       }
     },
     {
+      "name": "TaskOutput",
+      "description": "Read what a background task has produced: a background shell command's output, or a sub-agent's answer.\nWaits for the task by default, so a timeout report means it is still running rather than that it failed.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "description": "The ID of the background task or sub-agent to read."
+          },
+          "block": {
+            "type": "boolean",
+            "default": true,
+            "description": "Wait for the task to finish before returning."
+          },
+          "timeout": {
+            "type": "integer",
+            "default": 30000,
+            "minimum": 0,
+            "maximum": 600000,
+            "description": "Milliseconds to wait when block is true (max 600000)."
+          }
+        },
+        "required": [
+          "task_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "TaskStop",
+      "description": "Permanently stop a background task or one of your own sub-agents, by its task id.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "description": "The ID of the task or sub-agent to stop."
+          }
+        },
+        "required": [
+          "task_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
       "name": "TaskCreate",
       "description": "Create a new task in the shared task list, so the work is tracked and claimable.\nUse it for anything with more than one step, and check TaskList first so work is not duplicated.\nNew tasks are created with status \"pending\" and no owner: use TaskUpdate with owner to assign one.",
       "input_schema": {

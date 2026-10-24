@@ -49,7 +49,7 @@ def test_dispatch_only_ever_finds_the_runtime_tools(tmp_path):
 def test_a_capability_that_is_off_takes_its_tools_with_it(tmp_path):
     names = {tool.name for tool in builtin_tools(_team(tmp_path / "bare", multi_agent=False))}
     assert {"Agent", "TaskCreate", "TaskList", "TaskGet", "TaskUpdate"} <= names
-    assert not {"SendMessage", "TaskOutput", "TaskStop", "TeamCreate", "TeamDelete"} & names
+    assert not {"SendMessage", "TeamCreate", "TeamDelete"} & names
     assert not {"AskUserQuestion", "EnterPlanMode", "ExitPlanMode", "StructuredOutput", "Skill"} & names
 
 

@@ -129,7 +129,8 @@ def test_the_question_tool_states_the_limits_the_runtime_enforces(tmp_path):
 def test_a_team_without_multi_agent_offers_no_message_tools(tmp_path):
     schemas = _read(tmp_path, _schemas, multi_agent=False)
     names = {schema["name"] for schema in schemas}
-    assert "SendMessage" not in names and "TaskStop" not in names
+    assert "SendMessage" not in names and "TeamCreate" not in names
+    assert "TaskOutput" in names and "TaskStop" in names
     assert _tool_problems(schemas) == []
 
 
