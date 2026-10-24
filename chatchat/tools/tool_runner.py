@@ -1,7 +1,6 @@
 import time
 from pathlib import Path
 
-from chatchat.tools.team_tools import find_team_tool
 from chatchat.runtime.agent import Agent
 from chatchat.team.rules import note as _rule_note
 from chatchat.hooks.events import AGENT_TOOL_RESULT, emit
@@ -96,7 +95,7 @@ class ToolRunnerMixin:
 
     async def _run_tool(self, name: str, input: dict, agent: Agent, tool_use_id: str, noted) -> ToolOutcome:
         pool = self._injected_tools if (agent is None or agent.tools is None) else agent.tools
-        team_tool = find_team_tool(self, name)
+        team_tool = self.tool_registry.find_own(name)
         extra = ""
         permission = ""
         if agent is not None and not agent.hookless:

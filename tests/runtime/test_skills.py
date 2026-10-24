@@ -6,7 +6,7 @@ from chatchat.runtime.skills import SkillRegistry
 from chatchat.runtime.skills import Skill
 import asyncio
 from helpers import mock_team
-from chatchat.tools import team_tools as _tools
+from chatchat.tools.builtin import skills as _skills
 from chatchat.client import MockClient, ToolUse
 from chatchat.team.team import Team
 from chatchat.tool import Tool
@@ -241,8 +241,8 @@ def test_using_a_skill_tells_the_host_what_it_declared_it_needs(tmp_path):
         registry = team.skills
         registry.register(Skill(name="notes", description="d", body_text="write them", allowed_tools=("Read", "Grep")))
         registry.register(Skill(name="plain", description="d", body_text="read them"))
-        await _tools.use_skill(None, team=team, agent=team.lead, input={"skill": "notes"})
-        await _tools.use_skill(None, team=team, agent=team.lead, input={"skill": "plain"})
+        await _skills.use_skill(None, team=team, agent=team.lead, input={"skill": "notes"})
+        await _skills.use_skill(None, team=team, agent=team.lead, input={"skill": "plain"})
 
     asyncio.run(main())
     assert granted == [("Read", "Grep")]

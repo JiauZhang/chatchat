@@ -3,7 +3,8 @@ import inspect
 import json
 
 from chatchat.client import MockClient, ToolUse
-from chatchat.tools import team_tools as core_tools
+from chatchat.tools.builtin import messaging as _messaging
+from chatchat.tools.builtin import subagents as _subagents
 from chatchat.team.agents import AgentDefinition
 from chatchat.team.inbox_poller import InboxPoller
 from chatchat.team.mailbox import Mailbox
@@ -555,7 +556,7 @@ def test_agent_state_reports_busy_when_a_teammate_starts_a_turn():
 
 def test_every_dispatched_tool_accepts_the_spawning_tool_use_id():
     """execute_tool hands `tool_use_id` to every built-in tool positionally."""
-    handlers = {"SendMessage": core_tools.send_message, "Agent": core_tools.create_agent, "TaskStop": core_tools.task_stop}
+    handlers = {"SendMessage": _messaging.send_message, "Agent": _subagents.create_agent, "TaskStop": _subagents.task_stop}
     for name, handler in handlers.items():
         assert isinstance(handler, Tool), f"{name} is not a Tool"
         params = list(inspect.signature(handler.tool).parameters)
@@ -576,7 +577,7 @@ def test_task_stop_stops_a_teammate_created_through_create_agent():
         assert team.children[team.lead.agent_id] == {watcher.agent_id}
 
         out = await team.execute_tool("TaskStop", {"task_id": "watcher"}, team.lead, "tu-2")
-        declined = await core_tools.task_stop(None, team=team, agent=team.lead, input={"task_id": "b7"})
+        declined = await _subagents.task_stop(None, team=team, agent=team.lead, input={"task_id": "b7"})
         assert declined is None
         return team, watcher, out
 

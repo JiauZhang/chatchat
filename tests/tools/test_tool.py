@@ -5,7 +5,7 @@ from chatchat.team.team import Team
 from chatchat.tool import DEFAULT_MAX_RESULT_CHARS, Tool, ToolContext, ToolResult, describe_tools
 from helpers import mock_team
 from chatchat.runtime.skills import Skill
-from chatchat.tools import team_tools as _tools
+from chatchat.tools.builtin import skills as _skills
 
 CTX = ToolContext(cwd=Path("/tmp/work"))
 
@@ -144,8 +144,8 @@ def test_a_skill_the_user_keeps_for_themselves_is_closed_to_the_model():
             )
         )
         team.skills.register(Skill(name="commit", description="write a message", body_text="open"))
-        refused = await _tools.use_skill(None, team=team, agent=team.lead, input={"skill": "debug"})
-        allowed = await _tools.use_skill(None, team=team, agent=team.lead, input={"skill": "commit"})
+        refused = await _skills.use_skill(None, team=team, agent=team.lead, input={"skill": "debug"})
+        allowed = await _skills.use_skill(None, team=team, agent=team.lead, input={"skill": "commit"})
         listed = [skill.name for skill in team.skills.for_model()]
         return refused, allowed, listed
 

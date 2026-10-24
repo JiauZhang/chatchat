@@ -25,14 +25,13 @@ class ToolContext:
             self.files.track_edit(path)
 
 
-def _no_parameters() -> dict:
+def no_arguments() -> dict:
+    """The schema of a tool that takes nothing: an object with no properties."""
     return {"type": "object", "properties": {}, "additionalProperties": False}
 
 
 def describe_tools(tools, context: ToolContext) -> list[dict]:
-    return [
-        {"name": t.name, "description": t.describe(context), "input_schema": t.parameters or _no_parameters()} for t in tools
-    ]
+    return [{"name": t.name, "description": t.describe(context), "input_schema": t.parameters or no_arguments()} for t in tools]
 
 
 @dataclass

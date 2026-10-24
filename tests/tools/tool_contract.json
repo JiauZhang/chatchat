@@ -1,0 +1,533 @@
+{
+  "team": [
+    {
+      "name": "Agent",
+      "description": "Run a sub-agent on one task and return its final answer.\nWithout a name it is a one-off sub-agent: it runs synchronously, answers, then is reclaimed.\nWith a name it becomes a persistent teammate that keeps a mailbox, so assign it work with SendMessage.\nsubagent_type picks its AgentDefinition; general-purpose is the default.\nAvailable subagent types:\n- general-purpose: General-purpose agent that inherits the team tools for routine tasks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "The task for the agent to perform."
+          },
+          "subagent_type": {
+            "type": "string",
+            "description": "Type of specialized agent to use, from the available subagent types. Defaults to \"general-purpose\"."
+          },
+          "name": {
+            "type": "string",
+            "description": "Name for a persistent teammate that keeps a mailbox; omit it for a one-off sub-agent."
+          },
+          "model": {
+            "type": "string",
+            "description": "Optional model override: \"provider/model\", a bare name in the session provider, or \"inherit\"."
+          },
+          "run_in_background": {
+            "type": "boolean",
+            "description": "Run this one-off sub-agent in the background; its answer arrives in your inbox when it finishes."
+          },
+          "isolation": {
+            "type": "string",
+            "enum": [
+              "worktree"
+            ],
+            "description": "Run the agent on an isolated copy of the repository in a temporary git worktree, so its edits never touch the checked-out directory. The worktree is removed when the agent left nothing behind, and kept, with its path reported, when it left work in it."
+          }
+        },
+        "required": [
+          "prompt"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "SendMessage",
+      "description": "Send a message to a teammate by name, or \"*\" to broadcast to every other teammate.\nThe message lands in their mailbox and is injected on their next idle turn, so do not re-send it or poll them:\ntheir answer arrives as a teammate-message.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "to": {
+            "type": "string",
+            "description": "Teammate name, or \"*\" for every other teammate."
+          },
+          "message": {
+            "type": "string",
+            "description": "Plain text, delivered to the recipient as written."
+          }
+        },
+        "required": [
+          "to",
+          "message"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "TaskOutput",
+      "description": "Read what a background task has produced: a background shell command's output, or a sub-agent's answer.\nWaits for the task by default, so a timeout report means it is still running rather than that it failed.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "description": "The ID of the background task or sub-agent to read."
+          },
+          "block": {
+            "type": "boolean",
+            "default": true,
+            "description": "Wait for the task to finish before returning."
+          },
+          "timeout": {
+            "type": "integer",
+            "default": 30000,
+            "minimum": 0,
+            "maximum": 600000,
+            "description": "Milliseconds to wait when block is true (max 600000)."
+          }
+        },
+        "required": [
+          "task_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "TaskStop",
+      "description": "Permanently stop a background task or one of your own sub-agents, by its task id.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "description": "The ID of the task or sub-agent to stop."
+          }
+        },
+        "required": [
+          "task_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "TeamCreate",
+      "description": "Gather the work under one named team. The team and its task list are the same thing:\nevery task you create from now on belongs to it, and so does every teammate you spawn.\nCall it once, before the work is divided.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "team_name": {
+            "type": "string",
+            "description": "Name of the team to gather the work under."
+          },
+          "description": {
+            "type": "string",
+            "description": "What the team is working on."
+          }
+        },
+        "required": [
+          "team_name"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "TeamDelete",
+      "description": "Throw away the current team and its task list once the work is done.\nIt refuses while a teammate is still running, so stop them first with TaskStop.",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "TaskCreate",
+      "description": "Create a new task in the shared task list, so the work is tracked and claimable.\nUse it for anything with more than one step, and check TaskList first so work is not duplicated.\nNew tasks are created with status \"pending\" and no owner: use TaskUpdate with owner to assign one.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "subject": {
+            "type": "string",
+            "description": "A brief, actionable title in imperative form, e.g. \"Fix login bug\"."
+          },
+          "description": {
+            "type": "string",
+            "description": "What needs to be done, in enough detail for another agent to finish it."
+          },
+          "activeForm": {
+            "type": "string",
+            "description": "Present continuous form shown while the task is in_progress, e.g. \"Running tests\"."
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Arbitrary metadata to attach to the task; any keys are kept.",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "subject",
+          "description"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "TaskList",
+      "description": "List every task in the shared list with its status, owner and open blockers, so work is not duplicated.",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "TaskGet",
+      "description": "Read one task in full, including its description and the dependencies in both directions.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "taskId": {
+            "type": "string",
+            "description": "The ID of the task to retrieve."
+          }
+        },
+        "required": [
+          "taskId"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "TaskUpdate",
+      "description": "Change a task: move it through pending, in_progress and completed, hand it to an owner,\nor link it with addBlocks / addBlockedBy. status \"deleted\" removes it.\nMark a task in_progress before starting it, and completed only when the work is fully done.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "taskId": {
+            "type": "string",
+            "description": "The ID of the task to update."
+          },
+          "subject": {
+            "type": "string",
+            "description": "New subject for the task."
+          },
+          "description": {
+            "type": "string",
+            "description": "New description for the task."
+          },
+          "activeForm": {
+            "type": "string",
+            "description": "Present continuous form shown while it is in_progress, e.g. \"Running tests\"."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "in_progress",
+              "completed",
+              "deleted"
+            ],
+            "description": "New status for the task."
+          },
+          "owner": {
+            "type": "string",
+            "description": "Agent name to assign the task to."
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Metadata keys to merge into the task; set a key to null to delete it.",
+            "additionalProperties": true
+          },
+          "addBlocks": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Task ID."
+            },
+            "description": "Task IDs that cannot start until this one completes."
+          },
+          "addBlockedBy": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Task ID."
+            },
+            "description": "Task IDs that must complete before this one can start."
+          }
+        },
+        "required": [
+          "taskId"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "AskUserQuestion",
+      "description": "Ask the human 1 to 4 questions and wait for the answers, when a choice they can make\nwould change what you do.\nGive each question 2 to 4 options worth picking; they can also answer in their own words.\nWhen they have to compare concrete results, put the artifact on the option as preview.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "questions": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 4,
+            "description": "Questions to ask the user (1-4).",
+            "items": {
+              "type": "object",
+              "properties": {
+                "question": {
+                  "type": "string",
+                  "description": "The complete question: clear, specific and ending with \"?\"."
+                },
+                "header": {
+                  "type": "string",
+                  "maxLength": 12,
+                  "description": "Very short label shown as a chip/tag (max 12 chars), e.g. \"Auth method\"."
+                },
+                "multiSelect": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Allow several options to be picked. Use it when the choices are not mutually exclusive."
+                },
+                "options": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 4,
+                  "description": "The 2-4 choices. Do not add an \"Other\" option: one is offered automatically.",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string",
+                        "description": "Display text the user picks: one to five words naming the choice."
+                      },
+                      "description": {
+                        "type": "string",
+                        "description": "What the option means, or what happens if it is chosen, including the trade-off."
+                      },
+                      "preview": {
+                        "type": "string",
+                        "description": "The artifact this option would produce, shown beside the options while it is picked. Use it when the user has to compare concrete results, not for a plain preference. Only single-select questions show previews."
+                      }
+                    },
+                    "required": [
+                      "label",
+                      "description"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "question",
+                "header",
+                "options"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "questions"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "EnterPlanMode",
+      "description": "Ask to switch this session into plan mode before starting anything but a trivial change.\nIn plan mode nothing that writes or changes state runs, so you can explore and design the approach\nand have it approved before touching the project.",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "ExitPlanMode",
+      "description": "Present the plan you wrote to the user and leave plan mode once they approve it.",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "StructuredOutput",
+      "description": "Return your final answer as the structured payload below.\nCall it exactly once, at the end of the work; nothing you say in prose counts as the answer.\nThe payload must match this schema.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "answer": {
+            "type": "string",
+            "description": "The answer."
+          }
+        },
+        "required": [
+          "answer"
+        ],
+        "additionalProperties": false
+      }
+    }
+  ],
+  "single_agent": [
+    {
+      "name": "Agent",
+      "description": "Run a sub-agent on one task and return its final answer.\nWithout a name it is a one-off sub-agent: it runs synchronously, answers, then is reclaimed.\nWith a name it becomes a persistent teammate that keeps a mailbox, so assign it work with SendMessage.\nsubagent_type picks its AgentDefinition; general-purpose is the default.\nAvailable subagent types:\n- general-purpose: General-purpose agent that inherits the team tools for routine tasks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "The task for the agent to perform."
+          },
+          "subagent_type": {
+            "type": "string",
+            "description": "Type of specialized agent to use, from the available subagent types. Defaults to \"general-purpose\"."
+          },
+          "name": {
+            "type": "string",
+            "description": "Name for a persistent teammate that keeps a mailbox; omit it for a one-off sub-agent."
+          },
+          "model": {
+            "type": "string",
+            "description": "Optional model override: \"provider/model\", a bare name in the session provider, or \"inherit\"."
+          },
+          "run_in_background": {
+            "type": "boolean",
+            "description": "Run this one-off sub-agent in the background; its answer arrives in your inbox when it finishes."
+          },
+          "isolation": {
+            "type": "string",
+            "enum": [
+              "worktree"
+            ],
+            "description": "Run the agent on an isolated copy of the repository in a temporary git worktree, so its edits never touch the checked-out directory. The worktree is removed when the agent left nothing behind, and kept, with its path reported, when it left work in it."
+          }
+        },
+        "required": [
+          "prompt"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "TaskCreate",
+      "description": "Create a new task in the shared task list, so the work is tracked and claimable.\nUse it for anything with more than one step, and check TaskList first so work is not duplicated.\nNew tasks are created with status \"pending\" and no owner: use TaskUpdate with owner to assign one.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "subject": {
+            "type": "string",
+            "description": "A brief, actionable title in imperative form, e.g. \"Fix login bug\"."
+          },
+          "description": {
+            "type": "string",
+            "description": "What needs to be done, in enough detail for another agent to finish it."
+          },
+          "activeForm": {
+            "type": "string",
+            "description": "Present continuous form shown while the task is in_progress, e.g. \"Running tests\"."
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Arbitrary metadata to attach to the task; any keys are kept.",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "subject",
+          "description"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "TaskList",
+      "description": "List every task in the shared list with its status, owner and open blockers, so work is not duplicated.",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "TaskGet",
+      "description": "Read one task in full, including its description and the dependencies in both directions.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "taskId": {
+            "type": "string",
+            "description": "The ID of the task to retrieve."
+          }
+        },
+        "required": [
+          "taskId"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "TaskUpdate",
+      "description": "Change a task: move it through pending, in_progress and completed, hand it to an owner,\nor link it with addBlocks / addBlockedBy. status \"deleted\" removes it.\nMark a task in_progress before starting it, and completed only when the work is fully done.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "taskId": {
+            "type": "string",
+            "description": "The ID of the task to update."
+          },
+          "subject": {
+            "type": "string",
+            "description": "New subject for the task."
+          },
+          "description": {
+            "type": "string",
+            "description": "New description for the task."
+          },
+          "activeForm": {
+            "type": "string",
+            "description": "Present continuous form shown while it is in_progress, e.g. \"Running tests\"."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "in_progress",
+              "completed",
+              "deleted"
+            ],
+            "description": "New status for the task."
+          },
+          "owner": {
+            "type": "string",
+            "description": "Agent name to assign the task to."
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Metadata keys to merge into the task; set a key to null to delete it.",
+            "additionalProperties": true
+          },
+          "addBlocks": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Task ID."
+            },
+            "description": "Task IDs that cannot start until this one completes."
+          },
+          "addBlockedBy": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Task ID."
+            },
+            "description": "Task IDs that must complete before this one can start."
+          }
+        },
+        "required": [
+          "taskId"
+        ],
+        "additionalProperties": false
+      }
+    }
+  ]
+}

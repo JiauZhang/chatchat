@@ -26,7 +26,8 @@ from chatchat.team.standing import with_standing
 from chatchat.runtime.tokens import context_estimate, measured
 from chatchat.team.subagents import SubagentsMixin
 from chatchat.tools.tool_runner import ToolRunnerMixin
-from chatchat.tools.team_tools import AGENT_DESCRIPTION, TeamSchemasMixin
+from chatchat.tools.builtin import builtin_tools
+from chatchat.tools.registry import ToolRegistry
 from chatchat.runtime.structured import (
     STRUCTURED_OUTPUT_TOOL,
     retries,
@@ -71,7 +72,7 @@ def token_count(messages: list[dict]) -> int:
     return 0
 
 
-class Team(SubagentsMixin, TeamSchemasMixin, ToolRunnerMixin):
+class Team(SubagentsMixin, ToolRunnerMixin):
     def __init__(
         self,
         name: str,
@@ -377,6 +378,13 @@ class Team(SubagentsMixin, TeamSchemasMixin, ToolRunnerMixin):
         return self._thinking
 
     @property
+    def tool_registry(self) -> ToolRegistry:
+        return ToolRegistry(builtin_tools(self), self._injected_tools)
+
+    def tool_schemas(self, context) -> list[dict]:
+        return self.tool_registry.schemas(context)
+
+    @property
     def provided_tools(self):
         return list(self._injected_tools)
 
@@ -498,12 +506,6 @@ class Team(SubagentsMixin, TeamSchemasMixin, ToolRunnerMixin):
             removed = len(self.lead.messages) - len(kept)
             self.lead.messages = list(kept)
         return {"files": files, "messages": removed}
-
-    def _create_agent_description(self) -> str:
-        lines = [f"- {agent_type}: {when_to_use}" for agent_type, when_to_use in self.agent_defs.describe()]
-        if not lines:
-            return AGENT_DESCRIPTION
-        return AGENT_DESCRIPTION + "\nAvailable subagent types:\n" + "\n".join(lines)
 
     def set_output_schema(self, schema: dict) -> str:
         problem = schema_problem(schema)

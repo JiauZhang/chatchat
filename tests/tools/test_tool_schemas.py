@@ -4,7 +4,7 @@ import asyncio
 
 from helpers import mock_team
 
-from chatchat.tools.team_tools import team_tools
+from chatchat.tools.builtin import builtin_tools
 
 NO_ARGUMENT_TOOLS = ("TaskList", "TeamDelete", "EnterPlanMode", "ExitPlanMode")
 NO_ARGUMENTS = {"type": "object", "properties": {}, "additionalProperties": False}
@@ -88,7 +88,7 @@ def test_every_tool_the_model_sees_has_a_fillable_schema(tmp_path):
 
 
 def test_no_tool_description_is_left_empty(tmp_path):
-    assert _read(tmp_path, lambda team: [t.name for t in team_tools(team) if not t.description.strip()]) == []
+    assert _read(tmp_path, lambda team: [t.name for t in builtin_tools(team) if not t.description.strip()]) == []
 
 
 def test_the_task_read_states_the_wait_the_shell_read_understands(tmp_path):
