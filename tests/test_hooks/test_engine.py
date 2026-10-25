@@ -760,3 +760,28 @@ def test_a_file_matcher_names_the_file_and_not_its_directory():
         return seen
 
     assert asyncio.run(main()) == ["/project/docs/notes.md"]
+
+
+def test_a_hook_is_told_where_the_conversation_is_written(team):
+    seen = []
+
+    async def main():
+        t = team()
+        t.hooks.prepare_transcript = lambda: "/tmp/one/transcript.jsonl"
+        t.hooks.on("PreToolUse", fn=_watch(seen, lambda inp: inp.get("transcript_path")))
+        await t.hooks.execute_pre_tool_hooks(t.lead, "t1", "Bash", {})
+
+    asyncio.run(main())
+    assert seen == ["/tmp/one/transcript.jsonl"]
+
+
+def test_a_hook_with_nobody_to_ask_about_the_transcript_is_told_nothing(team):
+    seen = []
+
+    async def main():
+        t = team()
+        t.hooks.on("PreToolUse", fn=_watch(seen, lambda inp: inp.get("transcript_path")))
+        await t.hooks.execute_pre_tool_hooks(t.lead, "t1", "Bash", {})
+
+    asyncio.run(main())
+    assert seen == [""]

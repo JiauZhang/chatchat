@@ -23,10 +23,19 @@ from chatchat.hooks.schemas import DEFAULT_TIMEOUTS, HookResult, get_hook_displa
 DEFAULT_PARENT = "team-lead"
 
 
-def build_hook_input(event: str, *, session_id: str, agent=None, cwd: str = "", permission_mode: str = "", **fields) -> dict:
+def build_hook_input(
+    event: str,
+    *,
+    session_id: str,
+    agent=None,
+    cwd: str = "",
+    permission_mode: str = "",
+    transcript_path: str = "",
+    **fields,
+) -> dict:
     hook_input = {
         "session_id": session_id,
-        "transcript_path": "",
+        "transcript_path": transcript_path,
         "cwd": cwd,
         "agent_id": agent.name if agent else None,
         "agent_type": (

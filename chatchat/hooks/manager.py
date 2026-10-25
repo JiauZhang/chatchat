@@ -30,8 +30,16 @@ class HookManager:
         self._cwd = os.getcwd()
         self._session_id = uuid.uuid4().hex
         self.permission_mode = ""
+        self.prepare_transcript = None
         self.registry = HookRegistry(self._cwd)
         self.runner = HookRunner(make_client=make_client, spawn_agent=spawn_agent)
+
+    def _transcript_path(self) -> str:
+        """Where the conversation is written, asked for just before a hook
+        runs: whoever owns the transcript brings it up to date on the way."""
+        if self.prepare_transcript is None:
+            return ""
+        return str(self.prepare_transcript() or "")
 
     def register(self, event: str, matcher: str = "*", **kw) -> str:
         return self.registry.register(event, matcher, **kw)
@@ -79,6 +87,7 @@ class HookManager:
             agent=agent,
             cwd=self._cwd,
             permission_mode=self.permission_mode,
+            transcript_path=self._transcript_path(),
             tool_use_id=tool_use_id,
         )
         hook_input.update(input or {})
