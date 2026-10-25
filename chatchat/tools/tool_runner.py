@@ -98,6 +98,7 @@ class ToolRunnerMixin:
         team_tool = self.tools.find_own(name)
         extra = ""
         permission = ""
+        reason = ""
         if agent is not None and not agent.hookless:
             pre = await self.hooks.execute_pre_tool_hooks(agent, tool_use_id, name, input)
             if pre.blocking_error is not None:
@@ -106,6 +107,7 @@ class ToolRunnerMixin:
                 input = {**input, **pre.updated_input}
             extra = pre.additional_context
             permission = pre.decision
+            reason = pre.reason
         # The permission gate runs after the hooks, on the input the hooks left
         # behind, and a hook's allow decision satisfies its ask - claude-code's
         # ordering (hook results converge, then the permission flow).
@@ -119,12 +121,14 @@ class ToolRunnerMixin:
                     "agent_type": getattr(agent, "agent_type", "") or ("subagent" if agent._internal else None),
                     "tool_use_id": tool_use_id,
                     "hook_allowed": permission == "allow",
+                    "hook_ask": permission == "ask",
+                    "hook_reason": reason,
                 }
             )
             specific = outcome.get("hookSpecificOutput") or {} if isinstance(outcome, dict) else {}
             if specific.get("permissionDecision") == "deny":
                 reason = specific.get("permissionDecisionReason") or f"{name} was denied"
-                return ToolOutcome(f"Error: {reason}", denied=True)
+                return ToolOutcome(f"Error: {reason}", extra, denied=True)
             if specific.get("updatedInput"):
                 input = {**input, **specific["updatedInput"]}
             feedback = specific.get("additionalContext") or ""

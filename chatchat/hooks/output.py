@@ -4,18 +4,42 @@ from dataclasses import dataclass
 from chatchat.hooks.schemas import AggregatedHookResult, HookBlockingError, HookResult, get_hook_display_text
 
 DECISIONS = ("approve", "block")
-PERMISSION_DECISIONS = ("allow", "deny")
+PERMISSION_DECISIONS = ("allow", "deny", "ask")
+REQUEST_DECISIONS = ("allow", "deny")
 
-PAYLOAD_KEYS = {
+# The answer each event may carry. The reference gives every event its own
+# shape (src/entrypoints/sdk/coreSchemas.ts, the hookSpecificOutput union),
+# and an answer is read against the event it answers: a field that belongs to
+# another event is not ours to read, and an event with no shape takes no
+# answer at all.
+ANSWER_SHAPES = {
     "PreToolUse": ("permissionDecision", "permissionDecisionReason", "updatedInput", "additionalContext"),
-    "PostToolUse": ("additionalContext",),
-    "PostToolUseFailure": ("additionalContext",),
     "UserPromptSubmit": ("additionalContext",),
-    "SessionStart": ("additionalContext",),
+    "SessionStart": ("additionalContext", "initialUserMessage", "watchPaths"),
     "Setup": ("additionalContext",),
     "SubagentStart": ("additionalContext",),
+    "PostToolUse": ("additionalContext", "updatedMCPToolOutput"),
+    "PostToolUseFailure": ("additionalContext",),
+    "PermissionDenied": ("retry",),
+    "Notification": ("additionalContext",),
     "PermissionRequest": ("decision",),
+    "Elicitation": ("action", "content"),
+    "ElicitationResult": ("action", "content"),
+    "CwdChanged": ("watchPaths",),
+    "FileChanged": ("watchPaths",),
+    "WorktreeCreate": ("worktreePath",),
 }
+
+# The fields an answer cannot leave out (src/entrypoints/sdk/coreSchemas.ts,
+# the required fields of each shape).
+REQUIRED_ANSWER_FIELDS = {
+    "PermissionRequest": ("decision",),
+    "WorktreeCreate": ("worktreePath",),
+}
+
+# The decision a hook makes is one of three, and when several hooks answer,
+# the strongest one settles it (src/utils/hooks.ts, the behavior switch).
+DECISION_STRENGTH = ("deny", "ask", "allow")
 
 
 class HookContractError(ValueError):
@@ -32,6 +56,8 @@ class HookOutput:
     suppress_output: bool = False
     stop_: bool = False
     stop_reason: str = ""
+    retry: bool = False
+    worktree_path: str = ""
 
 
 def _payload(data: dict, event: str | None) -> HookOutput:
@@ -46,19 +72,31 @@ def _payload(data: dict, event: str | None) -> HookOutput:
         raise HookContractError("hookSpecificOutput needs a hookEventName")
     if event is not None and name != event:
         raise HookContractError(f'hook answered for "{name}" but ran on "{event}"')
-    allowed = PAYLOAD_KEYS.get(name)
-    if allowed is None:
+    shape = ANSWER_SHAPES.get(name)
+    if shape is None:
         raise HookContractError(f'"{name}" takes no hookSpecificOutput')
-    unknown = set(specific) - set(allowed) - {"hookEventName"}
-    if unknown:
-        raise HookContractError(f'"{name}" does not carry {sorted(unknown)}')
-    if name == "PermissionRequest":
+    for required in REQUIRED_ANSWER_FIELDS.get(name, ()):
+        if required not in specific:
+            raise HookContractError(f'"{name}" needs {required}')
+    if name == "PreToolUse":
+        decision = specific.get("permissionDecision")
+        if decision is not None:
+            if decision not in PERMISSION_DECISIONS:
+                raise HookContractError(f"permissionDecision must be one of {list(PERMISSION_DECISIONS)}, got {decision!r}")
+            out.permission = decision
+            out.reason = str(specific.get("permissionDecisionReason") or data.get("reason") or "")
+        updated = specific.get("updatedInput")
+        if updated is not None:
+            if not isinstance(updated, dict):
+                raise HookContractError("updatedInput must be an object")
+            out.updated_input = updated
+    elif name == "PermissionRequest":
         decision = specific.get("decision")
         if not isinstance(decision, dict):
             raise HookContractError("decision must be an object")
         behavior = decision.get("behavior")
-        if behavior not in PERMISSION_DECISIONS:
-            raise HookContractError(f"behavior must be one of {list(PERMISSION_DECISIONS)}, got {behavior!r}")
+        if behavior not in REQUEST_DECISIONS:
+            raise HookContractError(f"behavior must be one of {list(REQUEST_DECISIONS)}, got {behavior!r}")
         out.permission = behavior
         if behavior == "allow":
             updated = decision.get("updatedInput")
@@ -68,19 +106,20 @@ def _payload(data: dict, event: str | None) -> HookOutput:
                 out.updated_input = updated
         else:
             out.reason = str(decision.get("message") or "")
-        return out
-    if specific.get("permissionDecision") is not None:
-        decision = specific["permissionDecision"]
-        if decision not in PERMISSION_DECISIONS:
-            raise HookContractError(f"permissionDecision must be one of {list(PERMISSION_DECISIONS)}, got {decision!r}")
-        out.permission = decision
-        out.reason = specific.get("permissionDecisionReason") or data.get("reason") or ""
-    if specific.get("updatedInput") is not None:
-        updated = specific["updatedInput"]
-        if not isinstance(updated, dict):
-            raise HookContractError("updatedInput must be an object")
-        out.updated_input = updated
-    out.additional_context = specific.get("additionalContext") or ""
+    elif name == "PermissionDenied":
+        retry = specific.get("retry")
+        if retry is not None:
+            if not isinstance(retry, bool):
+                raise HookContractError("retry must be a boolean")
+            out.retry = retry
+    elif name == "WorktreeCreate":
+        path = specific.get("worktreePath")
+        if path is not None:
+            if not isinstance(path, str):
+                raise HookContractError("worktreePath must be a string")
+            out.worktree_path = path
+    if "additionalContext" in shape:
+        out.additional_context = str(specific.get("additionalContext") or "")
     return out
 
 
@@ -130,6 +169,7 @@ def process_hook_result(hook, stdout: str, stderr: str, exit_code: int, duration
             return HookResult(
                 outcome="blocking",
                 decision="deny",
+                reason=parsed.reason,
                 blocking_error=HookBlockingError(parsed.reason or stderr or "Hook blocked the operation", hook_name),
                 system_message=parsed.system_message,
                 suppress_output=parsed.suppress_output,
@@ -138,10 +178,13 @@ def process_hook_result(hook, stdout: str, stderr: str, exit_code: int, duration
         return HookResult(
             outcome="success",
             decision=parsed.permission,
+            reason=parsed.reason,
             additional_context=parsed.additional_context,
             updated_input=parsed.updated_input,
             system_message=parsed.system_message,
             suppress_output=parsed.suppress_output,
+            retry=parsed.retry,
+            worktree_path=parsed.worktree_path,
             message="" if parsed.suppress_output else stdout.strip(),
             **base,
         )
@@ -157,9 +200,14 @@ def process_hook_result(hook, stdout: str, stderr: str, exit_code: int, duration
 
 def aggregate_results(results: list[HookResult], total_ms: int = 0) -> AggregatedHookResult:
     decision = ""
-    for d in ("deny", "allow"):
-        if any(r.decision == d for r in results):
-            decision = d
+    for strength in DECISION_STRENGTH:
+        if any(r.decision == strength for r in results):
+            decision = strength
+            break
+    reason = ""
+    for result in results:
+        if result.decision == decision and result.reason:
+            reason = result.reason
             break
     blocking = next((r for r in results if r.outcome == "blocking"), None)
     stopped = next((r for r in results if r.outcome == "cancel" or r.stop_reason), None)
@@ -167,6 +215,7 @@ def aggregate_results(results: list[HookResult], total_ms: int = 0) -> Aggregate
     return AggregatedHookResult(
         results=results,
         decision=decision,
+        reason=reason,
         continue_loop=stopped is None,
         stop_reason=stopped.stop_reason if stopped else "",
         system_message="\n".join(r.system_message for r in results if r.system_message),
@@ -174,6 +223,7 @@ def aggregate_results(results: list[HookResult], total_ms: int = 0) -> Aggregate
         blocking_error=blocking.blocking_error if blocking else None,
         additional_context="\n".join(r.additional_context for r in results if r.additional_context),
         updated_input=updated,
+        retry=any(r.retry for r in results),
         total_duration_ms=total_ms,
     )
 

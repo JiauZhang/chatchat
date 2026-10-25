@@ -63,15 +63,19 @@ class HookResult:
     exit_code: int = 0
     duration_ms: int = 0
     decision: str = ""
+    reason: str = ""
     additional_context: str = ""
     updated_input: dict | None = None
     stop_reason: str = ""
+    retry: bool = False
+    worktree_path: str = ""
 
 
 @dataclass
 class AggregatedHookResult:
     results: list = field(default_factory=list)
     decision: str = ""
+    reason: str = ""
     continue_loop: bool = True
     stop_reason: str = ""
     system_message: str = ""
@@ -80,6 +84,7 @@ class AggregatedHookResult:
     additional_context: str = ""
     updated_input: dict | None = None
     total_duration_ms: int = 0
+    retry: bool = False
 
     @property
     def success(self) -> bool:

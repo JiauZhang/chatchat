@@ -40,9 +40,11 @@ def test_event_payload_must_name_the_event_that_ran():
 
 
 def test_payload_fields_only_belong_to_their_own_event():
+    """A field that belongs to another event is not read here, and it does
+    not make the whole answer unreadable either."""
     text = '{"hookSpecificOutput": {"hookEventName": "SessionStart", "permissionDecision": "deny"}}'
-    with pytest.raises(ValueError):
-        parse_hook_output(text, event="SessionStart")
+    out = parse_hook_output(text, event="SessionStart")
+    assert out.permission == ""
 
 
 def test_context_and_rewritten_input_come_from_the_payload():
