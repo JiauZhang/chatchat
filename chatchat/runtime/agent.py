@@ -52,7 +52,7 @@ class Agent:
         self.agent_id = agent_id
         self.name = name
         self.team = team
-        self.client = client
+        self._client = client
         self.ctx = ctx
         self.instruction = instruction
         self._internal = internal
@@ -93,8 +93,25 @@ class Agent:
         self._in_tool: str | None = None
         self.on_message = on_message
         self.task: Task | None = None
-        self.caller = ModelCaller(client, timeout=model_timeout, retries=model_retries, agent_name=name)
+        self.caller = ModelCaller(self._client, timeout=model_timeout, retries=model_retries, agent_name=name)
         self.tools_runner = ToolRunner(execute=self._run_tool, agent_name=name)
+
+    @property
+    def client(self):
+        """The client this agent talks to the model through.
+
+        Changing the model or the thinking level gives the lead a new client;
+        the caller that asks the model has to be given it too, or it would
+        keep asking through the old one while the answer is read from the
+        new one.
+        """
+        return self._client
+
+    @client.setter
+    def client(self, client):
+        self._client = client
+        if hasattr(self, "caller"):
+            self.caller.client = client
 
     @property
     def tool_context(self):

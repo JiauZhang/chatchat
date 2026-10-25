@@ -173,6 +173,7 @@ class Client:
         self._protocol = get_protocol(profile["type"])
         self._headers = self._protocol.headers(self.api_key)
         self._last_response_items = []
+        self._last_usage = Usage()
         self._timeout = aiohttp.ClientTimeout(total=(http_options or {}).get("timeout", 120))
 
     def _messages(self, messages):
@@ -181,12 +182,16 @@ class Client:
         return messages
 
     async def respond(self, messages: list[dict], tools: Optional[list[dict]] = None, *, stream_cb=None):
+        # The usage of this call is reset before anything can go wrong: a call
+        # that never reaches the model - one that waited for a rate limit and
+        # gave up - still has to leave the numbers behind in a state someone
+        # can read.
+        self._last_usage = Usage()
+        self._last_response_items = []
         await ratelimit.acquire(self.provider)
         msgs = self._messages(messages)
         payload = self._protocol.payload(msgs, tools, self.model, self.thinking)
         aggregated = Message()
-        self._last_usage = Usage()
-        self._last_response_items = []
         async with aiohttp.ClientSession(timeout=self._timeout) as session:
             response = await self._stream(session, payload, aggregated, stream_cb)
         output = (response or {}).get("output") or []
@@ -253,9 +258,11 @@ class MockClient:
             self.provider, self.model = "", model
         self._usage = usage
         self._last_usage = Usage()
+        self._last_response_items = []
 
     async def respond(self, messages: list[dict], tools: Optional[list[dict]] = None, *, stream_cb=None):
         self._last_usage = Usage()
+        self._last_response_items = []
         if self._handler is not None:
             params = signature(self._handler).parameters
             out = (
