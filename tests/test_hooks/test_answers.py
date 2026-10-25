@@ -110,3 +110,66 @@ def test_a_retry_survives_the_aggregate():
         5,
     )
     assert aggregate_results([result]).retry is True
+
+
+# What a permission update is, as the reference defines it
+# (src/utils/permissions/PermissionUpdateSchema.ts).
+def _request_answer(decision: str) -> str:
+    return '{"hookSpecificOutput": {"hookEventName": "PermissionRequest", "decision": ' + decision + "}}"
+
+
+def test_a_permission_request_may_hand_back_the_rules_it_wants_kept():
+
+    text = _request_answer(
+        '{"behavior": "allow", "updatedPermissions": [{"type": "addRules", '
+        '"rules": [{"toolName": "Read", "ruleContent": "./docs/**"}], '
+        '"behavior": "allow", "destination": "localSettings"}]}'
+    )
+    result = process_hook_result(make_hook(event="PermissionRequest"), text, "", 0, 5)
+    assert result.decision == "allow"
+    assert result.updated_permissions == [
+        {
+            "type": "addRules",
+            "rules": [{"toolName": "Read", "ruleContent": "./docs/**"}],
+            "behavior": "allow",
+            "destination": "localSettings",
+        }
+    ]
+
+
+def test_a_permission_update_is_one_of_the_six_kinds_the_reference_has():
+
+    text = _request_answer(
+        '{"behavior": "allow", "updatedPermissions": [{"type": "eraseRules", '
+        '"rules": [], "behavior": "allow", "destination": "session"}]}'
+    )
+    result = process_hook_result(make_hook(event="PermissionRequest"), text, "", 0, 5)
+    assert result.outcome == "non_blocking_error"
+    assert "eraseRules" in result.message
+
+
+def test_a_permission_update_names_a_destination_the_reference_has():
+
+    text = _request_answer(
+        '{"behavior": "allow", "updatedPermissions": [{"type": "addRules", '
+        '"rules": [{"toolName": "Read"}], "behavior": "allow", "destination": "somewhere"}]}'
+    )
+    result = process_hook_result(make_hook(event="PermissionRequest"), text, "", 0, 5)
+    assert result.outcome == "non_blocking_error"
+    assert "somewhere" in result.message
+
+
+def test_every_update_a_permission_request_hands_back_survives_the_aggregate():
+
+    def answer(rules: str):
+        return process_hook_result(
+            make_hook(event="PermissionRequest"),
+            _request_answer('{"behavior": "allow", "updatedPermissions": [' + rules + "]}"),
+            "",
+            0,
+            5,
+        )
+
+    first = answer('{"type": "addRules", "rules": [{"toolName": "Read"}], "behavior": "allow", "destination": "session"}')
+    second = answer('{"type": "setMode", "mode": "acceptEdits", "destination": "session"}')
+    assert len(aggregate_results([first, second]).updated_permissions) == 2

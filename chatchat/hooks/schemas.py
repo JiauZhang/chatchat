@@ -69,6 +69,7 @@ class HookResult:
     stop_reason: str = ""
     retry: bool = False
     worktree_path: str = ""
+    updated_permissions: list = field(default_factory=list)
 
 
 @dataclass
@@ -85,6 +86,7 @@ class AggregatedHookResult:
     updated_input: dict | None = None
     total_duration_ms: int = 0
     retry: bool = False
+    updated_permissions: list = field(default_factory=list)
 
     @property
     def success(self) -> bool:

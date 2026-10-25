@@ -1,11 +1,18 @@
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from chatchat.hooks.schemas import AggregatedHookResult, HookBlockingError, HookResult, get_hook_display_text
 
 DECISIONS = ("approve", "block")
 PERMISSION_DECISIONS = ("allow", "deny", "ask")
 REQUEST_DECISIONS = ("allow", "deny")
+
+# What a permission update is, as the reference defines it
+# (src/utils/permissions/PermissionUpdateSchema.ts): six kinds, each of which
+# says where it belongs, and a rule is a tool name with the argument it covers.
+PERMISSION_UPDATE_TYPES = ("addRules", "replaceRules", "removeRules", "setMode", "addDirectories", "removeDirectories")
+PERMISSION_DESTINATIONS = ("userSettings", "projectSettings", "localSettings", "session", "cliArg")
+PERMISSION_MODES = ("acceptEdits", "bypassPermissions", "default", "dontAsk", "plan")
 
 # The answer each event may carry. The reference gives every event its own
 # shape (src/entrypoints/sdk/coreSchemas.ts, the hookSpecificOutput union),
@@ -58,6 +65,61 @@ class HookOutput:
     stop_reason: str = ""
     retry: bool = False
     worktree_path: str = ""
+    updated_permissions: list = field(default_factory=list)
+
+
+def _permission_rule(value) -> dict:
+    if not isinstance(value, dict):
+        raise HookContractError("a rule must be an object")
+    name = value.get("toolName")
+    if not isinstance(name, str) or not name:
+        raise HookContractError("a rule needs a toolName")
+    rule = {"toolName": name}
+    content = value.get("ruleContent")
+    if content is not None:
+        if not isinstance(content, str):
+            raise HookContractError("ruleContent must be a string")
+        rule["ruleContent"] = content
+    return rule
+
+
+def _permission_update(value) -> dict:
+    if not isinstance(value, dict):
+        raise HookContractError("a permission update must be an object")
+    kind = value.get("type")
+    if kind not in PERMISSION_UPDATE_TYPES:
+        raise HookContractError(f"type must be one of {list(PERMISSION_UPDATE_TYPES)}, got {kind!r}")
+    destination = value.get("destination")
+    if destination not in PERMISSION_DESTINATIONS:
+        raise HookContractError(f"destination must be one of {list(PERMISSION_DESTINATIONS)}, got {destination!r}")
+    update = {"type": kind, "destination": destination}
+    if kind == "setMode":
+        mode = value.get("mode")
+        if mode not in PERMISSION_MODES:
+            raise HookContractError(f"mode must be one of {list(PERMISSION_MODES)}, got {mode!r}")
+        update["mode"] = mode
+        return update
+    if kind in ("addDirectories", "removeDirectories"):
+        directories = value.get("directories")
+        if not isinstance(directories, list) or not all(isinstance(one, str) for one in directories):
+            raise HookContractError("directories must be a list of paths")
+        update["directories"] = list(directories)
+        return update
+    behavior = value.get("behavior")
+    if behavior not in PERMISSION_DECISIONS:
+        raise HookContractError(f"behavior must be one of {list(PERMISSION_DECISIONS)}, got {behavior!r}")
+    rules = value.get("rules")
+    if not isinstance(rules, list):
+        raise HookContractError("rules must be a list")
+    update["behavior"] = behavior
+    update["rules"] = [_permission_rule(rule) for rule in rules]
+    return update
+
+
+def _permission_updates(value) -> list:
+    if not isinstance(value, list):
+        raise HookContractError("updatedPermissions must be a list")
+    return [_permission_update(update) for update in value]
 
 
 def _payload(data: dict, event: str | None) -> HookOutput:
@@ -104,6 +166,9 @@ def _payload(data: dict, event: str | None) -> HookOutput:
                 if not isinstance(updated, dict):
                     raise HookContractError("updatedInput must be an object")
                 out.updated_input = updated
+            updates = decision.get("updatedPermissions")
+            if updates is not None:
+                out.updated_permissions = _permission_updates(updates)
         else:
             out.reason = str(decision.get("message") or "")
     elif name == "PermissionDenied":
@@ -185,6 +250,7 @@ def process_hook_result(hook, stdout: str, stderr: str, exit_code: int, duration
             suppress_output=parsed.suppress_output,
             retry=parsed.retry,
             worktree_path=parsed.worktree_path,
+            updated_permissions=parsed.updated_permissions,
             message="" if parsed.suppress_output else stdout.strip(),
             **base,
         )
@@ -224,6 +290,7 @@ def aggregate_results(results: list[HookResult], total_ms: int = 0) -> Aggregate
         additional_context="\n".join(r.additional_context for r in results if r.additional_context),
         updated_input=updated,
         retry=any(r.retry for r in results),
+        updated_permissions=[update for r in results for update in r.updated_permissions],
         total_duration_ms=total_ms,
     )
 
