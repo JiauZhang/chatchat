@@ -29,14 +29,12 @@ class Turn:
         self,
         *,
         agent,
-        client,
         messages: list[dict],
         tools,
         max_turns: int | None = None,
         hookless: bool = False,
     ):
         self.agent = agent
-        self.client = client
         self.messages = messages
         self.tools = tools
         self.max_turns = max_turns
@@ -123,7 +121,7 @@ class Turn:
         )
         self.agent.metrics.api_round(elapsed_ms)
         if answer is not None:
-            self.agent.total_usage.add(getattr(self.client, "_last_usage", None))
+            self.agent.total_usage.add(getattr(self.agent.client, "_last_usage", None))
         return answer
 
     async def _timed_out(self) -> str:
@@ -136,15 +134,15 @@ class Turn:
         message = {
             "role": "assistant",
             "content": answer,
-            "model": getattr(self.client, "model", "") or "",
-            "usage": self.client._last_usage.to_dict(),
+            "model": getattr(self.agent.client, "model", "") or "",
+            "usage": self.agent.client._last_usage.to_dict(),
         }
         if self.thinking_parts:
             message["thinking"] = "".join(self.thinking_parts)
-        items = getattr(self.client, "_last_response_items", None)
+        items = getattr(self.agent.client, "_last_response_items", None)
         if items:
             message["response_items"] = items
-        self.agent._emit_progress(message, usage=self.client._last_usage.to_dict())
+        self.agent._emit_progress(message, usage=self.agent.client._last_usage.to_dict())
         self.messages.append(message)
         self.agent._record(message)
         emit(AGENT_TURN_FINISHED, agent=self.agent.name)

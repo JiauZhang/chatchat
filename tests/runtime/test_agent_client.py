@@ -43,3 +43,19 @@ def test_the_usage_that_is_recorded_is_the_usage_of_the_call_that_made_it():
     message = asyncio.run(main())
     assert message["usage"] is not None
     assert "prompt_tokens" in message["usage"]
+
+
+def test_switching_the_model_gives_the_caller_the_new_client():
+    """Switching the model is the same thing as switching the thinking
+    level: the lead gets a new client, and the caller has to be given it."""
+
+    async def main():
+        team = _team()
+        lead = team.lead
+        before = lead.client
+        team.set_model("agnes/agnes-3.0-flash")
+        return lead.client is not before, lead.caller.client is lead.client
+
+    changed, agrees = asyncio.run(main())
+    assert changed
+    assert agrees

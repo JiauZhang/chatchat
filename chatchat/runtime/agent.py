@@ -324,7 +324,6 @@ class Agent:
         self.work_abort = AbortSignal()
         turn = Turn(
             agent=self,
-            client=self.client,
             messages=self.messages,
             tools=self.tools,
             max_turns=self.max_turns,
