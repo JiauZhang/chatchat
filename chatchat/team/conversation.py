@@ -38,6 +38,7 @@ class Conversation:
 
     async def end_session(self, reason: str) -> None:
         await self.hooks.execute_session_end_hooks(reason)
+        await self.hooks.close()
 
     async def open_session(self) -> None:
         aggs = []

@@ -63,6 +63,22 @@ class HookRunner:
     def clear(self):
         self._background_tasks.clear()
 
+    async def close(self):
+        """Stop the hooks that are still running in the background.
+
+        A background hook is a command of its own; leaving it running when
+        the session ends would leave it running after nobody is listening.
+        """
+        tasks = list(self._background_tasks.values())
+        self._background_tasks.clear()
+        for task in tasks:
+            task.cancel()
+        for task in tasks:
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
+
     async def run_one(self, hook, hook_input, cwd: str) -> HookResult:
         hook_id = hook.hook_id
         hook_name = get_hook_display_text(hook.config)
@@ -86,7 +102,13 @@ class HookRunner:
         )
         return result
 
-    def spawn_background(self, hook, hook_input, cwd: str) -> HookResult:
+    async def spawn_background(self, hook, hook_input, cwd: str, agent=None) -> HookResult:
+        """Run the hook in the background and answer at once.
+
+        The caller is not held up by the hook; it is told the hook was
+        backgrounded and carries on. What the hook said later is told to
+        whoever is listening.
+        """
         hook_id = hook.hook_id
         hook_name = get_hook_display_text(hook.config)
         emit_started(hook_id, hook_name, hook.event)
@@ -105,11 +127,30 @@ class HookRunner:
                 exit_code=result.exit_code,
                 outcome=result.outcome,
             )
+            if hook.config.async_rewake:
+                self._rewake(hook, result, agent)
 
         task = asyncio.get_running_loop().create_task(run_bg())
         self._background_tasks[hook_id] = task
         task.add_done_callback(lambda t: self._background_tasks.pop(hook_id, None))
         return HookResult(hook=hook, outcome="success", message="backgrounded")
+
+    @staticmethod
+    def _rewake(hook, result, agent):
+        """A background hook that blocked tells the model, and wakes it up.
+
+        The hook ran on its own and said something the model needs to hear:
+        exit code two is a blocking error, and the model is the one that has
+        to answer it. The message rides in as a system reminder, so it is
+        part of the conversation rather than something said in passing.
+        """
+        if agent is None or result.exit_code != 2:
+            return
+        text = result.stderr or result.stdout
+        if not text.strip():
+            return
+        name = get_hook_display_text(hook.config)
+        agent.wake_from_hook(f'<system-reminder>\nStop hook blocking error from command "{name}": {text}\n</system-reminder>')
 
     async def _dispatch(self, hook, hook_input, cwd: str) -> HookResult:
         config = hook.config

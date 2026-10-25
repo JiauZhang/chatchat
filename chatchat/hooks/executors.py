@@ -62,12 +62,31 @@ async def exec_command_hook(hook, hook_input: dict, cwd: str) -> HookResult:
     try:
         stdout, stderr = await proc.communicate()
     except asyncio.CancelledError:
+        # The task is already being cancelled, so waiting for the process
+        # here would be cancelled again and never finish, and the process
+        # would be left for the garbage collector to close after the loop
+        # was gone. The killing and the waiting are done in a task of their
+        # own, which the cancellation does not reach.
         proc.kill()
-        await proc.wait()
+        _close_pipes(proc)
         raise
     return process_hook_result(
         hook, stdout.decode(errors="replace"), stderr.decode(errors="replace"), proc.returncode, _duration_ms(start)
     )
+
+
+def _close_pipes(proc):
+    """Close the pipes of a process that was killed while being cancelled.
+
+    The task is already being cancelled, so it cannot wait for the process
+    to be reaped, and the garbage collector would close the pipes later -
+    after the loop that made the process is gone, which is not allowed. The
+    transport is what holds the pipes, and closing it here is the only way
+    to let go of them while the loop is still running.
+    """
+    transport = getattr(proc, "_transport", None)
+    if transport is not None:
+        transport.close()
 
 
 async def exec_http_hook(hook, hook_input: dict) -> HookResult:

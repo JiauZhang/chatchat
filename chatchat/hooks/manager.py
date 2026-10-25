@@ -57,6 +57,10 @@ class HookManager:
         self.registry.clear()
         self.runner.clear()
 
+    async def close(self):
+        """Let go of the hooks that are still running."""
+        await self.runner.close()
+
     def get_matching_hooks(self, event: str, query: str, hook_input: dict) -> list:
         return self.registry.matching(event, query, hook_input)
 
@@ -88,8 +92,8 @@ class HookManager:
         start = time.monotonic()
         tasks = []
         for hook in matched:
-            if hook.config.type == "command" and hook.config.async_:
-                tasks.append(self.runner.spawn_background(hook, hook_input, self._cwd))
+            if hook.config.type == "command" and (hook.config.async_ or hook.config.async_rewake):
+                tasks.append(self.runner.spawn_background(hook, hook_input, self._cwd, agent))
             else:
                 tasks.append(self.runner.run_one(hook, hook_input, self._cwd))
         results = list(await asyncio.gather(*tasks))

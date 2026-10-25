@@ -183,6 +183,16 @@ class Agent:
             self.work.take()
             self._queue.put_nowait("")
 
+    def wake_from_hook(self, text: str):
+        """The model is woken with what a hook had to say.
+
+        A hook that blocked is the model being told to do something else, so
+        the next turn is a turn that a hook asked for: the hook knows it is
+        already inside one.
+        """
+        self._stop_hook_active = True
+        self.enqueue_attachment(text)
+
     def _drain_attachments(self):
         if not self._attachments:
             return ""
