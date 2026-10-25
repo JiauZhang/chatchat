@@ -852,3 +852,64 @@ def test_a_hook_updated_input_reaches_the_permission_gate():
         return seen["command"]
 
     assert asyncio.run(main()) == "echo safe"
+
+
+def test_a_hook_ask_reaches_the_permission_gate_with_the_reason_it_gave():
+
+    seen = {}
+
+    def factory(instruction, model=None):
+        return MockClient(handler=lambda messages, tools=None: "ok")
+
+    async def main():
+        team = Team("hookask", client_factory=factory, model="agnes/agnes-2.5-flash")
+
+        async def gate(hook_input):
+            seen.update(hook_ask=hook_input["hook_ask"], hook_reason=hook_input["hook_reason"])
+            return True
+
+        team.permission_gate = gate
+        team.hooks.register(
+            "PreToolUse",
+            fn=lambda inp: {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "ask",
+                    "permissionDecisionReason": "the deploy script touches production",
+                }
+            },
+        )
+        outcome = await team.execute_tool("Bash", {"command": "echo hi"}, team.lead, "t1")
+        return outcome, seen
+
+    outcome, seen = asyncio.run(main())
+    assert "hi" in outcome.text or outcome.text == "echo hi"
+    assert seen == {"hook_ask": True, "hook_reason": "the deploy script touches production"}
+
+
+def test_a_denial_keeps_the_context_the_gate_answered_with():
+
+    def factory(instruction, model=None):
+        return MockClient(handler=lambda messages, tools=None: "ok")
+
+    async def main():
+        team = Team("hookretry", client_factory=factory, model="agnes/agnes-2.5-flash")
+
+        async def gate(hook_input):
+            return {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": "the classifier said no",
+                    "additionalContext": "The PermissionDenied hook indicated this command is now approved. "
+                    "You may retry it if you would like.",
+                }
+            }
+
+        team.permission_gate = gate
+        return await team.execute_tool("Bash", {"command": "echo hi"}, team.lead, "t1")
+
+    outcome = asyncio.run(main())
+    assert outcome.denied is True
+    assert "the classifier said no" in outcome.text
+    assert "You may retry it if you would like." in outcome.additional_context

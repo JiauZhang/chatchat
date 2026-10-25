@@ -126,14 +126,14 @@ class ToolRunnerMixin:
                 }
             )
             specific = outcome.get("hookSpecificOutput") or {} if isinstance(outcome, dict) else {}
+            feedback = specific.get("additionalContext") or ""
+            if feedback:
+                extra = f"{extra}\n{feedback}" if extra else feedback
             if specific.get("permissionDecision") == "deny":
                 reason = specific.get("permissionDecisionReason") or f"{name} was denied"
                 return ToolOutcome(f"Error: {reason}", extra, denied=True)
             if specific.get("updatedInput"):
                 input = {**input, **specific["updatedInput"]}
-            feedback = specific.get("additionalContext") or ""
-            if feedback:
-                extra = f"{extra}\n{feedback}" if extra else feedback
         if team_tool is not None:
             try:
                 context = agent.tool_context if agent is not None else self.tool_context
