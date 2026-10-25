@@ -70,6 +70,7 @@ class HookResult:
     retry: bool = False
     worktree_path: str = ""
     updated_permissions: list = field(default_factory=list)
+    initial_user_message: str = ""
 
 
 @dataclass
@@ -87,6 +88,7 @@ class AggregatedHookResult:
     total_duration_ms: int = 0
     retry: bool = False
     updated_permissions: list = field(default_factory=list)
+    initial_user_message: str = ""
 
     @property
     def success(self) -> bool:

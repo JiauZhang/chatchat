@@ -173,3 +173,30 @@ def test_every_update_a_permission_request_hands_back_survives_the_aggregate():
     first = answer('{"type": "addRules", "rules": [{"toolName": "Read"}], "behavior": "allow", "destination": "session"}')
     second = answer('{"type": "setMode", "mode": "acceptEdits", "destination": "session"}')
     assert len(aggregate_results([first, second]).updated_permissions) == 2
+
+
+def test_a_session_start_hook_may_give_the_session_its_first_turn():
+    hook = make_hook(event="SessionStart")
+    result = process_hook_result(
+        hook,
+        '{"hookSpecificOutput": {"hookEventName": "SessionStart", "initialUserMessage": "start the sweep"}}',
+        "",
+        0,
+        5,
+    )
+    assert result.initial_user_message == "start the sweep"
+    assert aggregate_results([result]).initial_user_message == "start the sweep"
+
+
+def test_the_last_session_start_answer_names_the_first_turn():
+    def answer(text: str):
+        return process_hook_result(
+            make_hook(event="SessionStart"),
+            '{"hookSpecificOutput": {"hookEventName": "SessionStart", "initialUserMessage": "' + text + '"}}',
+            "",
+            0,
+            5,
+        )
+
+    assert aggregate_results([answer("first"), answer("second")]).initial_user_message == "second"
+    assert aggregate_results([answer("first"), answer("")]).initial_user_message == "first"

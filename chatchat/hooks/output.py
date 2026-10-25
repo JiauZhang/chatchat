@@ -66,6 +66,7 @@ class HookOutput:
     retry: bool = False
     worktree_path: str = ""
     updated_permissions: list = field(default_factory=list)
+    initial_user_message: str = ""
 
 
 def _permission_rule(value) -> dict:
@@ -185,6 +186,8 @@ def _payload(data: dict, event: str | None) -> HookOutput:
             out.worktree_path = path
     if "additionalContext" in shape:
         out.additional_context = str(specific.get("additionalContext") or "")
+    if name == "SessionStart":
+        out.initial_user_message = str(specific.get("initialUserMessage") or "")
     return out
 
 
@@ -251,6 +254,7 @@ def process_hook_result(hook, stdout: str, stderr: str, exit_code: int, duration
             retry=parsed.retry,
             worktree_path=parsed.worktree_path,
             updated_permissions=parsed.updated_permissions,
+            initial_user_message=parsed.initial_user_message,
             message="" if parsed.suppress_output else stdout.strip(),
             **base,
         )
@@ -291,6 +295,7 @@ def aggregate_results(results: list[HookResult], total_ms: int = 0) -> Aggregate
         updated_input=updated,
         retry=any(r.retry for r in results),
         updated_permissions=[update for r in results for update in r.updated_permissions],
+        initial_user_message=next((r.initial_user_message for r in reversed(results) if r.initial_user_message), ""),
         total_duration_ms=total_ms,
     )
 

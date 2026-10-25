@@ -23,6 +23,7 @@ class Conversation:
         self.started = False
         self.source = "startup"
         self.setup_done = False
+        self.initial_user_message = ""
 
     def transcript(self) -> list[dict]:
         return list(self.lead.messages)
@@ -35,12 +36,16 @@ class Conversation:
     def begin_new_session(self, source: str = "clear") -> None:
         self.source = source
         self.started = False
+        self.initial_user_message = ""
 
     async def end_session(self, reason: str) -> None:
         await self.hooks.execute_session_end_hooks(reason)
         await self.hooks.close()
 
     async def open_session(self) -> None:
+        if self.started:
+            return
+        self.started = True
         aggs = []
         if not self.setup_done:
             self.setup_done = True
@@ -49,11 +54,12 @@ class Conversation:
         for agg in aggs:
             if agg.additional_context:
                 self.lead.messages.append({"role": "user", "content": agg.additional_context})
+            if agg.initial_user_message:
+                self.initial_user_message = agg.initial_user_message
 
     async def query(self, prompt: str, timeout: float | None = None) -> str:
-        if not self.started:
-            self.started = True
-            await self.open_session()
+        await self.open_session()
+        prompt = prompt or self.initial_user_message
         if self.history is not None:
             self.history.snapshot(len(self.lead.messages))
         self.lead.submit(prompt)

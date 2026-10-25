@@ -913,3 +913,66 @@ def test_a_denial_keeps_the_context_the_gate_answered_with():
     assert outcome.denied is True
     assert "the classifier said no" in outcome.text
     assert "You may retry it if you would like." in outcome.additional_context
+
+
+def test_a_session_start_hook_may_give_the_session_its_first_turn():
+
+    seen = []
+
+    def handler(messages, tools=None):
+        seen.append([str(m.get("content")) for m in messages])
+        return "ok"
+
+    async def main():
+        team = Team("firstturn", MockClient(handler=handler))
+        team.hooks.register(
+            "SessionStart",
+            "*",
+            fn=lambda inp: {
+                "hookSpecificOutput": {
+                    "hookEventName": "SessionStart",
+                    "initialUserMessage": "start the sweep",
+                }
+            },
+        )
+        return await team.conversation.query("")
+
+    asyncio.run(main())
+    assert any("start the sweep" in content for content in seen[0])
+
+
+def test_a_prompt_of_its_own_wins_over_the_one_a_hook_offered():
+
+    seen = []
+
+    def handler(messages, tools=None):
+        seen.append([str(m.get("content")) for m in messages])
+        return "ok"
+
+    async def main():
+        team = Team("ownturn", MockClient(handler=handler))
+        team.hooks.register(
+            "SessionStart",
+            "*",
+            fn=lambda inp: {"hookSpecificOutput": {"hookEventName": "SessionStart", "initialUserMessage": "start the sweep"}},
+        )
+        return await team.conversation.query("what I actually asked")
+
+    asyncio.run(main())
+    assert any("what I actually asked" in content for content in seen[0])
+    assert not any("start the sweep" in content for content in seen[0])
+
+
+def test_opening_a_session_twice_runs_its_hooks_once():
+
+    seen = []
+
+    async def main():
+        team = Team("onceonly", MockClient(handler=lambda messages, tools=None: "ok"))
+        team.hooks.register("SessionStart", "*", fn=lambda inp: seen.append(inp["source"]) or True)
+        await team.conversation.open_session()
+        await team.conversation.open_session()
+        return team
+
+    asyncio.run(main())
+    assert seen == ["startup"]
