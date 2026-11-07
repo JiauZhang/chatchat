@@ -1,19 +1,21 @@
 import argparse
 import asyncio
 
-from chatchat.team.team import Team
+from chatchat.runtime.runtime import Runtime
+from chatchat.runtime.thinking import LEVELS, Thinking
 
-WRITER = "你是 writer，把用户给的主题用一句话成稿。"
+WRITER = "You are a writer. Turn the topic the user gives into one sentence."
 
 
 async def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", default="deepseek/deepseek-chat")
-    parser.add_argument("--prompt", default="把「猫」写成一句简介。")
+    parser.add_argument("--thinking", choices=LEVELS, default="medium")
+    parser.add_argument("--prompt", default="Describe a cat in one sentence.")
     args = parser.parse_args()
 
-    team = Team("agent", model=args.model, lead_instruction=WRITER)
-    print(await team.conversation.query(args.prompt))
+    runtime = Runtime("agent", model=args.model, lead_instruction=WRITER, thinking=Thinking(args.thinking))
+    print(await runtime.conversation.query(args.prompt))
 
 
 if __name__ == "__main__":

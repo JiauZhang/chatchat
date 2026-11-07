@@ -18,7 +18,7 @@ from chatchat.hooks.events import (
 )
 from chatchat.team.team import Team
 from chatchat.tool import Tool, ToolResult, tool as ctool
-from helpers import mock_team
+from helpers import mock_runtime, mock_team
 from chatchat.runtime.skills import Skill
 
 LEAD = "你是 team lead。把任务拆开用 SendMessage 发给 teammate 并等回信，最后汇总最终答案。"
@@ -26,7 +26,7 @@ RESEARCHER = "你是 researcher。收到任务后用 SendMessage 回研究结论
 
 
 def _multi_team(name, handler=None):
-    return mock_team(name, handler, lead_instruction=LEAD, multi_agent=True)
+    return mock_team(name, handler, lead_instruction=LEAD)
 
 
 def _events():
@@ -247,7 +247,7 @@ def test_attachment_enqueued_mid_turn_reaches_next_model_call():
     assert all(len(p) == 1 for p in payloads[1:])
 
 
-def test_tool_schemas_differ_by_multi_agent():
+def test_tool_schemas_differ_between_a_runtime_and_a_team():
     async def ok(messages, tools=None, *, stream_cb=None):
         return "ok"
 
@@ -255,7 +255,11 @@ def test_tool_schemas_differ_by_multi_agent():
         team = mock_team("m", ok, **kw)
         return {t["name"] for t in team.tool_schemas(team.tool_context)}
 
-    single = asyncio.run(names(multi_agent=False))
+    async def single_names():
+        runtime = mock_runtime("m", ok)
+        return {t["name"] for t in runtime.tool_schemas(runtime.tool_context)}
+
+    single = asyncio.run(single_names())
     multi = asyncio.run(names())
     assert "Agent" in single and "Agent" in multi
     assert "SendMessage" not in single
@@ -453,7 +457,7 @@ def test_create_agent_tool_name_spawns_persistent_teammate():
                 and "SendMessage" in out.text
             )
             one_shot = await team.execute_tool("Agent", {"prompt": "quick"}, lead)
-            team_single = mock_team("m3", respond, multi_agent=False)
+            team_single = mock_runtime("m3", respond)
             single_out = await team_single.execute_tool("Agent", {"prompt": "quick", "name": "w"}, team_single.lead)
             return persistent, one_shot, single_out
         finally:
@@ -618,7 +622,7 @@ def test_task_stop_falls_through_to_the_shell_task_tool():
         return "idle"
 
     async def main():
-        team = mock_team("demo", idle, tools=[shell_stop], multi_agent=True)
+        team = mock_team("demo", idle, tools=[shell_stop])
         return await team.execute_tool("TaskStop", {"task_id": "b7"}, team.lead, "tu-4")
 
     assert asyncio.run(main()).text == "shell task b7 stopped"
@@ -634,7 +638,7 @@ def test_the_team_schema_wins_over_a_same_named_injected_tool():
         return "idle"
 
     async def main():
-        team = mock_team("demo", idle, tools=[shell_stop], multi_agent=True)
+        team = mock_team("demo", idle, tools=[shell_stop])
         return [s for s in team.tool_schemas(team.tool_context) if s["name"] == "TaskStop"]
 
     schemas = asyncio.run(main())
@@ -811,7 +815,7 @@ def test_a_hook_allow_reaches_the_permission_gate_as_preauthorization():
             seen["hook_allowed"] = hook_input["hook_allowed"]
             return True
 
-        team.permission_gate = gate
+        team.tool_policy = gate
         team.hooks.register(
             "PreToolUse",
             fn=lambda inp: {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow"}},
@@ -838,7 +842,7 @@ def test_a_hook_updated_input_reaches_the_permission_gate():
             seen["command"] = hook_input["tool_input"]["command"]
             return True
 
-        team.permission_gate = gate
+        team.tool_policy = gate
         team.hooks.register(
             "PreToolUse",
             fn=lambda inp: {
@@ -868,7 +872,7 @@ def test_a_hook_ask_reaches_the_permission_gate_with_the_reason_it_gave():
             seen.update(hook_ask=hook_input["hook_ask"], hook_reason=hook_input["hook_reason"])
             return True
 
-        team.permission_gate = gate
+        team.tool_policy = gate
         team.hooks.register(
             "PreToolUse",
             fn=lambda inp: {
@@ -906,7 +910,7 @@ def test_a_denial_keeps_the_context_the_gate_answered_with():
                 }
             }
 
-        team.permission_gate = gate
+        team.tool_policy = gate
         return await team.execute_tool("Bash", {"command": "echo hi"}, team.lead, "t1")
 
     outcome = asyncio.run(main())

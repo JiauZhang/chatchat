@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from chatchat.runtime.structured import STRUCTURED_OUTPUT_TOOL, retries, schema_problem
+from chatchat.runtime.structured import retries, schema_problem
 from chatchat.tools.builtin import builtin_tools
 from chatchat.tools.registry import ToolRegistry
 
@@ -35,7 +35,7 @@ class ToolSurface:
     def provided(self) -> list:
         return list(self.injected)
 
-    def set_output_schema(self, schema: dict) -> str:
+    def set_output_schema(self, schema: dict, tool_name: str) -> str:
         problem = schema_problem(schema)
         if problem:
             return problem
@@ -47,7 +47,7 @@ class ToolSurface:
                 "Stop",
                 "*",
                 fn=self._output_is_missing,
-                error_message=f"Call {STRUCTURED_OUTPUT_TOOL} now with your final answer in the required shape.",
+                error_message=f"Call {tool_name} now with your final answer in the required shape.",
             )
         return ""
 

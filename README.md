@@ -9,7 +9,7 @@ sub-agents — and the LLM client underneath it, speaking two API protocols.
 pip install chatchat
 ```
 
-Python 3.10 or newer.
+Python 3.11 or newer.
 
 ## Configure
 
@@ -86,18 +86,17 @@ lists every hook that will run and where it came from: `~/.chatchat/settings.jso
 ## Examples
 
 Each example is runnable and shows one shape. Every one takes
-`--model provider/model` and defaults to `deepseek/deepseek-chat`
-(`examples/tool.py` defaults to `zhipu/glm-4.7-flash`), so either configure a
-profile by that name or pass your own.
+`--model provider/model` and defaults to `deepseek/deepseek-chat`, so either
+configure a profile by that name or pass your own.
 
 ```shell
-python examples/client.py   --model agnes/agnes-3.0-flash  # the client alone: completion and chat
-python examples/agent.py    --model agnes/agnes-3.0-flash  # one agent, no team
-python examples/team.py     --model agnes/agnes-3.0-flash  # lead + teammate over a mailbox
-python examples/agenttool.py --model agnes/agnes-3.0-flash # an agent spawning sub-agents
-python examples/tool.py     --model agnes/agnes-3.0-flash  # your own tools and ToolContext
-python examples/hooks.py    --model agnes/agnes-3.0-flash  # hooks around tool calls and turns
-python examples/skill.py    --model agnes/agnes-3.0-flash  # a SKILL.md loaded on demand
+python examples/client.py    --model agnes/agnes-3.0-flash  # the client alone: completion and chat
+python examples/agent.py     --model agnes/agnes-3.0-flash  # a single agent on a Runtime
+python examples/team.py      --model agnes/agnes-3.0-flash  # a Team: lead + teammate over a mailbox
+python examples/agenttool.py --model agnes/agnes-3.0-flash  # an agent spawning sub-agents
+python examples/tool.py      --model agnes/agnes-3.0-flash  # your own tools and ToolContext
+python examples/hooks.py     --model agnes/agnes-3.0-flash  # hooks around tool calls and turns
+python examples/skill.py     --model agnes/agnes-3.0-flash  # a SKILL.md loaded on demand
 ```
 
 ## How a request is made

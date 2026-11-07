@@ -6,7 +6,7 @@ import json
 import pytest
 from chatchat.team.team_store import TeamStore
 from chatchat.tool import ToolContext
-from helpers import mock_team
+from helpers import mock_runtime, mock_team
 from chatchat.tasks.task_list import TaskList
 
 
@@ -172,10 +172,10 @@ def test_a_team_with_a_live_teammate_cannot_be_left(tmp_path):
     assert team.team_context is None
 
 
-def test_the_team_tools_are_offered_only_in_team_mode(tmp_path):
+def test_the_team_tools_are_offered_only_to_a_team(tmp_path):
     async def main():
-        solo = mock_team("solo", multi_agent=False, team_store=tmp_path / "teams")
-        squad = mock_team("squad", multi_agent=True, team_store=tmp_path / "teams")
+        solo = mock_runtime("solo")
+        squad = mock_team("squad", team_store=tmp_path / "teams")
         return (
             [schema["name"] for schema in solo.tool_schemas(solo.tool_context)],
             [schema["name"] for schema in squad.tool_schemas(squad.tool_context)],

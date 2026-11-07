@@ -21,6 +21,11 @@ class CompletionStatus(ValueStrEnum):
     FAILED = "failed"
 
 
+class RuleScope(ValueStrEnum):
+    USER = "user"
+    PROJECT = "project"
+
+
 class SidechainStatus(ValueStrEnum):
     RUNNING = "running"
     COMPLETED = "completed"

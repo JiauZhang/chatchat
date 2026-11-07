@@ -1,10 +1,15 @@
 from chatchat.client import MockClient
 from chatchat.runtime.product import TeamProduct
+from chatchat.runtime.runtime import Runtime
 from chatchat.team.team import Team
 
 
 def mock_team(name, handler=None, usage=None, **kw):
     return Team(name, client_factory=lambda inst, model=None: MockClient(handler=handler, usage=usage, model=model), **kw)
+
+
+def mock_runtime(name, handler=None, usage=None, **kw):
+    return Runtime(name, client_factory=lambda inst, model=None: MockClient(handler=handler, usage=usage, model=model), **kw)
 
 
 class RecordingProduct(TeamProduct):

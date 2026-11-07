@@ -2,7 +2,7 @@
 
 import asyncio
 
-from helpers import mock_team
+from helpers import mock_runtime, mock_team
 
 from chatchat.runtime.sandbox import Sandbox
 from chatchat.tools.builtin import builtin_tools
@@ -52,14 +52,9 @@ def _tool_problems(schemas):
     return problems
 
 
-def _read(root, read, *, name="team", multi_agent=True):
+def _read(root, read, *, name="team", single=False):
     async def main():
-        team = mock_team(
-            name,
-            tasks_dir=root,
-            mailbox_dir=root,
-            multi_agent=multi_agent,
-        )
+        team = mock_runtime(name, tasks_dir=root) if single else mock_team(name, tasks_dir=root, mailbox_dir=root)
         return read(team)
 
     return asyncio.run(main())
@@ -119,8 +114,8 @@ def test_the_agent_tool_offers_the_isolation_the_host_provides(tmp_path):
     assert properties["isolation"]["enum"] == ["snapshot"]
 
 
-def test_a_team_without_multi_agent_offers_no_message_tools(tmp_path):
-    schemas = _read(tmp_path, _schemas, multi_agent=False)
+def test_a_single_agent_session_offers_no_message_tools(tmp_path):
+    schemas = _read(tmp_path, _schemas, single=True)
     names = {schema["name"] for schema in schemas}
     assert "SendMessage" not in names and "TeamCreate" not in names
     assert "TaskOutput" in names and "TaskStop" in names

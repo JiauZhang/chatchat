@@ -84,7 +84,7 @@ async def create_agent(context, team, agent, input: dict, tool_use_id: str = "")
         return (
             "Error: only the agent that owns the conversation can send work to the background. Finish your own sub-agent here."
         )
-    if name and getattr(team, "multi_agent", True):
+    if name and team.multi_agent:
         if agent is not None and not agent.ctx.leader:
             return "Error: Teammates cannot spawn other teammates — the team roster is flat."
         teammate = team.create_agent(
@@ -200,10 +200,10 @@ async def task_output(context, team, agent, input: dict, tool_use_id: str = "") 
     agent_id = target if "@" in target else team.agent_id(target)
     sub = team.roster.agents.get(agent_id)
     if sub is None:
-        host = team.background_tasks
-        if host is None or not host.has(target):
+        background_tasks = team.background_tasks
+        if not background_tasks.has(target):
             return None
-        return host.read(target, block=input.get("block") is not False, timeout_ms=_wait_ms(input.get("timeout")))
+        return background_tasks.read(target, block=input.get("block") is not False, timeout_ms=_wait_ms(input.get("timeout")))
     block = input.get("block") is not False
     if block:
         await _wait_for_agent(team, agent_id, sub, _wait_seconds(input.get("timeout")))
@@ -242,9 +242,9 @@ async def task_stop(context, team, agent, input: dict, tool_use_id: str = "") ->
         return "Error: TaskStop needs a task_id"
     agent_id = target if "@" in target else team.agent_id(target)
     if agent_id not in team.roster.agents:
-        host = team.background_tasks
-        if host is not None and host.has(target):
-            return host.stop(target)
+        background_tasks = team.background_tasks
+        if background_tasks.has(target):
+            return background_tasks.stop(target)
         return None
     children = team.roster.children.get(agent.agent_id, set()) if agent is not None else set()
     if agent_id not in children:

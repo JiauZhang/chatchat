@@ -2,7 +2,7 @@
 
 import asyncio
 
-from helpers import mock_team
+from helpers import mock_runtime, mock_team
 
 from chatchat.tool import Tool
 from chatchat.tools import ToolRegistry, builtin_tools
@@ -15,6 +15,15 @@ def _team(root, **kw):
 
     async def main():
         return mock_team("team", tasks_dir=root, mailbox_dir=root, **kw)
+
+    return asyncio.run(main())
+
+
+def _runtime(root):
+    root.mkdir(parents=True, exist_ok=True)
+
+    async def main():
+        return mock_runtime("team", tasks_dir=root)
 
     return asyncio.run(main())
 
@@ -47,7 +56,7 @@ def test_dispatch_only_ever_finds_the_runtime_tools(tmp_path):
 
 
 def test_a_capability_that_is_off_takes_its_tools_with_it(tmp_path):
-    names = {tool.name for tool in builtin_tools(_team(tmp_path / "bare", multi_agent=False))}
+    names = {tool.name for tool in builtin_tools(_runtime(tmp_path / "bare"))}
     assert {"Agent", "TaskCreate", "TaskList", "TaskGet", "TaskUpdate"} <= names
     assert not {"SendMessage", "TeamCreate", "TeamDelete"} & names
 

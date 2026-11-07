@@ -15,6 +15,8 @@ class Team(Runtime):
     and a task list that moves with the team name. Execution itself belongs
     to Runtime; this class only adds what several agents share."""
 
+    multi_agent = True
+
     def __init__(
         self,
         name: str,
@@ -38,7 +40,6 @@ class Team(Runtime):
         team_store=None,
         agent_memory=None,
         rules=None,
-        multi_agent: bool = True,
         services=None,
         **client_kw,
     ):
@@ -67,7 +68,6 @@ class Team(Runtime):
             skills=skills,
             agent_memory=agent_memory,
             rules=rules,
-            multi_agent=multi_agent,
             services=services,
             **client_kw,
         )

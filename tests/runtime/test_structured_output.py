@@ -25,7 +25,7 @@ async def record(context, **input) -> str:
 def _team(name, schema=SCHEMA):
     team = mock_team(name)
     team.tool_context.team = team
-    team.tools.set_output_schema(schema)
+    team.tools.set_output_schema(schema, TOOL)
     team.tools.injected.append(record.with_parameters(schema))
     return team
 
@@ -41,7 +41,7 @@ def _send(name, payload, schema=SCHEMA):
 def test_a_schema_that_is_not_a_schema_is_refused():
     async def main():
         team = mock_team("shape2")
-        problem = team.tools.set_output_schema({"type": "not-a-type"})
+        problem = team.tools.set_output_schema({"type": "not-a-type"}, TOOL)
         names = [schema["name"] for schema in team.tool_schemas(team.tool_context)]
         return problem, names
 

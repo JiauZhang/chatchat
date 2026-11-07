@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from chatchat.runtime.enums import RuleScope
+
 FRONTMATTER = re.compile(r"\A---[ \t]*\r?\n(.*?)\r?\n---[ \t]*\r?\n?", re.S)
 WILDCARDS = ("**", "", "**/*")
 
@@ -112,7 +114,7 @@ def parse(text: str) -> tuple[list[str], str]:
 
 
 class Rule:
-    def __init__(self, path: Path, scope: str, globs: list[str], content: str, root: Path):
+    def __init__(self, path: Path, scope: RuleScope, globs: list[str], content: str, root: Path):
         self.path = path
         self.scope = scope
         self.globs = globs
@@ -127,7 +129,7 @@ class RuleSet:
     """Markdown rules in a `rules` directory. The ones that name paths stay
     silent until the model touches a file they cover."""
 
-    def __init__(self, roots: list[tuple[Path, Path, str]]):
+    def __init__(self, roots: list[tuple[Path, Path, RuleScope]]):
         self.roots = [(Path(directory).resolve(), Path(anchor).resolve(), scope) for directory, anchor, scope in roots]
         self.delivered: set[str] = set()
         self._found: list[Rule] | None = None
@@ -137,9 +139,9 @@ class RuleSet:
         workspace = Path(cwd)
         roots = []
         if subdir:
-            roots.append((workspace / subdir / "rules", workspace, "project"))
+            roots.append((workspace / subdir / "rules", workspace, RuleScope.PROJECT))
         if home:
-            roots.append((Path(home) / "rules", workspace, "user"))
+            roots.append((Path(home) / "rules", workspace, RuleScope.USER))
         return cls(roots)
 
     def entries(self) -> list[Rule]:

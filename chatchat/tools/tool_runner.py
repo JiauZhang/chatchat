@@ -108,10 +108,10 @@ class ToolRunnerMixin:
             extra = pre.additional_context
             permission = pre.decision
             reason = pre.reason
-        # The permission gate runs after the hooks, on the input the hooks left
+        # The tool policy runs after the hooks, on the input the hooks left
         # behind, and a hook's allow decision satisfies its ask - claude-code's
         # ordering (hook results converge, then the permission flow).
-        gate_fn = getattr(self, "permission_gate", None)
+        gate_fn = self.tool_policy
         if gate_fn is not None and agent is not None and not agent.hookless:
             outcome = await gate_fn(
                 {

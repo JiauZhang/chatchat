@@ -48,6 +48,8 @@ class Runtime(SubagentsMixin, ToolRunnerMixin):
     its own; it does not need a roster of teammates to execute.
     """
 
+    multi_agent = False
+
     def __init__(
         self,
         name: str,
@@ -69,13 +71,11 @@ class Runtime(SubagentsMixin, ToolRunnerMixin):
         skills=None,
         agent_memory=None,
         rules=None,
-        multi_agent: bool = False,
         services: RuntimeServices | None = None,
         **client_kw,
     ):
         self.name = name
         self.lead_session_id = ""
-        self.multi_agent = multi_agent
         self._model_timeout = model_timeout
         self._model_retries = model_retries
         self.model_choice = ModelChoice(
@@ -95,8 +95,8 @@ class Runtime(SubagentsMixin, ToolRunnerMixin):
 
         self.skills = skills or SkillRegistry()
         self.services = services or RuntimeServices()
-        self.ask_user = self.services.user_input
-        self.permission_gate = self.services.tool_policy
+        self.user_input = self.services.user_input
+        self.tool_policy = self.services.tool_policy
         self.agent_memory = agent_memory
         self.rules = rules
         self.sandbox = self.services.sandbox or Sandbox()
@@ -141,7 +141,7 @@ class Runtime(SubagentsMixin, ToolRunnerMixin):
         return product
 
     def set_user_input(self, callback) -> None:
-        self.ask_user = callback
+        self.user_input = callback
 
     def set_policy_mode(self, mode: str) -> None:
         self.hooks.permission_mode = mode

@@ -1,19 +1,21 @@
 import argparse
 import asyncio
 
+from chatchat.runtime.thinking import LEVELS, Thinking
 from chatchat.team.team import Team
 
-ROLE = "你是 {name}。收到 lead 的任务用一句话完成并 send_message 回给 team-lead。"
-LEAD = "你是 team lead，把用户问题 send_message 发给 researcher，收到回信后汇总成一句最终答案还给用户。"
+ROLE = "You are {name}. Finish the task the lead sends you in one sentence and reply with SendMessage."
+LEAD = "You are the team lead. Send the question to researcher with SendMessage, then summarise the reply."
 
 
 async def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", default="deepseek/deepseek-chat")
-    parser.add_argument("--prompt", default="请 researcher 用一句话介绍 DeepSeek。")
+    parser.add_argument("--thinking", choices=LEVELS, default="medium")
+    parser.add_argument("--prompt", default="Ask researcher to introduce DeepSeek in one sentence.")
     args = parser.parse_args()
 
-    team = Team("demo", model=args.model, lead_instruction=LEAD)
+    team = Team("demo", model=args.model, lead_instruction=LEAD, thinking=Thinking(args.thinking))
     team.create_agent("researcher", instruction=ROLE.format(name="researcher"))
 
     print(await team.conversation.query(args.prompt))

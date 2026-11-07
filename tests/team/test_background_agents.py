@@ -64,7 +64,6 @@ def test_a_background_sub_agent_is_stoppable_by_its_parent():
 def test_a_named_teammate_is_not_also_a_background_sub_agent():
     async def main():
         team = _team("bg4")
-        team.multi_agent = True
         return await team.execute_tool("Agent", {"prompt": "look", "name": "worker", "run_in_background": True}, team.lead)
 
     outcome = asyncio.run(main())

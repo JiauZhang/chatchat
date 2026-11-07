@@ -2,8 +2,9 @@ import argparse
 import asyncio
 from pathlib import Path
 
+from chatchat.runtime.runtime import Runtime
 from chatchat.runtime.skills import SkillRegistry
-from chatchat.team.team import Team
+from chatchat.runtime.thinking import LEVELS, Thinking
 
 NOTES = """---
 name: notes
@@ -26,6 +27,7 @@ def registry_for(root: Path) -> SkillRegistry:
 async def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", default="deepseek/deepseek-chat")
+    parser.add_argument("--thinking", choices=LEVELS, default="medium")
     parser.add_argument("--prompt", default="Turn this into bullets: we met, decided to ship Friday, Ana owns the migration.")
     parser.add_argument("--mock", action="store_true", help="load the skill without calling a model")
     args = parser.parse_args()
@@ -37,13 +39,14 @@ async def main():
         print("---- body loaded on demand ----")
         print(registry.get("notes").render(args.prompt))
         return
-    team = Team(
+    runtime = Runtime(
         "skill",
         model=args.model,
         lead_instruction="Use the notes skill when the material looks like meeting notes.",
         skills=registry,
+        thinking=Thinking(args.thinking),
     )
-    print(await team.conversation.query(args.prompt))
+    print(await runtime.conversation.query(args.prompt))
 
 
 if __name__ == "__main__":

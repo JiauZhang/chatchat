@@ -1,10 +1,13 @@
 import argparse
 import asyncio
 
-from chatchat.client import Client
+from chatchat.runtime.thinking import LEVELS, Thinking
 from chatchat.team.team import Team
 
-LEAD = "你是 team lead，负责把用户问题分解并发给合适的 teammate。用 send_message 派发任务，等回信后再汇总成最终答案。"
+LEAD = (
+    "You are the team lead. Break the user's question into tasks and send them with SendMessage; "
+    "summarise the replies into one final answer."
+)
 
 
 def on_hooks(team):
@@ -26,21 +29,18 @@ def on_hooks(team):
 async def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", default="deepseek/deepseek-chat")
-    parser.add_argument("--thinking", action="store_true")
+    parser.add_argument("--thinking", choices=LEVELS, default="medium")
     parser.add_argument("--no-hooks", action="store_true")
-    parser.add_argument("--prompt", default="帮我写一段 DeepSeek 的介绍和优缺点，200字以内。")
+    parser.add_argument("--prompt", default="Write a short introduction to DeepSeek with pros and cons.")
     args = parser.parse_args()
 
-    client = Client(args.model, instruction=LEAD, thinking=args.thinking)
-    team = Team("hooks-demo", client, hooks=not args.no_hooks)
+    team = Team("hooks-demo", model=args.model, hooks=not args.no_hooks, thinking=Thinking(args.thinking))
     on_hooks(team)
-    team.add("researcher", "你是 researcher，负责搜集事实、查证、研究，输出清晰的研究结论。")
-    team.add("writer", "你是 writer，负责把成果整理成流畅、成稿的正文。")
-    for a in team.roster.agents.values():
-        a.start()
+    team.create_agent("researcher", "You are researcher: gather facts, verify them and report the findings.")
+    team.create_agent("writer", "You are writer: turn the findings into a clean final draft.")
 
     answer = await team.conversation.query(args.prompt)
-    print("\n=== lead 最终答复 ===")
+    print("\n=== lead final answer ===")
     print(answer)
 
 

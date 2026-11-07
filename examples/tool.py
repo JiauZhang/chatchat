@@ -1,26 +1,18 @@
 import argparse
-from chatchat.client import Client
+import asyncio
 from pathlib import Path
 
-from chatchat.tool import ToolContext, tool, Tools
-
-parser = argparse.ArgumentParser()
-parser.add_argument("--model", type=str, default="zhipu/glm-4.7-flash")
-parser.add_argument("--timeout", type=int, default=None)
-parser.add_argument("--non-streaming", action="store_true")
-parser.add_argument("--thinking", action="store_true")
-args = parser.parse_args()
-
-llm = Client(
-    model=args.model,
-    http_options={"timeout": args.timeout},
-    instruction="You are a helpful assistant.",
-)
-generation_options = {"stream": not args.non_streaming, "thinking": args.thinking}
+from chatchat.runtime.runtime import Runtime
+from chatchat.runtime.thinking import LEVELS, Thinking
+from chatchat.tool import ToolContext, tool
 
 
 def on_start(self, **kwargs):
     print(f"\n<tool>{self.name} {kwargs}</tool>\n")
+
+
+def on_error(self, exception):
+    print(f"\n<tool>{self.name} {exception}</tool>\n")
 
 
 @tool(
@@ -38,12 +30,8 @@ def on_start(self, **kwargs):
     },
     on_start=on_start,
 )
-def get_weather(context, city):
+def get_weather(context: ToolContext, city: str):
     return f"{city} is Sunny."
-
-
-def on_error(self, exception):
-    print(f"\n<tool>{self.name} {exception}</tool>\n")
 
 
 @tool(
@@ -51,18 +39,27 @@ def on_error(self, exception):
     description="getting current datetime",
     on_error=on_error,
 )
-def get_datetime(context):
+def get_datetime(context: ToolContext):
     raise RuntimeError("get datetime failed.")
 
 
-tools = Tools(get_weather, get_datetime)
-CTX = ToolContext(cwd=Path.cwd())
-while True:
-    prompt = input("user> ")
-    if prompt == "/exit":
-        break
-    response = llm.chat(prompt, generation_options=generation_options, tools=tools.to_dict(CTX))
-    print("assistant> ", end="")
-    for chunk in response:
-        print(chunk, end="", flush=True)
-    print()
+async def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model", default="deepseek/deepseek-chat")
+    parser.add_argument("--thinking", choices=LEVELS, default="medium")
+    parser.add_argument("--prompt", default="What is the weather in Shanghai?")
+    args = parser.parse_args()
+
+    runtime = Runtime(
+        "tools",
+        model=args.model,
+        thinking=Thinking(args.thinking),
+        tools=[get_weather, get_datetime],
+        tool_context=ToolContext(cwd=Path.cwd()),
+        lead_instruction="Use the tools when they answer the question.",
+    )
+    print(await runtime.conversation.query(args.prompt))
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

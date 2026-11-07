@@ -10,7 +10,7 @@ import asyncio
 import json
 from pathlib import Path
 
-from helpers import mock_team
+from helpers import mock_runtime, mock_team
 
 CONTRACT = Path(__file__).with_name("tool_contract.json")
 
@@ -22,12 +22,12 @@ OUTPUT_SCHEMA = {
 }
 
 
-def _schemas(root, *, multi_agent=True, rich=True):
+def _schemas(root, *, single=False, rich=True):
     async def main():
-        team = mock_team("team", tasks_dir=root, mailbox_dir=root, multi_agent=multi_agent)
+        team = mock_runtime("team", tasks_dir=root) if single else mock_team("team", tasks_dir=root, mailbox_dir=root)
         if rich:
-            team.ask_user = lambda agent, questions: []
-            team.tools.set_output_schema(OUTPUT_SCHEMA)
+            team.user_input = lambda agent, questions: []
+            team.tools.set_output_schema(OUTPUT_SCHEMA, "StructuredOutput")
         return team.tool_schemas(team.tool_context)
 
     return asyncio.run(main())
@@ -38,7 +38,7 @@ def test_the_tool_contract_is_what_the_model_was_promised(tmp_path):
     plain = tmp_path / "plain"
     plain.mkdir()
     assert _schemas(tmp_path) == expected["team"]
-    assert _schemas(plain, multi_agent=False, rich=False) == expected["single_agent"]
+    assert _schemas(plain, single=True, rich=False) == expected["single_agent"]
 
 
 def test_a_single_agent_session_can_still_read_what_it_started(tmp_path):
@@ -46,5 +46,5 @@ def test_a_single_agent_session_can_still_read_what_it_started(tmp_path):
     background has to be able to read it, with or without teammates."""
     plain = tmp_path / "plain"
     plain.mkdir()
-    names = {schema["name"] for schema in _schemas(plain, multi_agent=False, rich=False)}
+    names = {schema["name"] for schema in _schemas(plain, single=True, rich=False)}
     assert {"TaskOutput", "TaskStop"} <= names
