@@ -30,16 +30,13 @@ class AgentDefinition:
     system_prompt: str = ""
     tools: list = field(default_factory=list)
     model: str | None = None
-    permission_mode: str | None = None
     default: bool = False
     addenda: str = ""
     description: str = ""
-    memory: str | None = None
-    disallowed_tools: tuple = ()
     skills: tuple = ()
     max_turns: int | None = None
     effort: str = ""
-    isolation: str = ""
+    metadata: dict = field(default_factory=dict)
 
     def full_prompt(self) -> str:
         parts = [p.strip() for p in (self.system_prompt, self.addenda) if p.strip()]
@@ -71,7 +68,7 @@ class AgentRegistry:
         addenda: str = "",
         default: bool = False,
         description: str = "",
-        memory: str | None = None,
+        metadata: dict | None = None,
     ) -> AgentDefinition:
         return self.register(
             AgentDefinition(
@@ -82,7 +79,7 @@ class AgentRegistry:
                 addenda=addenda,
                 default=default,
                 description=description,
-                memory=memory,
+                metadata=dict(metadata or {}),
             )
         )
 

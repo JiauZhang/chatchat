@@ -8,6 +8,8 @@ never the team object that will call them, so the facade can change without them
 import ast
 import pathlib
 
+from chatchat.tools.names import CORE_TOOLS
+
 PACKAGE = pathlib.Path(__file__).resolve().parent.parent / "chatchat"
 
 
@@ -31,6 +33,50 @@ def test_the_runtime_knows_nothing_about_the_product_built_on_it():
         str(path.relative_to(PACKAGE)): sorted(names)
         for path in _modules("**", "*.py")
         if (names := {name for name in _imports(path) if name.split(".")[0] in {"pyclaw", "textual"}})
+    }
+    assert offenders == {}
+
+
+def test_the_runtime_does_not_name_a_host_concept_in_its_code():
+    """A product may put its own words in its tools and configs; the runtime
+    may not. worktree and mutating hook events are part of the Claude Code
+    hook protocol, so only the product name and its UI vocabulary are checked.
+    """
+    offenders = {}
+    for path in _modules("**", "*.py"):
+        text = path.read_text(encoding="utf-8").lower()
+        found = sorted(word for word in ("pyclaw", "statusline") if word in text)
+        if found:
+            offenders[str(path.relative_to(PACKAGE))] = found
+    assert offenders == {}
+
+
+def test_the_core_tool_list_stays_small():
+    assert set(CORE_TOOLS) == {
+        "Agent",
+        "SendMessage",
+        "TaskOutput",
+        "TaskStop",
+        "TeamCreate",
+        "TeamDelete",
+        "TaskCreate",
+        "TaskList",
+        "TaskGet",
+        "TaskUpdate",
+        "Skill",
+    }
+
+
+def test_host_specific_tools_are_not_built_in():
+    names = {path.name for path in _modules("tools", "builtin", "*.py")}
+    assert names == {"__init__.py", "messaging.py", "skills.py", "subagents.py", "tasks.py", "teams.py"}
+
+
+def test_the_execution_core_does_not_import_the_collaboration_layer():
+    offenders = {
+        str(path.relative_to(PACKAGE)): sorted(names)
+        for path in _modules("runtime", "*.py")
+        if (names := {name for name in _imports(path) if name.startswith("chatchat.team")})
     }
     assert offenders == {}
 

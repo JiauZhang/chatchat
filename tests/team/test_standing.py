@@ -2,7 +2,7 @@
 warning the reference puts in its core system section, and utility calls
 (compaction) stay clean of it."""
 
-from chatchat.team.standing import STANDING_INSTRUCTION, with_standing
+from chatchat.runtime.standing import STANDING_INSTRUCTION, with_standing
 
 
 def test_every_agent_instruction_ends_with_the_injection_warning():

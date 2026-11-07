@@ -22,7 +22,7 @@ def test_attaching_a_product_hands_it_back():
 def test_a_team_without_a_product_still_switches_mode_on_the_hooks():
     async def main():
         team = mock_team("p2")
-        team.set_plan_mode("plan")
+        team.set_policy_mode("plan")
         return team.hooks.permission_mode
 
     assert asyncio.run(main()) == "plan"

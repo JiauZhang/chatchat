@@ -7,9 +7,11 @@ from pathlib import Path
 from chatchat.runtime.abort import AbortSignal
 from chatchat.runtime.agent import Agent
 from chatchat.runtime.context import AgentContext
-from chatchat.team.agents import resolve_agent_model
-from chatchat.team.sidechain import SidechainWriter
-from chatchat.tasks.task import rand_name
+from chatchat.runtime.agent_definition import resolve_agent_model
+from chatchat.runtime.enums import SidechainStatus
+from chatchat.runtime.sidechain import SidechainWriter
+from chatchat.runtime.naming import rand_name
+from chatchat.tasks.enums import TaskRunStatus
 from chatchat.tool import ToolContext
 from chatchat.hooks.events import AGENT_PROGRESS, emit
 
@@ -40,8 +42,9 @@ class SubagentsMixin:
     ):
         defn = self.agent_defs.get(subagent_type)
         sys_prompt = "\n".join(p for p in (defn.full_prompt(), instruction) if p) or defn.system_prompt
-        if defn.memory and self.agent_memory is not None:
-            sys_prompt = "\n\n".join((sys_prompt, self.agent_memory.prompt(defn.agent_type, defn.memory)))
+        memory_scope = str(defn.metadata.get("memory") or "")
+        if memory_scope and self.agent_memory is not None:
+            sys_prompt = "\n\n".join((sys_prompt, self.agent_memory.prompt(defn.agent_type, memory_scope)))
         name = rand_name(f"sub-{self._counter}")
         self._counter += 1
         agent_id = self.agent_id(name)
@@ -58,15 +61,18 @@ class SubagentsMixin:
             thinking = dataclasses.replace(self.thinking, level=defn.effort)
         tool_context = None
         isolated = ""
-        if isolation == "worktree" or defn.isolation == "worktree":
-            isolated = await self.isolation.reserve(f"{self.lead_session_id or self.name}-{name}", agent_id)
-            tool_context = ToolContext(cwd=Path(isolated))
-            worktree_note = (
-                f"\n\nWorking in the isolated worktree {isolated}. "
-                f"The session directory did not move; your changes stay in that worktree."
+        requested = isolation or str(defn.metadata.get("isolation") or "")
+        if requested and not self.sandbox.supports(requested):
+            raise ValueError(f'unknown isolation "{requested}"')
+        if requested:
+            isolated = await self.sandbox.reserve(f"{self.lead_session_id or self.name}-{name}", agent_id)
+            tool_context = ToolContext(cwd=Path(isolated), team=self)
+            isolation_note = (
+                f"\n\nWorking in the isolated workspace {isolated}. "
+                f"The session directory did not move; your changes stay in that workspace."
             )
         else:
-            worktree_note = ""
+            isolation_note = ""
         agent = Agent(
             agent_id,
             name,
@@ -98,8 +104,8 @@ class SubagentsMixin:
             }
             agent.messages.append(message)
             agent._record(message)
-        if worktree_note:
-            message = {"role": "user", "content": f"<system-reminder>{worktree_note}\n</system-reminder>"}
+        if isolation_note:
+            message = {"role": "user", "content": f"<system-reminder>{isolation_note}\n</system-reminder>"}
             agent.messages.append(message)
             agent._record(message)
         emit(
@@ -122,16 +128,16 @@ class SubagentsMixin:
         try:
             result = await agent.chat(prompt)
             if writer is not None:
-                writer.finish("completed")
+                writer.finish(SidechainStatus.COMPLETED)
         except BaseException:
             if writer is not None:
-                writer.finish("failed")
+                writer.finish(SidechainStatus.FAILED)
             raise
         finally:
             emit(AGENT_PROGRESS, agent=agent.name, done=True)
             await self.hooks.execute_subagent_stop_hooks(agent, defn.agent_type)
-            agent._finalize("completed")
-            note = await self.isolation.release(agent.agent_id)
+            agent._finalize(TaskRunStatus.COMPLETED)
+            note = await self.sandbox.release(agent.agent_id)
         return f"{result}\n{note}" if note else result
 
     async def spawn_subagent(
@@ -174,13 +180,13 @@ class SubagentsMixin:
 
     async def _report_to(self, agent: Agent, prompt: str, writer, defn, parent: Agent):
         started = time.monotonic()
-        status = "completed"
+        status = SidechainStatus.COMPLETED
         try:
             answer = await self._run_subagent(agent, prompt, writer, defn)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            status, answer = "failed", str(exc)
+            status, answer = SidechainStatus.FAILED, str(exc)
         parent.inbox.write(
             agent.name,
             f"{agent.name}, the sub-agent you sent to the background, is "

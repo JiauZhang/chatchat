@@ -7,26 +7,14 @@ from contextlib import contextmanager
 from pathlib import Path
 from dataclasses import dataclass, field
 
+from chatchat.runtime.enums import IdleReason, MessageType
 from chatchat.runtime.sanitization import sanitize_unicode
 
 STRUCTURED_TYPES = (
-    "idle_notification",
-    "permission_request",
-    "permission_response",
-    "sandbox_permission_request",
-    "sandbox_permission_response",
-    "shutdown_request",
-    "shutdown_approved",
-    "shutdown_rejected",
-    "team_permission_update",
-    "mode_set_request",
-    "plan_approval_request",
-    "plan_approval_response",
-    "task_assignment",
+    MessageType.IDLE_NOTIFICATION,
+    MessageType.SHUTDOWN_REQUEST,
+    MessageType.SHUTDOWN_APPROVED,
 )
-
-IDLE_REASONS = ("available", "interrupted", "failed")
-TASK_STATUSES = ("resolved", "blocked", "failed")
 
 
 @dataclass
@@ -37,7 +25,7 @@ class Message:
     read: bool = False
     color: str = ""
     summary: str = ""
-    type: str = "text"
+    type: MessageType = MessageType.TEXT
 
     @property
     def from_name(self) -> str:
@@ -51,7 +39,7 @@ class Message:
 class Mailbox:
     _messages: list[Message] = field(default_factory=list)
 
-    def write(self, from_, text: str, *, type: str = "text", color: str = "", summary: str = "") -> None:
+    def write(self, from_, text: str, *, type: MessageType = MessageType.TEXT, color: str = "", summary: str = "") -> None:
         self._messages.append(Message(from_=from_, text=text, type=type, color=color, summary=summary))
 
     def unread(self) -> list[Message]:
@@ -113,7 +101,7 @@ class FileMailbox(Mailbox):
             "read": m.read,
             "color": m.color,
             "summary": m.summary,
-            "type": m.type,
+            "type": m.type.value,
         }
 
     def _read_file(self) -> list[Message]:
@@ -129,7 +117,7 @@ class FileMailbox(Mailbox):
                 read=r.get("read", False),
                 color=r.get("color", ""),
                 summary=r.get("summary", ""),
-                type=r.get("type", "text"),
+                type=MessageType(r.get("type", MessageType.TEXT.value)),
             )
             for r in (records if isinstance(records, list) else [])
             if isinstance(r, dict)
@@ -138,7 +126,7 @@ class FileMailbox(Mailbox):
     def _write_file(self, messages: list[Message]):
         self.path.write_text(json.dumps([self._record(m) for m in messages], ensure_ascii=False), encoding="utf-8")
 
-    def write(self, from_, text: str, *, type: str = "text", color: str = "", summary: str = "") -> None:
+    def write(self, from_, text: str, *, type: MessageType = MessageType.TEXT, color: str = "", summary: str = "") -> None:
         with self._locked():
             msgs = self._read_file()
             msgs.append(Message(from_=from_, text=text, type=type, color=color, summary=summary))
@@ -176,12 +164,12 @@ class FileMailbox(Mailbox):
         return iter(self._read_file())
 
 
-def is_structured_protocol_message(text: str) -> str | None:
+def is_structured_protocol_message(text: str) -> MessageType | None:
     parsed = parse_protocol(text)
     if parsed is None:
         return None
     t = parsed.get("type")
-    return t if t in STRUCTURED_TYPES else None
+    return MessageType(t) if t in STRUCTURED_TYPES else None
 
 
 def parse_protocol(text: str) -> dict | None:
@@ -199,14 +187,14 @@ def format_teammate_batch(unread: list[Message]) -> str:
 
 
 def idle_notification(
-    from_, *, idle_reason="available", summary="", completed_task_id="", completed_status="", failure_reason=""
+    from_, *, idle_reason=IdleReason.AVAILABLE, summary="", completed_task_id="", completed_status="", failure_reason=""
 ) -> str:
     return json.dumps(
         {
-            "type": "idle_notification",
+            "type": MessageType.IDLE_NOTIFICATION.value,
             "from": from_,
             "timestamp": time.time(),
-            "idle_reason": idle_reason,
+            "idle_reason": IdleReason(idle_reason).value,
             "summary": summary,
             "completed_task_id": completed_task_id,
             "completed_status": completed_status,
@@ -216,35 +204,8 @@ def idle_notification(
     )
 
 
-def task_assignment(task_id, subject, description, assigned_by) -> str:
-    return json.dumps(
-        {
-            "type": "task_assignment",
-            "task_id": task_id,
-            "subject": subject,
-            "description": description,
-            "assigned_by": assigned_by,
-            "timestamp": time.time(),
-        },
-        ensure_ascii=False,
-    )
-
-
-def shutdown_request(request_id, from_, reason="") -> str:
-    return json.dumps(
-        {"type": "shutdown_request", "request_id": request_id, "from": from_, "reason": reason, "timestamp": time.time()},
-        ensure_ascii=False,
-    )
-
-
 def shutdown_approved(request_id, from_) -> str:
     return json.dumps(
-        {"type": "shutdown_approved", "request_id": request_id, "from": from_, "timestamp": time.time()}, ensure_ascii=False
-    )
-
-
-def shutdown_rejected(request_id, from_, reason) -> str:
-    return json.dumps(
-        {"type": "shutdown_rejected", "request_id": request_id, "from": from_, "reason": reason, "timestamp": time.time()},
+        {"type": MessageType.SHUTDOWN_APPROVED.value, "request_id": request_id, "from": from_, "timestamp": time.time()},
         ensure_ascii=False,
     )

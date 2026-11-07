@@ -1,7 +1,7 @@
 import asyncio
 
 from chatchat.client import MockClient
-from chatchat.tasks.task import is_terminal_task_status
+from chatchat.tasks.task_run import is_terminal_task_status
 from chatchat.team.team import Team
 from chatchat.hooks import events as hook_events
 

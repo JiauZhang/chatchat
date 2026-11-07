@@ -4,7 +4,7 @@ import json
 import shutil
 from pathlib import Path
 
-from chatchat.tasks.tasks import safe_component
+from chatchat.tasks.task_list import safe_component
 
 
 CONFIG = "config.json"

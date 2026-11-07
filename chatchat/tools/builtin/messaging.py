@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from chatchat.tools.names import ToolName
 from chatchat.tool import Tool, tool
 
 
 @tool(
-    name="SendMessage",
+    name=ToolName.SEND_MESSAGE,
     description="""Send a message to a teammate by name, or "*" to broadcast to every other teammate.
 The message lands in their mailbox and is injected on their next idle turn, so do not re-send it or poll them:
 their answer arrives as a teammate-message.""",

@@ -7,7 +7,7 @@ import pytest
 from chatchat.team.team_store import TeamStore
 from chatchat.tool import ToolContext
 from helpers import mock_team
-from chatchat.tasks.tasks import TaskList
+from chatchat.tasks.task_list import TaskList
 
 
 def _store(tmp_path):

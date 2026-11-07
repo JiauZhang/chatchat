@@ -1,5 +1,5 @@
 from chatchat.client import MockClient
-from chatchat.team.product import TeamProduct
+from chatchat.runtime.product import TeamProduct
 from chatchat.team.team import Team
 
 
@@ -12,14 +12,10 @@ class RecordingProduct(TeamProduct):
 
     def __init__(self):
         self.cwds = []
-        self.modes = []
         self.granted = []
 
     def cwd_changed(self, cwd):
         self.cwds.append(cwd)
-
-    def plan_mode_changed(self, mode):
-        self.modes.append(mode)
 
     def skills_granted(self, tools):
         self.granted.append(tuple(tools))

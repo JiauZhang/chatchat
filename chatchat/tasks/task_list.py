@@ -8,7 +8,7 @@ from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-TASK_STATUSES = ("pending", "in_progress", "completed")
+from chatchat.tasks.enums import ClaimReason, TaskStatus
 
 HIGH_WATER_MARK = ".highwatermark"
 LOCK_SUFFIX = ".lock"
@@ -23,11 +23,11 @@ def safe_component(value) -> str:
 
 
 @dataclass
-class TaskItem:
+class Task:
     id: str
     subject: str
     description: str
-    status: str = "pending"
+    status: TaskStatus = TaskStatus.PENDING
     active_form: str = ""
     owner: str = ""
     blocks: list[str] = field(default_factory=list)
@@ -35,12 +35,12 @@ class TaskItem:
     metadata: dict = field(default_factory=dict)
 
     @staticmethod
-    def from_dict(data: dict) -> "TaskItem":
-        return TaskItem(
+    def from_dict(data: dict) -> "Task":
+        return Task(
             id=str(data.get("id", "")),
             subject=data.get("subject", "") or "",
             description=data.get("description", "") or "",
-            status=data.get("status") if data.get("status") in TASK_STATUSES else "pending",
+            status=TaskStatus(data.get("status")) if data.get("status") in TaskStatus.values() else TaskStatus.PENDING,
             active_form=data.get("active_form", "") or "",
             owner=data.get("owner", "") or "",
             blocks=[str(b) for b in data.get("blocks", []) or []],
@@ -49,10 +49,10 @@ class TaskItem:
         )
 
     def open(self) -> bool:
-        return self.status != "completed"
+        return self.status != TaskStatus.COMPLETED
 
 
-def work_prompt(task: TaskItem) -> str:
+def work_prompt(task: Task) -> str:
     body = f"Work on task #{task.id}: {task.subject}."
     return f"{body}\n\n{task.description}" if task.description else body
 
@@ -60,8 +60,8 @@ def work_prompt(task: TaskItem) -> str:
 @dataclass
 class Claim:
     ok: bool
-    reason: str = ""
-    task: TaskItem | None = None
+    reason: ClaimReason | str = ""
+    task: Task | None = None
     busy_with: list[str] = field(default_factory=list)
     blocked_by: list[str] = field(default_factory=list)
 
@@ -98,7 +98,7 @@ class TaskList:
                 except OSError:
                     pass
 
-    def _read(self, task_id) -> TaskItem | None:
+    def _read(self, task_id) -> Task | None:
         path = self._path(task_id)
         if str(task_id) != safe_component(task_id) or not path.exists():
             return None
@@ -106,11 +106,13 @@ class TaskList:
             data = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return None
-        return TaskItem.from_dict(data) if isinstance(data, dict) else None
+        return Task.from_dict(data) if isinstance(data, dict) else None
 
-    def _write(self, task: TaskItem) -> TaskItem:
+    def _write(self, task: Task) -> Task:
         self._ensure_dir()
-        self._path(task.id).write_text(json.dumps(asdict(task), ensure_ascii=False, indent=2), encoding="utf-8")
+        data = asdict(task)
+        data["status"] = task.status.value
+        self._path(task.id).write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         return task
 
     def _highest(self) -> int:
@@ -126,9 +128,9 @@ class TaskList:
             pass
         return highest
 
-    def create(self, subject: str, description: str, *, active_form: str = "", metadata: dict | None = None) -> TaskItem:
+    def create(self, subject: str, description: str, *, active_form: str = "", metadata: dict | None = None) -> Task:
         with self._locked(self.directory / "ids"):
-            task = TaskItem(
+            task = Task(
                 id=str(self._highest() + 1),
                 subject=subject,
                 description=description,
@@ -137,20 +139,20 @@ class TaskList:
             )
             return self._write(task)
 
-    def get(self, task_id) -> TaskItem | None:
+    def get(self, task_id) -> Task | None:
         return self._read(task_id)
 
-    def available(self) -> TaskItem | None:
+    def available(self) -> Task | None:
         tasks = self.all()
         unresolved = {t.id for t in tasks if t.open()}
         for task in tasks:
-            if task.status != "pending" or task.owner:
+            if task.status != TaskStatus.PENDING or task.owner:
                 continue
             if not any(b in unresolved for b in task.blocked_by):
                 return task
         return None
 
-    def all(self) -> list[TaskItem]:
+    def all(self) -> list[Task]:
         found = []
         for path in sorted(self.directory.glob("*.json"), key=lambda p: (len(p.stem), p.stem)):
             task = self._read(path.stem)
@@ -158,15 +160,18 @@ class TaskList:
                 found.append(task)
         return found
 
-    def update(self, task_id, **fields) -> TaskItem | None:
-        if "status" in fields and fields["status"] not in TASK_STATUSES:
-            return None
+    def update(self, task_id, **fields) -> Task | None:
+        if "status" in fields:
+            try:
+                fields["status"] = TaskStatus(fields["status"])
+            except ValueError:
+                return None
         with self._locked(self._path(task_id)):
             task = self._read(task_id)
             if task is None:
                 return None
             for key, value in fields.items():
-                if key == "id" or key not in TaskItem.__dataclass_fields__:
+                if key == "id" or key not in Task.__dataclass_fields__:
                     continue
                 if key in ("blocks", "blocked_by"):
                     value = [str(v) for v in value or []]
@@ -220,19 +225,19 @@ class TaskList:
     def _claim(self, task_id, agent_id, all_tasks, check_agent_busy) -> Claim:
         task = next((t for t in all_tasks if t.id == str(task_id)), None)
         if task is None:
-            return Claim(ok=False, reason="task_not_found")
+            return Claim(ok=False, reason=ClaimReason.TASK_NOT_FOUND)
         if task.owner and task.owner != agent_id:
-            return Claim(ok=False, reason="already_claimed", task=task)
+            return Claim(ok=False, reason=ClaimReason.ALREADY_CLAIMED, task=task)
         if not task.open():
-            return Claim(ok=False, reason="already_resolved", task=task)
+            return Claim(ok=False, reason=ClaimReason.ALREADY_RESOLVED, task=task)
         unresolved = {t.id for t in all_tasks if t.open()}
         blockers = [b for b in task.blocked_by if b in unresolved]
         if blockers:
-            return Claim(ok=False, reason="blocked", task=task, blocked_by=blockers)
+            return Claim(ok=False, reason=ClaimReason.BLOCKED, task=task, blocked_by=blockers)
         if check_agent_busy:
             busy = [t.id for t in all_tasks if t.open() and t.owner == agent_id and t.id != task.id]
             if busy:
-                return Claim(ok=False, reason="agent_busy", task=task, busy_with=busy)
+                return Claim(ok=False, reason=ClaimReason.AGENT_BUSY, task=task, busy_with=busy)
         return Claim(ok=True, task=self.update(task_id, owner=agent_id))
 
     def claim(self, task_id, agent_id, *, check_agent_busy: bool = False) -> Claim:
@@ -242,13 +247,13 @@ class TaskList:
         with self._locked(self._path(task_id)):
             return self._claim(task_id, agent_id, self.all(), False)
 
-    def unassign(self, agent_id, agent_name: str = "") -> list[TaskItem]:
+    def unassign(self, agent_id, agent_name: str = "") -> list[Task]:
         released = []
         for task in self.all():
             if task.open() and task.owner in (agent_id, agent_name):
-                self.update(task.id, owner="", status="pending")
+                self.update(task.id, owner="", status=TaskStatus.PENDING)
                 released.append(task)
         return released
 
-    def current_of(self, agent_id, agent_name: str = "") -> list[TaskItem]:
+    def current_of(self, agent_id, agent_name: str = "") -> list[Task]:
         return [task for task in self.all() if task.open() and task.owner in (agent_id, agent_name)]

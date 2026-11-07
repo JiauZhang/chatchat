@@ -1,34 +1,41 @@
-"""A print-mode run with a required shape must end with a payload that fits it."""
+"""A run with a required shape must end with a payload that fits it."""
 
 import asyncio
 
 from helpers import mock_team
+
+from chatchat.runtime.structured import mismatch
+from chatchat.tool import tool
 
 TOOL = "StructuredOutput"
 
 SCHEMA = {"type": "object", "properties": {"name": {"type": "string"}, "score": {"type": "number"}}, "required": ["name"]}
 
 
+@tool(name=TOOL, description="Return the final answer as the required shape.", parameters=None)
+async def record(context, **input) -> str:
+    team = context.team
+    problem = mismatch(team.tools.output_schema or {}, input)
+    if problem:
+        return f"Error: output does not match the required schema: {problem}"
+    team.tools.structured_output = dict(input)
+    return "recorded"
+
+
+def _team(name, schema=SCHEMA):
+    team = mock_team(name)
+    team.tool_context.team = team
+    team.tools.set_output_schema(schema)
+    team.tools.injected.append(record.with_parameters(schema))
+    return team
+
+
 def _send(name, payload, schema=SCHEMA):
     async def main():
-        team = mock_team(name)
-        assert team.tools.set_output_schema(schema) == ""
+        team = _team(name, schema)
         return team, await team.execute_tool(TOOL, payload, team.lead)
 
     return asyncio.run(main())
-
-
-def test_the_requested_shape_is_offered_as_a_tool():
-    async def main():
-        team = mock_team("shape1")
-        before = [schema["name"] for schema in team.tool_schemas(team.tool_context)]
-        team.tools.set_output_schema(SCHEMA)
-        schemas = {schema["name"]: schema for schema in team.tool_schemas(team.tool_context)}
-        return before, schemas
-
-    before, schemas = asyncio.run(main())
-    assert TOOL not in before
-    assert schemas[TOOL]["input_schema"] == SCHEMA
 
 
 def test_a_schema_that_is_not_a_schema_is_refused():
@@ -62,8 +69,7 @@ def test_a_payload_that_does_not_fit_is_sent_back_with_the_offence():
 
 def test_the_run_cannot_stop_while_the_payload_is_missing():
     async def main():
-        team = mock_team("shape6")
-        team.tools.set_output_schema(SCHEMA)
+        team = _team("shape6")
         blocked = await team.hooks.execute_stop_hooks(team.lead)
         await team.execute_tool(TOOL, {"name": "round"}, team.lead)
         return blocked, await team.hooks.execute_stop_hooks(team.lead)
@@ -78,8 +84,7 @@ def test_enforcement_gives_up_rather_than_looping_forever(monkeypatch):
     monkeypatch.setenv("MAX_STRUCTURED_OUTPUT_RETRIES", "2")
 
     async def main():
-        team = mock_team("shape7")
-        team.tools.set_output_schema(SCHEMA)
+        team = _team("shape7")
         return [await team.hooks.execute_stop_hooks(team.lead) for _ in range(3)]
 
     first, second, third = asyncio.run(main())

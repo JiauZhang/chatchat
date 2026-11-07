@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from chatchat.team.mailbox import Mailbox, Message, format_teammate_batch, is_structured_protocol_message
+from chatchat.runtime.mailbox import Mailbox, Message, format_teammate_batch, is_structured_protocol_message
 
 logger = logging.getLogger(__name__)
 

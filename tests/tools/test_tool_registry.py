@@ -50,14 +50,18 @@ def test_a_capability_that_is_off_takes_its_tools_with_it(tmp_path):
     names = {tool.name for tool in builtin_tools(_team(tmp_path / "bare", multi_agent=False))}
     assert {"Agent", "TaskCreate", "TaskList", "TaskGet", "TaskUpdate"} <= names
     assert not {"SendMessage", "TeamCreate", "TeamDelete"} & names
-    assert not {"AskUserQuestion", "EnterPlanMode", "ExitPlanMode", "StructuredOutput", "Skill"} & names
 
 
 def test_the_order_holds_when_capabilities_come_and_go(tmp_path):
     team = _team(tmp_path)
-    team.ask_user = lambda agent, questions: []
-    team.tools.set_output_schema({"type": "object", "properties": {}, "additionalProperties": False})
     names = [tool.name for tool in builtin_tools(team)]
     assert names[:5] == ["Agent", "SendMessage", "TaskOutput", "TaskStop", "TeamCreate"]
-    assert names[-4:] == ["AskUserQuestion", "EnterPlanMode", "ExitPlanMode", "StructuredOutput"]
-    assert names.index("EnterPlanMode") < names.index("ExitPlanMode")
+    assert names[-1] == "TaskUpdate"
+
+
+def test_a_host_tool_may_take_a_name_the_runtime_no_longer_owns(tmp_path):
+    team = _team(tmp_path)
+    registry = ToolRegistry(builtin_tools(team), [_host_tool("EnterPlanMode")])
+    names = [schema["name"] for schema in registry.schemas(team.tool_context)]
+    assert "EnterPlanMode" in names
+    assert registry.find_own("EnterPlanMode") is None

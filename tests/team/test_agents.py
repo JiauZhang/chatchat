@@ -1,11 +1,11 @@
 import asyncio
 
 from chatchat.client import ToolUse
-from chatchat.team.agents import AgentRegistry
+from chatchat.runtime.agent_definition import AgentRegistry
 from chatchat.hooks.events import AGENT_PROGRESS, register_runtime_handler
 from chatchat.tool import Tool
 from helpers import mock_team
-from chatchat.team.agents import resolve_agent_model
+from chatchat.runtime.agent_definition import resolve_agent_model
 
 _USAGE = {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120, "prompt_tokens_details": {"cached_tokens": 40}}
 

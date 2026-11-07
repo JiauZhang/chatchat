@@ -4,7 +4,7 @@ import asyncio
 
 from helpers import mock_team
 
-from chatchat.team.team import LEAD_NAME as LEAD
+from chatchat.runtime.runtime import LEAD_NAME as LEAD
 
 
 async def _respond(messages, tools=None, *, stream_cb=None):

@@ -3,7 +3,8 @@
 import asyncio
 from pathlib import Path
 
-from chatchat.team.agents import AgentDefinition
+from chatchat.runtime.agent_definition import AgentDefinition
+from chatchat.runtime.sandbox import Sandbox
 from chatchat.tool import ToolContext
 from helpers import mock_team
 
@@ -32,8 +33,7 @@ def _team(name, root, note="", seen=None):
         released.append(path)
         return note
 
-    team.isolation.start = start
-    team.isolation.end = end
+    team.sandbox = Sandbox(start, end, options=({"value": "worktree", "description": "a temporary copy"},))
     return team, allocated, released
 
 
@@ -53,7 +53,7 @@ def test_a_sub_agent_asked_for_isolation_runs_in_the_directory_the_host_made(tmp
     assert "the answer" in text
     assert len(allocated) == 1
     assert allocated[0][1] in seen[0]
-    assert "isolated worktree" in seen[0]
+    assert "isolated workspace" in seen[0]
 
 
 def test_the_isolation_is_given_back_when_the_agent_finishes(tmp_path):
@@ -77,7 +77,7 @@ def test_work_that_was_left_behind_is_reported_in_the_answer(tmp_path):
 def test_the_agent_definition_can_ask_for_isolation_too(tmp_path):
     async def main():
         team, allocated, _released = _team("iso4", tmp_path)
-        team.agent_defs.register(AgentDefinition("builder", system_prompt="build it", isolation="worktree"))
+        team.agent_defs.register(AgentDefinition("builder", system_prompt="build it", metadata={"isolation": "worktree"}))
         text = await _run(team, subagent_type="builder")
         return text, allocated
 
@@ -92,7 +92,7 @@ def test_isolation_without_a_host_that_can_provide_it_is_refused_by_name(tmp_pat
         return await team.execute_tool("Agent", {"prompt": "x", "isolation": "worktree"}, team.lead)
 
     text = asyncio.run(main()).text
-    assert text.startswith("Error:") and "isolation needs a provider" in text
+    assert text.startswith("Error:") and "unknown isolation" in text
 
 
 def test_a_named_teammate_is_not_offered_isolation_it_would_not_get(tmp_path):

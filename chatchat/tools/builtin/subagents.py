@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 
 from chatchat.hooks.output import describe_blocking
+from chatchat.tools.names import ToolName
 from chatchat.tool import Tool, tool
 
 TASK_DEFAULT_TIMEOUT_MS = 30_000
@@ -15,6 +17,43 @@ Without a name it is a one-off sub-agent: it runs synchronously, answers, then i
 With a name it becomes a persistent teammate that keeps a mailbox, so assign it work with SendMessage.
 subagent_type picks its AgentDefinition; general-purpose is the default."""
 
+AGENT_PARAMETERS = {
+    "type": "object",
+    "properties": {
+        "prompt": {"type": "string", "description": "The task for the agent to perform."},
+        "subagent_type": {
+            "type": "string",
+            "description": 'Type of specialized agent to use, from the available subagent types. Defaults to "general-purpose".',
+        },
+        "name": {
+            "type": "string",
+            "description": "Name for a persistent teammate that keeps a mailbox; omit it for a one-off sub-agent.",
+        },
+        "model": {
+            "type": "string",
+            "description": 'Optional model override: "provider/model", a bare name in the session provider, or "inherit".',
+        },
+        "run_in_background": {
+            "type": "boolean",
+            "description": "Run this one-off sub-agent in the background; its answer arrives in your inbox when it finishes.",
+        },
+    },
+    "required": ["prompt"],
+    "additionalProperties": False,
+}
+
+
+def _agent_parameters(team) -> dict:
+    parameters = copy.deepcopy(AGENT_PARAMETERS)
+    if team.sandbox.options:
+        parameters["properties"]["isolation"] = {
+            "type": "string",
+            "enum": [str(option.get("value") or "") for option in team.sandbox.options],
+            "description": "Run the agent in an isolated workspace so its edits never touch the checked-out tree. "
+            + " ".join(str(option.get("description") or "") for option in team.sandbox.options).strip(),
+        }
+    return parameters
+
 
 def _described(team) -> str:
     lines = [f"- {agent_type}: {when_to_use}" for agent_type, when_to_use in team.agent_defs.describe()]
@@ -24,39 +63,9 @@ def _described(team) -> str:
 
 
 @tool(
-    name="Agent",
+    name=ToolName.AGENT,
     description=AGENT_DESCRIPTION,
-    parameters={
-        "type": "object",
-        "properties": {
-            "prompt": {"type": "string", "description": "The task for the agent to perform."},
-            "subagent_type": {
-                "type": "string",
-                "description": 'Type of specialized agent to use, from the available subagent types. Defaults to "general-purpose".',
-            },
-            "name": {
-                "type": "string",
-                "description": "Name for a persistent teammate that keeps a mailbox; omit it for a one-off sub-agent.",
-            },
-            "model": {
-                "type": "string",
-                "description": 'Optional model override: "provider/model", a bare name in the session provider, or "inherit".',
-            },
-            "run_in_background": {
-                "type": "boolean",
-                "description": "Run this one-off sub-agent in the background; its answer arrives in your inbox when it finishes.",
-            },
-            "isolation": {
-                "type": "string",
-                "enum": ["worktree"],
-                "description": "Run the agent on an isolated copy of the repository in a temporary git worktree, so its edits "
-                "never touch the checked-out directory. The worktree is removed when the agent left nothing behind, and "
-                "kept, with its path reported, when it left work in it.",
-            },
-        },
-        "required": ["prompt"],
-        "additionalProperties": False,
-    },
+    parameters=AGENT_PARAMETERS,
 )
 async def create_agent(context, team, agent, input: dict, tool_use_id: str = "") -> str:
     prompt = input.get("prompt", "")
@@ -164,7 +173,7 @@ async def _wait_for_agent(team, agent_id: str, sub, seconds: float) -> None:
 
 
 @tool(
-    name="TaskOutput",
+    name=ToolName.TASK_OUTPUT,
     description="""Read what a background task has produced: a background shell command's output, or a sub-agent's answer.
 Waits for the task by default, so a timeout report means it is still running rather than that it failed.""",
     parameters={
@@ -191,7 +200,7 @@ async def task_output(context, team, agent, input: dict, tool_use_id: str = "") 
     agent_id = target if "@" in target else team.agent_id(target)
     sub = team.roster.agents.get(agent_id)
     if sub is None:
-        host = team.host_tasks
+        host = team.background_tasks
         if host is None or not host.has(target):
             return None
         return host.read(target, block=input.get("block") is not False, timeout_ms=_wait_ms(input.get("timeout")))
@@ -218,7 +227,7 @@ async def task_output(context, team, agent, input: dict, tool_use_id: str = "") 
 
 
 @tool(
-    name="TaskStop",
+    name=ToolName.TASK_STOP,
     description="Permanently stop a background task or one of your own sub-agents, by its task id.",
     parameters={
         "type": "object",
@@ -233,7 +242,7 @@ async def task_stop(context, team, agent, input: dict, tool_use_id: str = "") ->
         return "Error: TaskStop needs a task_id"
     agent_id = target if "@" in target else team.agent_id(target)
     if agent_id not in team.roster.agents:
-        host = team.host_tasks
+        host = team.background_tasks
         if host is not None and host.has(target):
             return host.stop(target)
         return None
@@ -255,4 +264,4 @@ def tools(team) -> list[Tool]:
     unconditionally, and a session that started a command in the background
     must be able to read it.
     """
-    return [create_agent.with_description(_described(team)), task_output, task_stop]
+    return [create_agent.with_parameters(_agent_parameters(team)).with_description(_described(team)), task_output, task_stop]

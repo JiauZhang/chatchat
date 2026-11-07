@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from chatchat.tools.names import ToolName
 from chatchat.tool import Tool, no_arguments, tool
 
 
 @tool(
-    name="TeamCreate",
+    name=ToolName.TEAM_CREATE,
     description="""Gather the work under one named team. The team and its task list are the same thing:
 every task you create from now on belongs to it, and so does every teammate you spawn.
 Call it once, before the work is divided.""",
@@ -34,7 +35,7 @@ async def team_create(context, team, agent, input: dict, tool_use_id: str = "") 
 
 
 @tool(
-    name="TeamDelete",
+    name=ToolName.TEAM_DELETE,
     description="""Throw away the current team and its task list once the work is done.
 It refuses while a teammate is still running, so stop them first with TaskStop.""",
     parameters=no_arguments(),

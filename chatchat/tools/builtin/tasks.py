@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from chatchat.hooks.output import describe_blocking
-from chatchat.tasks.tasks import TASK_STATUSES
+from chatchat.tasks.enums import TaskAction, TaskStatus
+from chatchat.tools.names import ToolName
 from chatchat.tool import Tool, no_arguments, tool
 
 
@@ -11,7 +12,7 @@ def _open_blockers(tasks, task) -> list[str]:
 
 
 @tool(
-    name="TaskCreate",
+    name=ToolName.TASK_CREATE,
     description="""Create a new task in the shared task list, so the work is tracked and claimable.
 Use it for anything with more than one step, and check TaskList first so work is not duplicated.
 New tasks are created with status "pending" and no owner: use TaskUpdate with owner to assign one.""",
@@ -57,7 +58,7 @@ async def task_create(context, team, agent, input: dict, tool_use_id: str = "") 
 
 
 @tool(
-    name="TaskList",
+    name=ToolName.TASK_LIST,
     description="List every task in the shared list with its status, owner and open blockers, so work is not duplicated.",
     parameters=no_arguments(),
 )
@@ -77,7 +78,7 @@ async def task_list(context, team, agent, input: dict, tool_use_id: str = "") ->
 
 
 @tool(
-    name="TaskGet",
+    name=ToolName.TASK_GET,
     description="Read one task in full, including its description and the dependencies in both directions.",
     parameters={
         "type": "object",
@@ -101,7 +102,7 @@ async def task_get(context, team, agent, input: dict, tool_use_id: str = "") -> 
 
 
 @tool(
-    name="TaskUpdate",
+    name=ToolName.TASK_UPDATE,
     description="""Change a task: move it through pending, in_progress and completed, hand it to an owner,
 or link it with addBlocks / addBlockedBy. status "deleted" removes it.
 Mark a task in_progress before starting it, and completed only when the work is fully done.""",
@@ -117,7 +118,7 @@ Mark a task in_progress before starting it, and completed only when the work is 
             },
             "status": {
                 "type": "string",
-                "enum": ["pending", "in_progress", "completed", "deleted"],
+                "enum": list(TaskAction.values()),
                 "description": "New status for the task.",
             },
             "owner": {"type": "string", "description": "Agent name to assign the task to."},
@@ -145,7 +146,7 @@ async def task_update(context, team, agent, input: dict, tool_use_id: str = "") 
     task_id = input.get("taskId")
     if not task_id:
         return "Error: TaskUpdate needs a taskId"
-    if input.get("status") == "deleted":
+    if input.get("status") == TaskAction.DELETED:
         return f"Task #{task_id} deleted" if team.tasks.delete(task_id) else "Error: task not found"
     fields = {
         key: input[key] for key in ("subject", "description", "status", "owner", "metadata") if input.get(key) is not None
@@ -153,8 +154,11 @@ async def task_update(context, team, agent, input: dict, tool_use_id: str = "") 
     if input.get("activeForm") is not None:
         fields["active_form"] = input["activeForm"]
     status = fields.get("status")
-    if status is not None and status not in TASK_STATUSES:
-        return f'Error: status must be one of {", ".join(TASK_STATUSES)}, or "deleted" to remove the task'
+    if status is not None:
+        try:
+            TaskStatus(status)
+        except ValueError:
+            return f'Error: status must be one of {", ".join(TaskStatus.values())}, or "deleted" to remove the task'
     parts = [f"{key} -> {value}" if key == "status" else key for key, value in fields.items()]
     for key, forward in (("addBlocks", True), ("addBlockedBy", False)):
         wanted = input.get(key) or []
@@ -168,7 +172,7 @@ async def task_update(context, team, agent, input: dict, tool_use_id: str = "") 
             parts.append(key)
     if not parts:
         return "Error: TaskUpdate was given nothing to change"
-    if fields.get("status") == "completed" and agent is not None and not agent._internal:
+    if fields.get("status") == TaskStatus.COMPLETED and agent is not None and not agent._internal:
         task = team.tasks.get(task_id)
         if task is not None:
             done = await team.hooks.execute_task_completed_hooks(agent, str(task.id), task.subject, task.description)

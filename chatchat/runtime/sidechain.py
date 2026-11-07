@@ -5,6 +5,8 @@ import time
 import uuid
 from pathlib import Path
 
+from chatchat.runtime.enums import SidechainStatus
+
 
 class SidechainWriter:
     def __init__(self, directory, name: str, team_name: str, subagent_type: str, prompt: str):
@@ -17,7 +19,7 @@ class SidechainWriter:
         self._started = time.time()
         self._subagent_type = subagent_type
         self._prompt = prompt
-        self._write_meta("running")
+        self._write_meta(SidechainStatus.RUNNING)
 
     def append(self, message: dict):
         record = dict(message)
@@ -30,16 +32,17 @@ class SidechainWriter:
             handle.write(json.dumps(record, ensure_ascii=False) + "\n")
         self._parent_uuid = record["uuid"]
 
-    def finish(self, status: str):
+    def finish(self, status: SidechainStatus | str):
         self._write_meta(status)
 
-    def _write_meta(self, status: str):
+    def _write_meta(self, status: SidechainStatus | str):
+        status = SidechainStatus(status)
         self.directory.mkdir(parents=True, exist_ok=True)
         meta = {
             "agentId": self.agent_id,
             "subagentType": self._subagent_type,
             "prompt": self._prompt,
-            "status": status,
+            "status": status.value,
             "startedAt": self._started,
             "finishedAt": time.time(),
         }

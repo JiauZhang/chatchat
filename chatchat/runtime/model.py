@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from chatchat.client import Client
 from chatchat.runtime.thinking import Thinking
-from chatchat.team.standing import with_standing
+from chatchat.runtime.standing import with_standing
 
 
 class ModelChoice:

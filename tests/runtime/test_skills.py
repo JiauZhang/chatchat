@@ -1,7 +1,6 @@
 """Skills are discovered as markdown with a frontmatter block, and the body is
 only read when the skill is used, so the listing has to fit a budget."""
 
-from chatchat.runtime.agent import is_attachment_message
 from chatchat.runtime.skills import SkillRegistry
 from chatchat.runtime.skills import Skill
 import asyncio
@@ -325,13 +324,3 @@ def test_the_skill_listing_rides_a_marked_attachment_message(tmp_path):
     assert listing[0]["role"] == "user"
     assert "<system-reminder>" in listing[0]["content"]
     assert "- notes:" in listing[0]["content"]
-
-
-def test_is_attachment_message_judges_only_marked_user_messages():
-    assert is_attachment_message({"role": "user", "content": "hi"}) is False
-    assert is_attachment_message({"role": "assistant", "content": "hi"}) is False
-    assert is_attachment_message({"role": "user", "content": [{"type": "tool_result"}]}) is False
-    assert (
-        is_attachment_message({"role": "user", "content": "<system-reminder>x</system-reminder>", "attachment": True}) is True
-    )
-    assert is_attachment_message(None) is False

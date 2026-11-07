@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from chatchat.team.agents import resolve_agent_model
+from chatchat.runtime.agent_definition import resolve_agent_model
+from chatchat.tools.names import ToolName
 from chatchat.tool import Tool, tool
 
 
 @tool(
-    name="Skill",
+    name=ToolName.SKILL,
     description="""Load the full instructions of one skill when the task at hand is one it covers; the steps come from this call.
 The available skills are listed in system-reminder messages in the conversation, so a skill the user added mid-session,
 or one that just activated on a touched file, shows up there.""",

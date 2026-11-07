@@ -1,7 +1,7 @@
 import asyncio
 
-from chatchat.team.inbox_poller import InboxPoller
-from chatchat.team.mailbox import FileMailbox
+from chatchat.runtime.inbox_poller import InboxPoller
+from chatchat.runtime.mailbox import FileMailbox
 from chatchat.team.team import Team
 from chatchat.client import MockClient
 

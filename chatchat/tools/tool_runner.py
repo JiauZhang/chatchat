@@ -2,7 +2,7 @@ import time
 from pathlib import Path
 
 from chatchat.runtime.agent import Agent
-from chatchat.team.rules import note as _rule_note
+from chatchat.runtime.rules import note as _rule_note
 from chatchat.hooks.events import AGENT_TOOL_RESULT, emit
 from chatchat.tool import ToolOutcome, ToolResult
 
@@ -151,8 +151,10 @@ class ToolRunnerMixin:
         if tool is None:
             return ToolOutcome(f'Error: tool "{name}" is not available to this agent', extra)
         self._activate_conditional_skills(tool, input)
+        context = agent.tool_context if agent is not None else self.tool_context
+        context.agent = agent
         try:
-            out = await tool(agent.tool_context, **input)
+            out = await tool(context, **input)
         except Exception as e:
             noted()
             return ToolOutcome(

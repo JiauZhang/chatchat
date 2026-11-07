@@ -5,7 +5,7 @@ the model touches a file they cover, and then arrive once."""
 import asyncio
 from pathlib import Path
 
-from chatchat.team.rules import RuleSet, matches, note
+from chatchat.runtime.rules import RuleSet, matches, note
 from chatchat.tool import Tool, ToolContext
 from helpers import mock_team
 

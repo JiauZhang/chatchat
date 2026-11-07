@@ -5,9 +5,9 @@ import json
 from chatchat.client import MockClient, ToolUse
 from chatchat.tools.builtin import messaging as _messaging
 from chatchat.tools.builtin import subagents as _subagents
-from chatchat.team.agents import AgentDefinition
-from chatchat.team.inbox_poller import InboxPoller
-from chatchat.team.mailbox import Mailbox
+from chatchat.runtime.agent_definition import AgentDefinition
+from chatchat.runtime.inbox_poller import InboxPoller
+from chatchat.runtime.mailbox import Mailbox
 from chatchat.hooks.events import (
     AGENT_PROGRESS,
     AGENT_STATE,

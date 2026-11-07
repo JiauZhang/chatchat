@@ -1,8 +1,8 @@
 import asyncio
 import json
 
-from chatchat.tasks.tasks import Claim, TaskItem, TaskList
-from chatchat.team.team import LEAD_NAME
+from chatchat.tasks.task_list import Claim, Task, TaskList
+from chatchat.runtime.runtime import LEAD_NAME
 from helpers import mock_team
 
 
@@ -152,7 +152,7 @@ def test_the_task_file_is_the_only_state(tmp_path):
 
     assert record["subject"] == "from json"
     assert record["metadata"] == {"kind": "test"}
-    assert TaskItem.from_dict(record).metadata == {"kind": "test"}
+    assert Task.from_dict(record).metadata == {"kind": "test"}
 
 
 def _run(calls, tmp_path, *, with_names=False, tasks=True):

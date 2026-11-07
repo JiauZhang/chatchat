@@ -3,7 +3,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-from chatchat.tasks.tasks import TaskList
+from chatchat.tasks.task_list import TaskList
 
 
 class Courier:

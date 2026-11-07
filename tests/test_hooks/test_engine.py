@@ -4,10 +4,11 @@ import time
 import pytest
 
 from chatchat.client import MockClient, ToolUse
-from chatchat.team.agents import AgentDefinition
+from chatchat.runtime.agent_definition import AgentDefinition
 from chatchat.tools.builtin.messaging import send_message
 from chatchat.hooks.events import AGENT_WARN, register_runtime_handler
-from chatchat.team.team import LEAD_NAME, Team
+from chatchat.runtime.runtime import LEAD_NAME
+from chatchat.team.team import Team
 from chatchat.tool import Tool
 from pathlib import Path
 from chatchat.tool import ToolContext, tool

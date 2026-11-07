@@ -100,7 +100,7 @@ class SkillRegistry:
     listing_version: int = 0
 
     @classmethod
-    def discover(cls, cwd, home, subdir: str = ".pyclaw") -> "SkillRegistry":
+    def discover(cls, cwd, home, subdir: str) -> "SkillRegistry":
         return cls.load([(Path(cwd) / subdir / "skills", "project"), (Path(home) / "skills", "user")])
 
     @classmethod

@@ -6,15 +6,17 @@ import logging
 from chatchat.client import Usage
 from chatchat.runtime.abort import Abort, AbortSignal
 from chatchat.runtime.context import spawn_task
-from chatchat.team.inbox_poller import InboxPoller
-from chatchat.team.mailbox import Mailbox, parse_protocol, shutdown_approved
+from chatchat.runtime.inbox_poller import InboxPoller
+from chatchat.runtime.mailbox import Mailbox, parse_protocol, shutdown_approved
 from chatchat.runtime.metrics import Metrics
 from chatchat.runtime.model_caller import ModelCaller
 from chatchat.runtime.pending import PendingWork
 from chatchat.runtime.turn import Turn, _Blocked, blocked_text
 from chatchat.runtime.skills import listing_budget
-from chatchat.tasks.task import Task, generate_task_id
-from chatchat.tasks.tasks import work_prompt
+from chatchat.runtime.enums import IdleReason, MessageType
+from chatchat.tasks.enums import TaskRunStatus, TaskRunType, TaskStatus
+from chatchat.tasks.task_run import TaskRun, generate_task_id
+from chatchat.tasks.task_list import work_prompt
 from chatchat.hooks.output import describe_blocking
 from chatchat.runtime.tool_runner import ToolRunner
 from chatchat.tool import describe_tools
@@ -79,7 +81,7 @@ class Agent:
         self.poller = InboxPoller(
             self.inbox,
             self._queue,
-            handlers={"shutdown_request": self._on_shutdown_request},
+            handlers={MessageType.SHUTDOWN_REQUEST: self._on_shutdown_request},
             on_enqueue=self._bump_pending,
             task_feed=None if internal or ctx.leader else self._next_task,
         )
@@ -92,7 +94,7 @@ class Agent:
         self.work_abort = AbortSignal()
         self._in_tool: str | None = None
         self.on_message = on_message
-        self.task: Task | None = None
+        self.task: TaskRun | None = None
         self.caller = ModelCaller(self._client, timeout=model_timeout, retries=model_retries, agent_name=name)
         self.tools_runner = ToolRunner(execute=self._run_tool, agent_name=name)
 
@@ -126,13 +128,12 @@ class Agent:
             return
         self.poller.start()
         if self.task is None:
-            self.task = Task(
-                id=generate_task_id("in_process_teammate"),
-                type="in_process_teammate",
+            self.task = TaskRun(
+                id=generate_task_id(TaskRunType.IN_PROCESS_TEAMMATE),
+                type=TaskRunType.IN_PROCESS_TEAMMATE,
                 agent_id=self.agent_id,
-                abort=self.ctx.abort,
+                status=TaskRunStatus.RUNNING,
             )
-            self.task.status = "running"
         self._loop_task = spawn_task(self.ctx, self._run(), name=self.agent_id)
 
     def abort_work(self):
@@ -143,11 +144,11 @@ class Agent:
             self.work_abort.abort()
         self.submit(text)
 
-    def _finalize(self, status: str):
+    def _finalize(self, status: TaskRunStatus):
         if self.task is not None:
             self.task.set_terminal(status)
 
-    async def stop(self, *, status: str = "killed"):
+    async def stop(self, *, status: TaskRunStatus = TaskRunStatus.KILLED):
         self._stop.set()
         self.ctx.abort.abort()
         self.work_abort.abort()
@@ -258,16 +259,16 @@ class Agent:
                 break
             self.busy = True
             self._emit_state()
-            reason = "available"
+            reason = IdleReason.AVAILABLE
             error = ""
             try:
                 await self._full_turn(block)
             except Abort:
-                reason = "interrupted"
+                reason = IdleReason.INTERRUPTED
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                reason = "failed"
+                reason = IdleReason.FAILED
                 error = str(e)
                 logger.exception("agent %s failed a turn: %s", self.name, e)
                 if not self._internal:
@@ -359,7 +360,7 @@ class Agent:
         task = tasks.available()
         if task is None or not tasks.claim(task.id, self.name).ok:
             return None
-        tasks.update(task.id, status="in_progress")
+        tasks.update(task.id, status=TaskStatus.IN_PROGRESS)
         return work_prompt(task)
 
     def _bump_pending(self):
@@ -372,17 +373,3 @@ class Agent:
 
     def _emit_state(self):
         emit("agent.state", agent=self.name, busy=self.busy, queue=self._queue.qsize(), unread=len(self.inbox.unread()))
-
-
-def is_attachment_message(message) -> bool:
-    """Attachment injections (the skill listing, background-task notices) ride
-    the context as user messages — claude-code builds the same sequence,
-    [userMessage, ...attachmentMessages] — but they are system injections, not
-    conversation turns. claude-code renders the initial skill listing as null
-    and keeps invisible attachments out of its message count (CC-724); hosts
-    counting turns apply the same rule through this predicate."""
-    return isinstance(message, dict) and message.get("attachment") is True
-
-
-def tu_todict(tu) -> dict:
-    return {"type": "tool_use", "id": tu.id, "name": tu.name, "input": tu.input}

@@ -2,18 +2,18 @@
 
 import asyncio
 
-from chatchat.team.isolation import Isolation
+from chatchat.runtime.sandbox import Sandbox
 
 
-def test_without_a_provider_there_is_no_isolation():
+def test_without_a_provider_there_is_no_sandbox():
     async def main():
         try:
-            await Isolation().reserve("side", "reader@team")
+            await Sandbox().reserve("side", "reader@team")
         except ValueError as exc:
             return str(exc)
         return ""
 
-    assert "no isolation provider" in asyncio.run(main())
+    assert "sandbox needs a provider" in asyncio.run(main())
 
 
 def test_a_reserved_directory_is_handed_back_to_the_provider():
@@ -27,9 +27,9 @@ def test_a_reserved_directory_is_handed_back_to_the_provider():
         return f"kept {path}"
 
     async def main():
-        isolation = Isolation(start=start, end=end)
-        path = await isolation.reserve("side", "reader@team")
-        return path, await isolation.release("reader@team"), await isolation.release("reader@team")
+        sandbox = Sandbox(start=start, end=end)
+        path = await sandbox.reserve("side", "reader@team")
+        return path, await sandbox.release("reader@team"), await sandbox.release("reader@team")
 
     path, note, again = asyncio.run(main())
     assert path == "/tmp/side"
@@ -43,8 +43,8 @@ def test_a_provider_that_only_starts_leaves_the_directory_alone():
         return f"/tmp/{name}"
 
     async def main():
-        isolation = Isolation(start=start)
-        await isolation.reserve("side", "reader@team")
-        return await isolation.release("reader@team")
+        sandbox = Sandbox(start=start)
+        await sandbox.reserve("side", "reader@team")
+        return await sandbox.release("reader@team")
 
     assert asyncio.run(main()) == ""

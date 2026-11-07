@@ -2,7 +2,7 @@ import asyncio
 
 from chatchat.runtime.abort import AbortSignal
 from chatchat.runtime.context import AgentContext, current_agent, spawn_task
-from chatchat.team.ledger import token_count
+from chatchat.runtime.ledger import token_count
 from chatchat.runtime.tokens import context_estimate
 from helpers import mock_team
 

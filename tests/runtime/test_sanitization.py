@@ -2,8 +2,8 @@
 handling: tool lists split on commas and spaces outside braces, and free text
 entering the model context is stripped of hidden Unicode."""
 
-from chatchat.team.mailbox import Message, format_teammate_batch
-from chatchat.team.rules import split_items
+from chatchat.runtime.mailbox import Message, format_teammate_batch
+from chatchat.runtime.rules import split_items
 from chatchat.runtime.sanitization import sanitize_unicode
 
 
