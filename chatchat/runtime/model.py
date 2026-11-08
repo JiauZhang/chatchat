@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from chatchat.client import Client
+from chatchat.runtime.config import ModelConfig
 from chatchat.runtime.thinking import Thinking
 from chatchat.runtime.standing import with_standing
 
@@ -14,12 +15,25 @@ class ModelChoice:
     hands the lead's back to it when the model changes.
     """
 
-    def __init__(self, *, factory=None, client=None, model=None, thinking=None, client_kw=None):
-        self.factory = factory
+    def __init__(self, *, client_factory=None, client=None, model=None, thinking=None, client_options=None):
+        self.client_factory = client_factory
         self.client = client
         self.model = model
         self.thinking = thinking or Thinking()
-        self.client_kw = dict(client_kw or {})
+        self.client_options = dict(client_options or {})
+
+    @classmethod
+    def from_config(cls, config: ModelConfig) -> "ModelChoice":
+        options = {"http_options": dict(config.http_options)}
+        if config.protocols is not None:
+            options["protocols"] = config.protocols
+        return cls(
+            client_factory=config.client_factory,
+            client=config.client,
+            model=config.name,
+            thinking=config.thinking,
+            client_options=options,
+        )
 
     def client_for(
         self,
@@ -30,15 +44,15 @@ class ModelChoice:
     ) -> Client:
         if standing:
             instruction = with_standing(instruction)
-        if self.factory is not None:
-            return self.factory(instruction, model)
+        if self.client_factory is not None:
+            return self.client_factory(instruction, model)
         if self.client is not None:
             return self.client
         return Client(
             model=model or self.model,
             instruction=instruction,
             thinking=self.thinking if thinking is None else thinking,
-            **self.client_kw,
+            **self.client_options,
         )
 
     def set_model(self, model: str) -> None:

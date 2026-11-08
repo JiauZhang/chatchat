@@ -6,8 +6,8 @@ from chatchat.runtime.skills import Skill
 import asyncio
 from helpers import RecordingProduct, mock_team
 from chatchat.tools.builtin import skills as _skills
-from chatchat.client import MockClient, ToolUse
-from chatchat.team.team import Team
+from chatchat.client import ToolUse
+from chatchat.testing import MockClient
 from chatchat.tool import Tool
 
 
@@ -289,9 +289,9 @@ def test_touching_a_matching_file_lists_the_skill_in_a_system_reminder(tmp_path)
         return "content"
 
     async def main():
-        team = Team(
+        team = mock_team(
             "cond",
-            MockClient(handler=handler),
+            client=MockClient(handler=handler),
             skills=registry,
             tools=[
                 Tool(tool=read, name="Read", description="read a file", read_only=True, get_path=lambda a: a.get("file_path"))

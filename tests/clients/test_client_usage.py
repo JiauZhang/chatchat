@@ -1,4 +1,5 @@
-from chatchat.client import Client, MockClient
+from chatchat.client import Client
+from chatchat.testing import MockClient
 
 
 def _client():

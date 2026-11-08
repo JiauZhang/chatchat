@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 
+from chatchat.runtime.config import ModelConfig, RuntimeConfig
 from chatchat.runtime.thinking import LEVELS, Thinking
 from chatchat.team.team import Team
 
@@ -15,7 +16,10 @@ async def main():
     parser.add_argument("--prompt", default="Ask researcher to introduce DeepSeek in one sentence.")
     args = parser.parse_args()
 
-    team = Team("demo", model=args.model, lead_instruction=LEAD, thinking=Thinking(args.thinking))
+    team = Team(
+        "demo",
+        RuntimeConfig(instruction=LEAD, model=ModelConfig(name=args.model, thinking=Thinking(args.thinking))),
+    )
     team.create_agent("researcher", instruction=ROLE.format(name="researcher"))
 
     print(await team.conversation.query(args.prompt))

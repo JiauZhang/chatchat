@@ -2,6 +2,7 @@ import argparse
 import asyncio
 from pathlib import Path
 
+from chatchat.runtime.config import ModelConfig, RuntimeConfig
 from chatchat.runtime.runtime import Runtime
 from chatchat.runtime.thinking import LEVELS, Thinking
 from chatchat.tool import ToolContext, tool
@@ -52,11 +53,12 @@ async def main():
 
     runtime = Runtime(
         "tools",
-        model=args.model,
-        thinking=Thinking(args.thinking),
-        tools=[get_weather, get_datetime],
-        tool_context=ToolContext(cwd=Path.cwd()),
-        lead_instruction="Use the tools when they answer the question.",
+        RuntimeConfig(
+            instruction="Use the tools when they answer the question.",
+            model=ModelConfig(name=args.model, thinking=Thinking(args.thinking)),
+            tools=[get_weather, get_datetime],
+            tool_context=ToolContext(cwd=Path.cwd()),
+        ),
     )
     print(await runtime.conversation.query(args.prompt))
 

@@ -1,5 +1,6 @@
 import asyncio
 
+from chatchat.runtime.config import ModelConfig, RuntimeConfig
 from chatchat.runtime.thinking import LEVELS, Thinking
 
 from chatchat.team.team import Team
@@ -15,11 +16,15 @@ TEAMMATES = (("researcher", RESEARCHER), ("writer", WRITER))
 async def _run(args):
     team = Team(
         "demo",
-        model=args.params[0],
-        lead_instruction=LEAD,
-        thinking=Thinking(args.thinking),
-        hooks=not args.no_hooks,
-        http_options={"proxy": args.proxy, "timeout": args.timeout},
+        RuntimeConfig(
+            instruction=LEAD,
+            model=ModelConfig(
+                name=args.params[0],
+                thinking=Thinking(args.thinking),
+                http_options={"proxy": args.proxy, "timeout": args.timeout},
+            ),
+            hooks=not args.no_hooks,
+        ),
     )
     for name, instruction in TEAMMATES:
         team.add(name, instruction)

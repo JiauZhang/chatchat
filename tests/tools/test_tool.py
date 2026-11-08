@@ -1,7 +1,6 @@
 import asyncio
 from pathlib import Path
 
-from chatchat.team.team import Team
 from chatchat.tool import DEFAULT_MAX_RESULT_CHARS, Tool, ToolContext, ToolResult, describe_tools
 from helpers import mock_team
 from chatchat.runtime.skills import Skill
@@ -75,7 +74,7 @@ def test_tool_failure_reports_the_real_reason():
         raise ValueError("no such directory")
 
     async def main():
-        team = Team(
+        team = mock_team(
             "t",
             client_factory=lambda inst, model=None: None,
             tool_context=CTX,

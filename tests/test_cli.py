@@ -7,21 +7,22 @@ import sys
 from argparse import Namespace
 
 from chatchat.cli.team import LEAD, _run
-from chatchat.client import load_profile, rate_limits, secret_file
+from chatchat.credentials import get_provider_profile, get_rate_limits, get_secret_file
 from chatchat.cli import config as config_cli
 
 
 class _Recorder:
     built = []
 
-    def __init__(self, name, **kw):
+    def __init__(self, name, config=None, **kw):
+        self.config = config
         self.kw = kw
         self.prompt = None
-        kw.setdefault("members", [])
+        self.members = []
         _Recorder.built.append(self)
 
     def add(self, name, instruction):
-        self.kw["members"].append((name, instruction))
+        self.members.append((name, instruction))
 
     async def query(self, prompt):
         self.prompt = prompt
@@ -48,18 +49,18 @@ def _demo(monkeypatch, **overrides):
 
 def test_the_demo_builds_a_lead_with_two_teammates(monkeypatch):
     team = _demo(monkeypatch)[0]
-    assert team.kw["model"] == "deepseek/chat"
-    assert team.kw["lead_instruction"] == LEAD
-    assert [name for name, _ in team.kw["members"]] == ["researcher", "writer"]
+    assert team.config.model.name == "deepseek/chat"
+    assert team.config.instruction == LEAD
+    assert [name for name, _ in team.members] == ["researcher", "writer"]
     assert team.prompt == "go"
 
 
 def test_the_demo_flags_reach_the_team(monkeypatch):
     team = _demo(monkeypatch, thinking="max", no_hooks=True)[0]
-    setting = team.kw["thinking"]
+    setting = team.config.model.thinking
     assert setting.level == "max"
-    assert team.kw["hooks"] is False
-    assert team.kw["http_options"] == {"proxy": None, "timeout": None}
+    assert team.config.hooks is False
+    assert team.config.model.http_options == {"proxy": None, "timeout": None}
 
 
 def test_the_team_command_is_reachable_from_the_cli():
@@ -176,24 +177,24 @@ class TestRateLimits:
 
     def test_reads_rpm_next_to_each_profile(self, monkeypatch, tmp_path):
         self._write(monkeypatch, tmp_path, {"agnes": {"rpm": 60}, "deepseek": {"rpm": "120"}, "kimi": {}})
-        assert rate_limits() == {"agnes": 60, "deepseek": 120}
+        assert get_rate_limits() == {"agnes": 60, "deepseek": 120}
 
     def test_ignores_non_numeric_and_missing_limits(self, monkeypatch, tmp_path):
         self._write(monkeypatch, tmp_path, {"agnes": {"rpm": "lots"}, "kimi": {"rpm": None}, "other": "not-a-profile"})
-        assert rate_limits() == {}
+        assert get_rate_limits() == {}
 
     def test_missing_or_broken_files_yield_nothing(self, monkeypatch, tmp_path):
         monkeypatch.setenv("CHATCHAT_SECRET_FILE", str(tmp_path / "absent.json"))
-        assert rate_limits() == {}
+        assert get_rate_limits() == {}
         broken = tmp_path / "broken.json"
         broken.write_text("{not json")
         monkeypatch.setenv("CHATCHAT_SECRET_FILE", str(broken))
-        assert rate_limits() == {}
+        assert get_rate_limits() == {}
 
 
 def test_the_secret_file_defaults_to_chatchat_config(monkeypatch):
     monkeypatch.delenv("CHATCHAT_SECRET_FILE", raising=False)
-    assert str(secret_file()) == str(Path("~/.chatchat/config.json").expanduser())
+    assert str(get_secret_file()) == str(Path("~/.chatchat/config.json").expanduser())
 
 
 def test_profiles_live_in_their_own_file_not_chatchat_home(monkeypatch, tmp_path):
@@ -205,7 +206,7 @@ def test_profiles_live_in_their_own_file_not_chatchat_home(monkeypatch, tmp_path
     _home(monkeypatch, tmp_path, "CHATCHAT_HOME", "~/.pyclaw")
     monkeypatch.delenv("CHATCHAT_SECRET_FILE", raising=False)
     try:
-        load_profile("agnes")
+        get_provider_profile("agnes")
         assert False, "chatchat.json under CHATCHAT_HOME must be ignored"
     except RuntimeError as e:
         assert "base_url" in str(e) or "agnes" in str(e)

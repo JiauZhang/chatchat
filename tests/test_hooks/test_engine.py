@@ -3,12 +3,12 @@ import time
 
 import pytest
 
-from chatchat.client import MockClient, ToolUse
+from chatchat.client import ToolUse
+from chatchat.testing import MockClient
 from chatchat.runtime.agent_definition import AgentDefinition
 from chatchat.tools.builtin.messaging import send_message
 from chatchat.hooks.events import AGENT_WARN, register_runtime_handler
 from chatchat.runtime.runtime import LEAD_NAME
-from chatchat.team.team import Team
 from chatchat.tool import Tool
 from pathlib import Path
 from chatchat.tool import ToolContext, tool
@@ -19,7 +19,7 @@ from chatchat.hooks import events
 @pytest.fixture
 def team():
     def make(handler=None, hooks=True):
-        return Team("demo", MockClient(handler=handler), hooks=hooks)
+        return mock_team("demo", handler=handler, hooks=hooks)
 
     return make
 
@@ -321,7 +321,7 @@ def test_a_notification_hook_sees_the_message_text(tmp_path):
     seen = []
 
     async def main():
-        t = Team("notify", MockClient(), mailbox_dir=tmp_path)
+        t = mock_team("notify", client=MockClient(), mailbox_dir=tmp_path)
         t.create_agent("worker")
         t.hooks.on("Notification", fn=_watch(seen))
         await send_message(None, team=t, agent=t.lead, input={"to": "worker", "message": "start now"})
@@ -391,9 +391,9 @@ def test_post_tool_context_reaches_the_model_on_success_and_failure(team):
         raise RuntimeError("disk gone")
 
     async def main():
-        t = Team(
+        t = mock_team(
             "post",
-            MockClient(),
+            client=MockClient(),
             tools=[Tool(tool=ok, name="Ok", description="ok"), Tool(tool=boom, name="Boom", description="boom")],
         )
         t.hooks.on("PostToolUse", fn=lambda inp: _output("PostToolUse", additionalContext="tell the user"))
@@ -724,7 +724,7 @@ def test_a_matcher_is_compared_against_the_field_its_event_matches_on():
 
     async def main():
         seen = []
-        t = Team("demo", MockClient())
+        t = mock_team("demo", client=MockClient())
         t.hooks.register("PostToolUse", "Bash", fn=lambda inp: seen.append(inp["tool_name"]) or True)
         await t.hooks.execute_post_tool_hooks(t.lead, "t1", "Bash", {}, "ok")
         await t.hooks.execute_post_tool_hooks(t.lead, "t2", "Read", {}, "ok")
@@ -739,7 +739,7 @@ def test_a_failure_matches_on_the_error_it_carries():
 
     async def main():
         seen = []
-        t = Team("demo", MockClient())
+        t = mock_team("demo", client=MockClient())
         t.hooks.register("StopFailure", "boom", fn=lambda inp: seen.append(inp["error"]) or True)
         await t.hooks.execute_stop_failure_hooks(t.lead, RuntimeError("boom"))
         await t.hooks.execute_stop_failure_hooks(t.lead, RuntimeError("other"))
@@ -754,7 +754,7 @@ def test_a_file_matcher_names_the_file_and_not_its_directory():
 
     async def main():
         seen = []
-        t = Team("demo", MockClient())
+        t = mock_team("demo", client=MockClient())
         t.hooks.register("FileChanged", "notes.md", fn=lambda inp: seen.append(inp["file_path"]) or True)
         await t.hooks.execute_file_changed_hooks(t.lead, "/project/docs/notes.md")
         await t.hooks.execute_file_changed_hooks(t.lead, "/project/docs/other.md")

@@ -1,6 +1,6 @@
 import json
 
-from chatchat.client import secret_file
+from chatchat.credentials import get_secret_file
 
 TYPES = ("openai", "anthropic")
 WRITE_FIELDS = ("api_key", "base_url", "type", "rpm")
@@ -30,7 +30,7 @@ def _read(path):
 
 
 def show_config():
-    path = secret_file()
+    path = get_secret_file()
     data = _read(path) or {}
     print(f"config file: {path}")
     if path.exists() and (path.stat().st_mode & 0o077):
@@ -69,7 +69,7 @@ def _apply(args):
             print("--rpm must be a positive integer")
             return 1
         updates["rpm"] = args.rpm
-    path = secret_file()
+    path = get_secret_file()
     data = _read(path)
     if data is None:
         return 1

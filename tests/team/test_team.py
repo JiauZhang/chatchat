@@ -2,7 +2,8 @@ import asyncio
 import inspect
 import json
 
-from chatchat.client import MockClient, ToolUse
+from chatchat.client import ToolUse
+from chatchat.testing import MockClient
 from chatchat.tools.builtin import messaging as _messaging
 from chatchat.tools.builtin import subagents as _subagents
 from chatchat.runtime.agent_definition import AgentDefinition
@@ -16,7 +17,6 @@ from chatchat.hooks.events import (
     AGENT_WARN,
     register_runtime_handler,
 )
-from chatchat.team.team import Team
 from chatchat.tool import Tool, ToolResult, tool as ctool
 from helpers import mock_runtime, mock_team
 from chatchat.runtime.skills import Skill
@@ -26,7 +26,7 @@ RESEARCHER = "你是 researcher。收到任务后用 SendMessage 回研究结论
 
 
 def _multi_team(name, handler=None):
-    return mock_team(name, handler, lead_instruction=LEAD)
+    return mock_team(name, handler, instruction=LEAD)
 
 
 def _events():
@@ -63,7 +63,7 @@ def make_team():
             return MockClient(handler=researcher_respond)
         return MockClient(handler=lead_respond)
 
-    return Team("demo", client_factory=factory, lead_instruction=LEAD)
+    return mock_team("demo", client_factory=factory, instruction=LEAD)
 
 
 def test_team_send_message_flow_and_tool_event():
@@ -136,7 +136,7 @@ def test_report_surfaces_when_lead_never_writes_text():
         return MockClient(handler=lead_respond if instruction == LEAD_INST else sub_respond)
 
     async def main():
-        team = Team("rep", client_factory=factory, lead_instruction=LEAD_INST)
+        team = mock_team("rep", client_factory=factory, instruction=LEAD_INST)
         return await team.conversation.query("给我一份 deepseek 报告", timeout=15)
 
     ans = asyncio.run(main())
@@ -303,7 +303,7 @@ def test_subagent_model_resolution_param_over_def_over_inherit():
         return MockClient(handler=lambda messages, tools=None: "ok")
 
     async def main():
-        team = Team("mr", client_factory=factory, model="agnes/agnes-2.5-flash")
+        team = mock_team("mr", client_factory=factory, model="agnes/agnes-2.5-flash")
         team.register_agent_definition(AgentDefinition("reader", system_prompt="read stuff", model="def-model"))
         await team.spawn_subagent("go", subagent_type="reader")
         await team.spawn_subagent("go", subagent_type="reader", model="param-model")
@@ -321,7 +321,7 @@ def test_create_agent_tool_passes_model_and_schema_exposes_it():
         return MockClient(handler=lambda messages, tools=None: "ok")
 
     async def main():
-        team = Team("cm", client_factory=factory, model="agnes/agnes-2.5-flash")
+        team = mock_team("cm", client_factory=factory, model="agnes/agnes-2.5-flash")
         out = await team.execute_tool("Agent", {"prompt": "x", "model": "m2"}, team.lead, "t1")
         schema = team.tool_schemas(team.tool_context)[0]["input_schema"]["properties"]
         return out, schema
@@ -497,7 +497,7 @@ def test_execute_tool_forwards_a_toolresult_meta_into_the_result_event():
         team = mock_team(
             "demo",
             lambda m, t=None, stream_cb=None: "ok",
-            lead_instruction=LEAD,
+            instruction=LEAD,
             tools=[Tool(tool=greppy, name="Grep", description="grep")],
         )
         return await team.execute_tool("Grep", {"file_path": "a.py"}, team.lead, "t1")
@@ -521,7 +521,7 @@ def test_execute_tool_of_a_plain_str_result_emits_no_meta_event():
         team = mock_team(
             "demo",
             lambda m, t=None, stream_cb=None: None,
-            lead_instruction=LEAD,
+            instruction=LEAD,
             tools=[Tool(tool=plain, name="Plain", description="plain")],
         )
         return await team.execute_tool("Plain", {}, team.lead, "t9")
@@ -535,7 +535,7 @@ def test_create_agent_carries_tool_use_id_on_progress():
     events = _events()
 
     async def main():
-        team = mock_team("demo", lambda m, t=None, stream_cb=None: "sub answer", lead_instruction=LEAD)
+        team = mock_team("demo", lambda m, t=None, stream_cb=None: "sub answer", instruction=LEAD)
         return await team.execute_tool("Agent", {"prompt": "go"}, team.lead, "tu-1")
 
     out = asyncio.run(main())
@@ -551,7 +551,7 @@ def test_agent_state_reports_busy_when_a_teammate_starts_a_turn():
     events = _events()
 
     async def main():
-        team = mock_team("demo", lambda m, t=None, stream_cb=None: "done", lead_instruction=LEAD)
+        team = mock_team("demo", lambda m, t=None, stream_cb=None: "done", instruction=LEAD)
         worker = team.create_agent("worker", instruction="w", depth=1)
         worker.submit("start")
         await worker.wait_idle()
@@ -772,7 +772,7 @@ def test_max_turns_stops_a_runaway_subagent():
         return MockClient(handler=lambda messages, tools=None: [ToolUse("Wait", {}, f"t{len(seen)}")])
 
     async def main():
-        team = Team("mt", client_factory=factory, model="agnes/agnes-2.5-flash")
+        team = mock_team("mt", client_factory=factory, model="agnes/agnes-2.5-flash")
         original = team.execute_tool
 
         async def counting(name, input, agent, tool_use_id=""):
@@ -791,7 +791,7 @@ def test_max_turns_stops_a_runaway_subagent():
 def test_a_preloaded_skill_arrives_in_the_subagent_context():
 
     async def main():
-        team = Team("preload", MockClient(handler=lambda messages, tools=None: "ok"))
+        team = mock_team("preload", client=MockClient(handler=lambda messages, tools=None: "ok"))
         team.skills.register(Skill(name="rules", description="the rules", body_text="follow the rules"))
         team.register_agent_definition(AgentDefinition("reader", system_prompt="read", skills=("rules",)))
         agent, _writer, _defn = await team._start_subagent("go", "reader", "", None, 0, None, "")
@@ -809,7 +809,7 @@ def test_a_hook_allow_reaches_the_permission_gate_as_preauthorization():
         return MockClient(handler=lambda messages, tools=None: "ok")
 
     async def main():
-        team = Team("hookallow", client_factory=factory, model="agnes/agnes-2.5-flash")
+        team = mock_team("hookallow", client_factory=factory, model="agnes/agnes-2.5-flash")
 
         async def gate(hook_input):
             seen["hook_allowed"] = hook_input["hook_allowed"]
@@ -836,7 +836,7 @@ def test_a_hook_updated_input_reaches_the_permission_gate():
         return MockClient(handler=lambda messages, tools=None: "ok")
 
     async def main():
-        team = Team("hookinput", client_factory=factory, model="agnes/agnes-2.5-flash")
+        team = mock_team("hookinput", client_factory=factory, model="agnes/agnes-2.5-flash")
 
         async def gate(hook_input):
             seen["command"] = hook_input["tool_input"]["command"]
@@ -866,7 +866,7 @@ def test_a_hook_ask_reaches_the_permission_gate_with_the_reason_it_gave():
         return MockClient(handler=lambda messages, tools=None: "ok")
 
     async def main():
-        team = Team("hookask", client_factory=factory, model="agnes/agnes-2.5-flash")
+        team = mock_team("hookask", client_factory=factory, model="agnes/agnes-2.5-flash")
 
         async def gate(hook_input):
             seen.update(hook_ask=hook_input["hook_ask"], hook_reason=hook_input["hook_reason"])
@@ -897,7 +897,7 @@ def test_a_denial_keeps_the_context_the_gate_answered_with():
         return MockClient(handler=lambda messages, tools=None: "ok")
 
     async def main():
-        team = Team("hookretry", client_factory=factory, model="agnes/agnes-2.5-flash")
+        team = mock_team("hookretry", client_factory=factory, model="agnes/agnes-2.5-flash")
 
         async def gate(hook_input):
             return {
@@ -928,7 +928,7 @@ def test_a_session_start_hook_may_give_the_session_its_first_turn():
         return "ok"
 
     async def main():
-        team = Team("firstturn", MockClient(handler=handler))
+        team = mock_team("firstturn", client=MockClient(handler=handler))
         team.hooks.register(
             "SessionStart",
             "*",
@@ -954,7 +954,7 @@ def test_a_prompt_of_its_own_wins_over_the_one_a_hook_offered():
         return "ok"
 
     async def main():
-        team = Team("ownturn", MockClient(handler=handler))
+        team = mock_team("ownturn", client=MockClient(handler=handler))
         team.hooks.register(
             "SessionStart",
             "*",
@@ -972,7 +972,7 @@ def test_opening_a_session_twice_runs_its_hooks_once():
     seen = []
 
     async def main():
-        team = Team("onceonly", MockClient(handler=lambda messages, tools=None: "ok"))
+        team = mock_team("onceonly", client=MockClient(handler=lambda messages, tools=None: "ok"))
         team.hooks.register("SessionStart", "*", fn=lambda inp: seen.append(inp["source"]) or True)
         await team.conversation.open_session()
         await team.conversation.open_session()

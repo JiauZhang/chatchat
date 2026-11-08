@@ -1,12 +1,12 @@
 import asyncio
 
-from chatchat.client import MockClient, ToolUse
-from chatchat.team.team import Team
+from chatchat.client import ToolUse
+from helpers import mock_team
 
 
 def _team(handler):
     """A team, built where it can be built: inside a running loop."""
-    return Team("demo", MockClient(handler=handler))
+    return mock_team("demo", handler=handler)
 
 
 def test_a_turn_is_what_the_model_said():

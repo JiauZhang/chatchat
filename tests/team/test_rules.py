@@ -122,7 +122,7 @@ def _run(tmp_path, tool, file_path, twice=False):
         team = mock_team(
             "demo",
             lambda m, t=None, stream_cb=None: "ok",
-            lead_instruction=LEAD,
+            instruction=LEAD,
             tools=[tool],
             rules=rules,
             tool_context=ToolContext(cwd=Path(tmp_path)),
@@ -141,7 +141,7 @@ def test_compaction_rearms_the_rules_so_they_arrive_again(tmp_path):
         team = mock_team(
             "demo",
             lambda m, t=None, stream_cb=None: "ok",
-            lead_instruction=LEAD,
+            instruction=LEAD,
             rules=rules,
             tool_context=ToolContext(cwd=Path(tmp_path)),
         )

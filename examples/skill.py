@@ -2,6 +2,7 @@ import argparse
 import asyncio
 from pathlib import Path
 
+from chatchat.runtime.config import ModelConfig, RuntimeConfig
 from chatchat.runtime.runtime import Runtime
 from chatchat.runtime.skills import SkillRegistry
 from chatchat.runtime.thinking import LEVELS, Thinking
@@ -41,10 +42,11 @@ async def main():
         return
     runtime = Runtime(
         "skill",
-        model=args.model,
-        lead_instruction="Use the notes skill when the material looks like meeting notes.",
-        skills=registry,
-        thinking=Thinking(args.thinking),
+        RuntimeConfig(
+            instruction="Use the notes skill when the material looks like meeting notes.",
+            model=ModelConfig(name=args.model, thinking=Thinking(args.thinking)),
+            skills=registry,
+        ),
     )
     print(await runtime.conversation.query(args.prompt))
 

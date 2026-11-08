@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 
+from chatchat.runtime.config import ModelConfig, RuntimeConfig
 from chatchat.runtime.thinking import LEVELS, Thinking
 from chatchat.team.team import Team
 
@@ -34,7 +35,13 @@ async def main():
     parser.add_argument("--prompt", default="Write a short introduction to DeepSeek with pros and cons.")
     args = parser.parse_args()
 
-    team = Team("hooks-demo", model=args.model, hooks=not args.no_hooks, thinking=Thinking(args.thinking))
+    team = Team(
+        "hooks-demo",
+        RuntimeConfig(
+            model=ModelConfig(name=args.model, thinking=Thinking(args.thinking)),
+            hooks=not args.no_hooks,
+        ),
+    )
     on_hooks(team)
     team.create_agent("researcher", "You are researcher: gather facts, verify them and report the findings.")
     team.create_agent("writer", "You are writer: turn the findings into a clean final draft.")

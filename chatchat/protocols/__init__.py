@@ -19,11 +19,12 @@ class Delta:
 
 from chatchat.protocols import anthropic, openai  # noqa: E402
 
-PROTOCOLS = {"openai": openai, "anthropic": anthropic}
+BUILTIN = {"openai": openai, "anthropic": anthropic}
 
 
-def get_protocol(protocol_type):
+def get_protocol(protocol_type, protocols=None):
+    table = BUILTIN if protocols is None else {**BUILTIN, **(protocols or {})}
     try:
-        return PROTOCOLS[protocol_type]
+        return table[protocol_type]
     except KeyError:
-        raise ValueError(f"protocol type must be one of {sorted(PROTOCOLS)}, not {protocol_type!r}") from None
+        raise ValueError(f"protocol type must be one of {sorted(table)}, not {protocol_type!r}") from None

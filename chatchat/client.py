@@ -3,13 +3,10 @@ from __future__ import annotations
 from chatchat.runtime.thinking import Thinking
 from chatchat.runtime import ratelimit
 from chatchat.protocols import Delta, ToolCall, get_protocol  # noqa: F401
+from chatchat.credentials import get_provider_profile
 
-import asyncio
 import json
-import os
 from dataclasses import dataclass, field
-from inspect import signature
-from pathlib import Path
 from typing import Optional
 
 import aiohttp
@@ -95,71 +92,8 @@ def _is_json(s: str) -> bool:
     return True
 
 
-def secret_file() -> Path:
-    return Path(os.environ.get("CHATCHAT_SECRET_FILE", "~/.chatchat/config.json")).expanduser()
-
-
-def _profile_entry(provider: str) -> dict:
-    path = secret_file()
-    if not path.exists():
-        return {}
-    try:
-        data = json.loads(path.read_text())
-    except ValueError:
-        return {}
-    if isinstance(data, dict) and isinstance(data.get(provider), dict):
-        return dict(data[provider])
-    return {}
-
-
-def load_profile(provider: str) -> dict:
-    env = f"CHATCHAT_{provider.upper()}_"
-    entry = _profile_entry(provider)
-    hint = f"请在 config 文件（{secret_file()}）的 {provider} 条目中配置，或用 CHATCHAT_{provider.upper()}_ 环境变量。"
-
-    def missing(field: str) -> RuntimeError:
-        return RuntimeError(f'Provider "{provider}" 未配置 {field}。{hint}')
-
-    protocol_type = (os.environ.get(env + "TYPE") or entry.get("type") or "").strip().lower()
-    if not protocol_type:
-        raise missing("type")
-    if protocol_type not in ("openai", "anthropic"):
-        raise RuntimeError(f'Provider "{provider}" 的 type 必须是 openai 或 anthropic，不是 {protocol_type!r}。')
-    base_url = os.environ.get(env + "BASE_URL") or entry.get("base_url")
-    if not base_url:
-        raise missing("base_url")
-    api_key = os.environ.get(env + "API_KEY") or entry.get("api_key")
-    if not api_key:
-        raise missing("api_key")
-    return {"type": protocol_type, "base_url": base_url, "api_key": api_key}
-
-
-def rate_limits() -> dict:
-    """Per-provider rpm limits, declared next to the profiles that use them."""
-    path = secret_file()
-    if not path.exists():
-        return {}
-    try:
-        data = json.loads(path.read_text())
-    except ValueError:
-        return {}
-    if not isinstance(data, dict):
-        return {}
-    limits = {}
-    for name, entry in data.items():
-        if not isinstance(entry, dict):
-            continue
-        try:
-            rpm = int(entry.get("rpm"))
-        except (TypeError, ValueError):
-            continue
-        if rpm > 0:
-            limits[str(name)] = rpm
-    return limits
-
-
 class Client:
-    def __init__(self, model, instruction=None, http_options={}, thinking: Thinking = Thinking()):
+    def __init__(self, model, instruction=None, http_options=None, thinking: Thinking = Thinking(), protocols=None):
         provider, _, model_name = str(model or "").partition("/")
         if not provider.strip() or not model_name.strip():
             raise RuntimeError(f'model "{model}" is not provider/model')
@@ -167,10 +101,10 @@ class Client:
         self.model = model_name.strip()
         self.instruction = instruction
         self.thinking = thinking
-        profile = load_profile(self.provider)
+        profile = get_provider_profile(self.provider)
         self.base_url = profile["base_url"]
         self.api_key = profile["api_key"]
-        self._protocol = get_protocol(profile["type"])
+        self._protocol = get_protocol(profile["type"], protocols)
         self._headers = self._protocol.headers(self.api_key)
         self._last_response_items = []
         self._last_usage = Usage()
@@ -243,35 +177,3 @@ class Client:
 
     async def complete(self, prompt: str, *, stream_cb=None):
         return await self.respond([{"role": "user", "content": prompt}], stream_cb=stream_cb)
-
-
-class MockClient:
-    def __init__(self, handler=None, thinking: Thinking = Thinking(), name: str = "", usage=None, model: str = None):
-        self._handler = handler
-        self.thinking = thinking
-        self.name = name
-        text = str(model) if model is not None else ""
-        head, sep, tail = text.partition("/")
-        if sep:
-            self.provider, self.model = head, tail
-        else:
-            self.provider, self.model = "", model
-        self._usage = usage
-        self._last_usage = Usage()
-        self._last_response_items = []
-
-    async def respond(self, messages: list[dict], tools: Optional[list[dict]] = None, *, stream_cb=None):
-        self._last_usage = Usage()
-        self._last_response_items = []
-        if self._handler is not None:
-            params = signature(self._handler).parameters
-            out = (
-                self._handler(messages, tools, stream_cb=stream_cb)
-                if ("stream_cb" in params)
-                else self._handler(messages, tools)
-            )
-            out = await out if asyncio.iscoroutine(out) else out
-        else:
-            out = "ok"
-        self._last_usage = Usage.from_dict(self._usage)
-        return out

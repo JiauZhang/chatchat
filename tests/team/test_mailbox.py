@@ -2,8 +2,7 @@ import asyncio
 
 from chatchat.runtime.inbox_poller import InboxPoller
 from chatchat.runtime.mailbox import FileMailbox
-from chatchat.team.team import Team
-from chatchat.client import MockClient
+from helpers import mock_team
 
 
 def test_file_mailbox_persists_across_instances(tmp_path):
@@ -39,7 +38,7 @@ def test_unhandled_protocol_message_is_delivered_not_swallowed():
         return "ok"
 
     async def main():
-        team = Team("p", client_factory=lambda inst, model=None: MockClient(handler=respond))
+        team = mock_team("p", handler=respond)
         lead = team.lead
         lead.inbox.write("peer", '{"type": "idle_notification", "from": "peer"}')
         text = await lead.poller.poll_once()
@@ -61,7 +60,7 @@ def test_handled_protocol_message_is_routed(tmp_path):
 
 def test_team_uses_file_mailboxes_under_dir(tmp_path):
     async def main():
-        team = Team("fm", client_factory=lambda inst, model=None: MockClient(handler=None), mailbox_dir=tmp_path / "teams")
+        team = mock_team("fm", mailbox_dir=tmp_path / "teams")
         return team.lead.inbox
 
     inbox = asyncio.run(main())

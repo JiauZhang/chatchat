@@ -1,7 +1,7 @@
 import asyncio
 
-from chatchat.client import MockClient
-from chatchat.team.team import Team
+from chatchat.testing import MockClient
+from helpers import mock_team
 
 
 def _team():
@@ -10,7 +10,7 @@ def _team():
     The client is made per instruction, the way a host that switches model
     or thinking level gets a new one.
     """
-    return Team("demo", client_factory=lambda instruction, model=None: MockClient(name=instruction))
+    return mock_team("demo", client_factory=lambda instruction, model=None: MockClient(name=instruction))
 
 
 def test_the_client_that_asks_the_model_is_the_one_the_answer_is_read_from():

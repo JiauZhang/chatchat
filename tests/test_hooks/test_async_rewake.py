@@ -1,14 +1,14 @@
 import asyncio
 import time
 
-from chatchat.client import MockClient
-from chatchat.team.team import Team
+from chatchat.testing import MockClient
+from helpers import mock_team
 
 
 async def _team():
     """A team whose lead is not already running: the hook is fired by hand,
     not by a turn ending."""
-    team = Team("demo", MockClient())
+    team = mock_team("demo", client=MockClient())
     await team.lead.stop()
     return team
 

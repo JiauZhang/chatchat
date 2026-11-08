@@ -1,8 +1,8 @@
 import asyncio
 
-from chatchat.client import MockClient
+from chatchat.testing import MockClient
 from chatchat.tasks.task_run import is_terminal_task_status
-from chatchat.team.team import Team
+from helpers import mock_team
 from chatchat.hooks import events as hook_events
 
 
@@ -29,7 +29,7 @@ def test_two_level_abort_stops_only_current_turn():
         return MockClient(handler=responder)
 
     async def main():
-        team = Team("ab", client_factory=factory, lead_instruction=LEAD)
+        team = mock_team("ab", client_factory=factory, instruction=LEAD)
         lead = team.lead
         lead.submit("hi")
         await asyncio.sleep(0.2)
@@ -52,7 +52,7 @@ def test_task_terminal_on_stop():
         return MockClient(handler=lambda m, t=None, **k: "ok")
 
     async def main():
-        team = Team("t", client_factory=factory, lead_instruction=LEAD)
+        team = mock_team("t", client_factory=factory, instruction=LEAD)
         lead = team.lead
         assert lead.task is not None
         assert lead.task.status == "running"
@@ -76,7 +76,7 @@ def test_default_auto_compaction_summarizes_middle():
         return MockClient(handler=respond)
 
     async def main():
-        team = Team("ac", client_factory=factory, lead_instruction=LEAD, context_window=40_001, compact_reserve=40_000)
+        team = mock_team("ac", client_factory=factory, instruction=LEAD, context_window=40_001, compact_reserve=40_000)
         for i in range(14):
             team.lead.messages.append({"role": "user", "content": f"m{i}"})
         team.lead.messages[1]["usage"] = {"prompt_tokens": 5_000, "completion_tokens": 10}
@@ -101,7 +101,7 @@ def test_compaction_announces_what_it_folded_in():
 
     async def main():
 
-        team = Team("ac2", client_factory=factory, lead_instruction=LEAD, context_window=40_001, compact_reserve=40_000)
+        team = mock_team("ac2", client_factory=factory, instruction=LEAD, context_window=40_001, compact_reserve=40_000)
         for i in range(14):
             team.lead.messages.append({"role": "user", "content": f"m{i}"})
         team.lead.messages[1]["usage"] = {"prompt_tokens": 5_000, "completion_tokens": 10}

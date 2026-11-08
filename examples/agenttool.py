@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 
+from chatchat.runtime.config import ModelConfig, RuntimeConfig
 from chatchat.runtime.runtime import Runtime
 from chatchat.runtime.thinking import LEVELS, Thinking
 
@@ -14,7 +15,10 @@ async def main():
     parser.add_argument("--prompt", default="Describe a cat in one sentence.")
     args = parser.parse_args()
 
-    runtime = Runtime("agenttool", model=args.model, lead_instruction=LEAD, thinking=Thinking(args.thinking))
+    runtime = Runtime(
+        "agenttool",
+        RuntimeConfig(instruction=LEAD, model=ModelConfig(name=args.model, thinking=Thinking(args.thinking))),
+    )
     print(await runtime.conversation.query(args.prompt))
 
 

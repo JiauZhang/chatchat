@@ -13,6 +13,7 @@ from chatchat.runtime.agent_definition import (
     AgentRegistry,
 )
 from chatchat.runtime.compaction import Compactor
+from chatchat.runtime.config import RuntimeConfig
 from chatchat.runtime.conversation import Conversation
 from chatchat.runtime.background_tasks import BackgroundTasks
 from chatchat.runtime.enums import CompletionStatus, IdleReason
@@ -38,9 +39,6 @@ from chatchat.hooks.manager import HookManager
 LEAD_NAME = "team-lead"
 
 
-DEFAULT_COMPACT_RESERVE = 40_000
-
-
 class Runtime(SubagentsMixin, ToolRunnerMixin):
     """The execution core: one lead agent, its tools, hooks and conversation.
 
@@ -50,76 +48,50 @@ class Runtime(SubagentsMixin, ToolRunnerMixin):
 
     multi_agent = False
 
-    def __init__(
-        self,
-        name: str,
-        client=None,
-        hooks: bool = True,
-        client_factory=None,
-        lead_instruction: str = "",
-        model_timeout: float = 120.0,
-        model_retries: int = 2,
-        model: str = None,
-        thinking: Thinking | None = None,
-        tools: list = None,
-        tool_context: ToolContext = None,
-        context_window: int = 0,
-        compact_reserve: int = DEFAULT_COMPACT_RESERVE,
-        tasks_dir=None,
-        sidechain_dir=None,
-        file_history_dir=None,
-        skills=None,
-        agent_memory=None,
-        rules=None,
-        services: RuntimeServices | None = None,
-        **client_kw,
-    ):
+    def __init__(self, name: str, config: RuntimeConfig | None = None):
+        config = config or RuntimeConfig()
         self.name = name
         self.lead_session_id = ""
-        self._model_timeout = model_timeout
-        self._model_retries = model_retries
-        self.model_choice = ModelChoice(
-            factory=client_factory,
-            client=client,
-            model=model,
-            thinking=thinking,
-            client_kw=client_kw,
-        )
-        self.tools = ToolSurface(owner=self, injected=tools)
-        self.tool_context = tool_context or ToolContext(cwd=Path.cwd())
+        self._model_timeout = config.model_timeout
+        self._model_retries = config.model_retries
+        self.model_choice = ModelChoice.from_config(config.model)
+        self.tools = ToolSurface(owner=self, injected=config.tools)
+        self.tool_context = config.tool_context or ToolContext(cwd=Path.cwd())
         self.tool_context.team = self
         self.instruction_files: list[dict] = []
-        self.tasks = TaskList(Path(tasks_dir) / name) if tasks_dir else None
-        self._file_history = FileHistory(Path(file_history_dir), cwd=self.tool_context.cwd) if file_history_dir else None
+        self.tasks = TaskList(Path(config.tasks_dir) / name) if config.tasks_dir else None
+        self._file_history = (
+            FileHistory(Path(config.file_history_dir), cwd=self.tool_context.cwd) if config.file_history_dir else None
+        )
         self.tool_context.files = self._file_history
 
-        self.skills = skills or SkillRegistry()
-        self.services = services or RuntimeServices()
+        self.skills = config.skills or SkillRegistry()
+        self.services = config.services or RuntimeServices()
         self.user_input = self.services.user_input
         self.tool_policy = self.services.tool_policy
-        self.agent_memory = agent_memory
-        self.rules = rules
+        self.agent_memory = config.agent_memory
+        self.rules = config.rules
         self.sandbox = self.services.sandbox or Sandbox()
         self.product: TeamProduct | None = None
         self.background_tasks = self.services.background_tasks or BackgroundTasks()
-        self._factory = client_factory
+        self._factory = config.model.client_factory
         self.hooks = HookManager(
             self,
-            enabled=hooks,
+            enabled=config.hooks,
             make_client=self._hook_client,
             spawn_agent=self._hook_agent,
         )
         self.roster = Roster(self.name)
         self._counter = 0
-        self.context_window = int(context_window or 0)
+        self.context_window = int(config.context_window or 0)
         self.compactor = Compactor(
             summarize=self._summarize,
             hooks=self.hooks,
             window=self.context_window,
-            reserve=compact_reserve,
+            reserve=config.compact_reserve,
             on_compacted=self.reset_rules,
         )
-        self.sidechain_dir = sidechain_dir
+        self.sidechain_dir = config.sidechain_dir
         self.agent_defs = AgentRegistry()
         self.agent_defs.define(
             GENERAL_PURPOSE,
@@ -127,7 +99,7 @@ class Runtime(SubagentsMixin, ToolRunnerMixin):
             default=True,
             description="General-purpose agent that inherits the run tools for routine tasks",
         )
-        self.lead = self.create_agent(LEAD_NAME, instruction=lead_instruction, leader=True)
+        self.lead = self.create_agent(LEAD_NAME, instruction=config.instruction, leader=True)
         self.ledger = Ledger(lead=self.lead, members=lambda: self.roster.agents.values())
         self.conversation = Conversation(
             lead=self.lead,
@@ -219,7 +191,7 @@ class Runtime(SubagentsMixin, ToolRunnerMixin):
     def set_instruction_files(self, files: list[dict]):
         self.instruction_files = list(files or [])
 
-    def set_lead_instruction(self, instruction: str):
+    def set_instruction(self, instruction: str):
         lead = self.get_by_name(LEAD_NAME)
         if lead is None:
             return
